@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Attendance admin — brand palette */
+    --color-brand-primary: #003d7a;
+    --color-brand-primary-dark: #002855;
+    --color-brand-primary-light: #0052a2;
+    --color-brand-white: #ffffff;
+    --color-brand-background: #ffffff;
+    --color-brand-card: #ffffff;
+    --color-brand-input: #e5e7eb;
+    --color-brand-text: #000000;
+    --color-brand-text-secondary: #6b7280;
+    --color-brand-label: #003366;
+    --color-brand-link: #2563eb;
+    --color-brand-icon: #9ca3af;
+    --color-brand-border: #e5e7eb;
+}
