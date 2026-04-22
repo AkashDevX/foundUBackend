@@ -1,0 +1,14 @@
+{
+  "name": "@foundu/mobile-auth-reference",
+  "private": true,
+  "description": "Reference TS/React Native modules — copy into your app; not installed from npm",
+  "peerDependencies": {
+    "react": ">=18.2.0",
+    "react-native": ">=0.71.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": false
+    }
+  }
+}

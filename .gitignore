@@ -12,6 +12,7 @@
 /.vscode
 /.zed
 /auth.json
+/mobile/node_modules
 /node_modules
 /public/build
 /public/hot
@@ -19,6 +20,10 @@
 /storage/*.key
 /storage/pail
 /vendor
+
+# Local SQLite (use MySQL for full tenant flows in development)
+/database/*.sqlite
+/database/*.sqlite-journal
 Homestead.json
 Homestead.yaml
 Thumbs.db

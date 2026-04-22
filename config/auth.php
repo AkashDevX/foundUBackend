@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\OrganizationPortalUser;
 use App\Models\User;
 
 return [
@@ -42,6 +43,11 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        'portal' => [
+            'driver' => 'session',
+            'provider' => 'organization_portal_users',
+        ],
     ],
 
     /*
@@ -65,6 +71,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'organization_portal_users' => [
+            'driver' => 'eloquent',
+            'model' => OrganizationPortalUser::class,
         ],
 
         // 'users' => [

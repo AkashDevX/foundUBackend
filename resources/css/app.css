@@ -23,4 +23,6 @@
     --color-brand-link: #2563eb;
     --color-brand-icon: #9ca3af;
     --color-brand-border: #e5e7eb;
+    /* Soft canvas behind cards (admin) */
+    --color-brand-surface: #f0f4f9;
 }
