@@ -17,7 +17,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'mysql'),
 
     /*
     |--------------------------------------------------------------------------
@@ -53,6 +53,96 @@ return [
             'username' => env('DB_USERNAME', 'root'),
             'password' => env('DB_PASSWORD', ''),
             'unix_socket' => env('DB_SOCKET', ''),
+            'charset' => env('DB_CHARSET', 'utf8mb4'),
+            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Master registry (company → tenant database mapping)
+        |--------------------------------------------------------------------------
+        |
+        | Holds tenant metadata and which Laravel connection key points at each
+        | company's isolated database.
+        |
+        */
+
+        'master' => [
+            'driver' => 'mysql',
+            'url' => env('MASTER_DB_URL', env('DB_URL')),
+            'host' => env('MASTER_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('MASTER_DB_PORT', env('DB_PORT', '3306')),
+            'database' => env('MASTER_DB_DATABASE', 'foundu_masterdb'),
+            'username' => env('MASTER_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('MASTER_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('MASTER_DB_SOCKET', env('DB_SOCKET', '')),
+            'charset' => env('MASTER_DB_CHARSET', env('DB_CHARSET', 'utf8mb4')),
+            'collation' => env('MASTER_DB_COLLATION', env('DB_COLLATION', 'utf8mb4_unicode_ci')),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MASTER_MYSQL_ATTR_SSL_CA', env('MYSQL_ATTR_SSL_CA')),
+            ]) : [],
+        ],
+
+        'tenant_bluegreen' => [
+            'driver' => 'mysql',
+            'url' => env('TENANT_DB_URL', env('DB_URL')),
+            'host' => env('TENANT_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('TENANT_DB_PORT', env('DB_PORT', '3306')),
+            'database' => env('TENANT_BLUEGREEN_DATABASE', 'bluegreenfacilityservicesdb'),
+            'username' => env('TENANT_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('TENANT_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('TENANT_DB_SOCKET', env('DB_SOCKET', '')),
+            'charset' => env('DB_CHARSET', 'utf8mb4'),
+            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        'tenant_constructconcepts' => [
+            'driver' => 'mysql',
+            'url' => env('TENANT_DB_URL', env('DB_URL')),
+            'host' => env('TENANT_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('TENANT_DB_PORT', env('DB_PORT', '3306')),
+            'database' => env('TENANT_CONSTRUCTCONCEPTS_DATABASE', 'constructconceptsdb'),
+            'username' => env('TENANT_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('TENANT_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('TENANT_DB_SOCKET', env('DB_SOCKET', '')),
+            'charset' => env('DB_CHARSET', 'utf8mb4'),
+            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
+            ]) : [],
+        ],
+
+        'tenant_aidandable' => [
+            'driver' => 'mysql',
+            'url' => env('TENANT_DB_URL', env('DB_URL')),
+            'host' => env('TENANT_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('TENANT_DB_PORT', env('DB_PORT', '3306')),
+            'database' => env('TENANT_AIDANDABLE_DATABASE', 'aidandableservicesdb'),
+            'username' => env('TENANT_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('TENANT_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'unix_socket' => env('TENANT_DB_SOCKET', env('DB_SOCKET', '')),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
             'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
             'prefix' => '',

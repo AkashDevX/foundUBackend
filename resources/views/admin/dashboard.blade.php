@@ -1,176 +1,210 @@
 @extends('layouts.admin')
 
-@section('title', 'Dashboard')
+@section('title', 'Registration requests')
 
-@section('heading', 'Attendance overview')
+@section('heading', 'Registration requests')
 
-@section('subheading', 'Today’s snapshot — sample data until your API is connected.')
+@section('subheading')
+    {{ $currentCompany->name }} — employee applications from the mobile app (your organization only).
+@endsection
 
 @section('content')
     @php
-        $kpis = [
-            [
-                'label' => 'Present today',
-                'value' => '142',
-                'hint' => 'of 156 expected',
-                'bar' => 91,
-                'icon' => 'check',
-            ],
-            [
-                'label' => 'Absent',
-                'value' => '8',
-                'hint' => '3 unexcused · 6 on leave',
-                'bar' => null,
-                'icon' => 'x',
-            ],
-            [
-                'label' => 'Late arrivals',
-                'value' => '12',
-                'hint' => 'after 9:15',
-                'bar' => null,
-                'icon' => 'clock',
-            ],
-        ];
-        $bars = [
-            ['label' => 'Mon', 'pct' => 72],
-            ['label' => 'Tue', 'pct' => 88],
-            ['label' => 'Wed', 'pct' => 65],
-            ['label' => 'Thu', 'pct' => 92],
-            ['label' => 'Fri', 'pct' => 78],
-        ];
-        $departments = [
-            ['name' => 'Operations', 'pct' => 96],
-            ['name' => 'Engineering', 'pct' => 94],
-            ['name' => 'People', 'pct' => 100],
-            ['name' => 'Sales', 'pct' => 89],
-        ];
-        $rows = [
-            ['name' => 'Jordan Lee', 'dept' => 'Engineering', 'time' => '8:42 AM', 'status' => 'On time', 'ok' => true],
-            ['name' => 'Sam Rivera', 'dept' => 'Operations', 'time' => '9:18 AM', 'status' => 'Late', 'ok' => false],
-            ['name' => 'Alex Morgan', 'dept' => 'People', 'time' => '8:55 AM', 'status' => 'On time', 'ok' => true],
-            ['name' => 'Casey Kim', 'dept' => 'Sales', 'time' => '—', 'status' => 'Absent', 'ok' => false],
-            ['name' => 'Riley Chen', 'dept' => 'Engineering', 'time' => '8:31 AM', 'status' => 'On time', 'ok' => true],
-        ];
+        /** @var \App\Models\Company $currentCompany */
+        /** @var array<int, array{employee: \App\Models\Employee}> $rows */
+        /** @var string|null $tenantError */
+        /** @var string|null $statusFilter */
+        /** @var int $statsTotal */
+        /** @var int $statsPending */
+        /** @var int $statsActive */
+        /** @var int $statsDeclined */
     @endphp
 
-    {{-- Welcome --}}
-    <div class="relative mb-10 overflow-hidden rounded-2xl border border-brand-border bg-brand-card shadow-sm">
-        <div class="absolute inset-0 bg-gradient-to-br from-brand-primary via-brand-primary-dark to-brand-primary-dark opacity-[0.96]"></div>
-        <div class="absolute -right-20 -top-28 size-80 rounded-full bg-brand-primary-light/20 blur-3xl"></div>
-        <div class="relative px-6 py-8 sm:px-8 sm:py-9">
-            <p class="text-sm font-medium text-white/80">{{ now()->format('l, F j, Y') }}</p>
-            <h2 class="mt-1 text-2xl font-bold tracking-tight text-brand-white sm:text-3xl">Good morning, Admin</h2>
-            <p class="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
-                You’re viewing sample data. Wire these numbers to your attendance service when you’re ready.
+    @if ($tenantError !== null)
+        <div class="mb-8 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-amber-100/80 px-5 py-4 text-sm text-amber-950 shadow-sm ring-1 ring-amber-200/60">
+            <p class="font-semibold">Could not reach this organization’s database</p>
+            <p class="mt-2 font-mono text-xs leading-relaxed text-amber-900/90">{{ $tenantError }}</p>
+        </div>
+    @endif
+
+    {{-- Organization + counts: minimal, one accent, no decoration --}}
+    <div
+        class="mb-6 overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm"
+    >
+        <div
+            class="border-b border-b-brand-border border-l-4 border-l-brand-primary bg-white px-5 py-4 sm:px-6 sm:py-5"
+        >
+            <h2 class="text-xl font-semibold text-brand-text sm:text-2xl">
+                {{ $currentCompany->name }}
+            </h2>
+            <p class="mt-1.5 text-sm text-brand-text-secondary">
+                <time datetime="{{ now()->toDateString() }}">{{ now()->format('l, F j, Y') }}</time>
+                <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
+                <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
             </p>
         </div>
-    </div>
 
-    {{-- KPIs --}}
-    <div class="mb-10 grid gap-5 sm:grid-cols-3">
-        @foreach ($kpis as $kpi)
-            <article class="rounded-xl border border-brand-border bg-brand-card p-6 shadow-sm">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">{{ $kpi['label'] }}</p>
-                        <p class="mt-2 text-3xl font-bold tabular-nums text-brand-text">{{ $kpi['value'] }}</p>
-                        <p class="mt-1 text-sm text-brand-text-secondary">{{ $kpi['hint'] }}</p>
-                    </div>
-                    <span class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
-                        @if ($kpi['icon'] === 'check')
-                            <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @elseif ($kpi['icon'] === 'x')
-                            <svg class="size-6 text-brand-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @else
-                            <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @endif
-                    </span>
-                </div>
-                @if ($kpi['bar'] !== null)
-                    <div class="mt-5 h-1.5 overflow-hidden rounded-full bg-brand-input">
-                        <div class="h-full rounded-full bg-brand-primary" style="width: {{ $kpi['bar'] }}%"></div>
-                    </div>
-                @endif
-            </article>
-        @endforeach
-    </div>
-
-    {{-- Week + departments (single panel) --}}
-    <section class="mb-10 rounded-xl border border-brand-border bg-brand-card p-6 shadow-sm sm:p-8">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-                <h3 class="text-base font-semibold text-brand-text">This week</h3>
-                <p class="text-sm text-brand-text-secondary">Check-ins by weekday (sample)</p>
-            </div>
-        </div>
         <div
-            class="mt-8 flex h-52 items-end justify-between gap-2 border-b border-brand-border pb-2 sm:gap-4"
-            role="img"
-            aria-label="Bar chart: attendance by weekday"
+            class="flex flex-col divide-y divide-brand-border sm:flex-row sm:divide-x sm:divide-y-0"
+            role="list"
+            aria-label="Registration counts. Select to filter the table below."
         >
-            @foreach ($bars as $bar)
-                <div class="flex min-w-0 flex-1 flex-col items-center gap-2">
-                    <div class="flex h-full w-full max-w-[4rem] flex-1 items-end justify-center">
-                        <div
-                            class="w-full rounded-t-lg bg-gradient-to-t from-brand-primary-dark to-brand-primary-light"
-                            style="height: {{ $bar['pct'] }}%"
-                        ></div>
-                    </div>
-                    <span class="text-xs font-medium text-brand-text-secondary">{{ $bar['label'] }}</span>
-                </div>
-            @endforeach
+            <a
+                href="{{ route('admin.dashboard') }}"
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsTotal }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Total</span>
+            </a>
+            <a
+                href="{{ route('admin.dashboard', ['status' => 'pending']) }}"
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsPending }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Pending</span>
+            </a>
+            <a
+                href="{{ route('admin.dashboard', ['status' => 'active']) }}"
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsActive }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Active</span>
+            </a>
+            <a
+                href="{{ route('admin.dashboard', ['status' => 'declined']) }}"
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsDeclined }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Declined</span>
+            </a>
         </div>
-        <div class="mt-8 border-t border-brand-border pt-6">
-            <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Attendance by department</p>
-            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                @foreach ($departments as $d)
-                    <div class="flex items-center justify-between gap-3 rounded-lg bg-brand-input/50 px-4 py-3">
-                        <span class="truncate text-sm text-brand-text-secondary">{{ $d['name'] }}</span>
-                        <span class="shrink-0 text-sm font-semibold tabular-nums text-brand-text">{{ $d['pct'] }}%</span>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </section>
 
-    {{-- Recent activity --}}
-    <section class="overflow-hidden rounded-xl border border-brand-border bg-brand-card shadow-sm">
-        <div class="border-b border-brand-border px-6 py-5 sm:px-8">
-            <h3 class="text-base font-semibold text-brand-text">Recent check-ins</h3>
-            <p class="mt-0.5 text-sm text-brand-text-secondary">Latest arrivals (mock)</p>
+        <div
+            class="border-t border-brand-border bg-white px-5 py-2.5 sm:px-6"
+        >
+            <nav
+                class="flex flex-wrap items-baseline gap-x-1 gap-y-1.5 text-sm"
+                aria-label="Filter by status"
+            >
+                <span class="pr-1 text-brand-text-secondary">Status</span>
+                <a
+                    href="{{ route('admin.dashboard') }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === null || $statusFilter === '' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >All</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'pending']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'pending' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Pending</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'active']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'active' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Active</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'declined']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'declined' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Declined</a>
+            </nav>
         </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full text-left text-sm">
-                <thead class="bg-brand-input/50 text-xs font-semibold uppercase tracking-wide text-brand-label">
-                    <tr>
-                        <th class="px-6 py-3.5">Person</th>
-                        <th class="px-6 py-3.5">Department</th>
-                        <th class="px-6 py-3.5">Checked in</th>
-                        <th class="px-6 py-3.5">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-brand-border text-brand-text">
-                    @foreach ($rows as $row)
-                        <tr class="transition hover:bg-brand-input/25">
-                            <td class="whitespace-nowrap px-6 py-3.5 font-medium">{{ $row['name'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5 text-brand-text-secondary">{{ $row['dept'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5 tabular-nums text-brand-text-secondary">{{ $row['time'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5">
-                                @if ($row['ok'])
-                                    <span class="inline-flex rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary-dark">On time</span>
-                                @elseif ($row['status'] === 'Late')
-                                    <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">Late</span>
-                                @else
-                                    <span class="inline-flex rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-700">Absent</span>
-                                @endif
-                            </td>
+    </div>
+
+    {{-- Table card --}}
+    <section class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
+        <div
+            class="flex flex-col gap-1 border-b border-brand-border bg-brand-surface/50 px-6 py-5 sm:flex-row sm:items-end sm:justify-between sm:px-7"
+        >
+            <div>
+                <h3 class="text-lg font-bold text-brand-text">Submitted applications</h3>
+                <p class="mt-1 text-sm text-brand-text-secondary">Sorted newest first · Select a row to open full registration detail.</p>
+            </div>
+            @if ($rows !== [])
+                <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">{{ count($rows) }} shown</p>
+            @endif
+        </div>
+
+        @if ($rows === [])
+            <div class="flex flex-col items-center px-8 py-20 text-center">
+                <div class="flex size-16 items-center justify-center rounded-2xl bg-brand-surface ring-1 ring-brand-border">
+                    <svg class="size-8 text-brand-primary-light/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </div>
+                <p class="mt-6 text-base font-semibold text-brand-text">No applications yet</p>
+                <p class="mt-2 max-w-md text-sm leading-relaxed text-brand-text-secondary">
+                    {{ $statusFilter ? 'No employees match this filter right now.' : 'When staff complete registration in the app for '.$currentCompany->name.', they will appear in this list.' }}
+                </p>
+            </div>
+        @else
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-brand-border bg-brand-surface/80 text-xs font-bold uppercase tracking-wider text-brand-label">
+                            <th class="px-6 py-4 sm:px-8">Applicant</th>
+                            <th class="px-6 py-4 sm:px-8">Email</th>
+                            <th class="hidden px-6 py-4 md:table-cell sm:px-8">Phone</th>
+                            <th class="px-6 py-4 sm:px-8">Status</th>
+                            <th class="px-6 py-4 sm:px-8">Submitted</th>
+                            <th class="px-6 py-4 text-right sm:px-8"></th>
                         </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-        <div class="border-t border-brand-border px-6 py-3.5 text-sm text-brand-text-secondary sm:px-8">
-            Showing {{ count($rows) }} mock records
-        </div>
+                    </thead>
+                    <tbody class="divide-y divide-brand-border">
+                        @foreach ($rows as $row)
+                            @php
+                                $employee = $row['employee'];
+                                $st = $employee->employment_status ?? '';
+                            @endphp
+                            <tr class="bg-white transition hover:bg-brand-surface/70">
+                                <td class="max-w-[220px] px-6 py-4 sm:px-8">
+                                    <span class="font-semibold text-brand-text">{{ $employee->full_legal_name ?: $employee->first_name.' '.$employee->last_name }}</span>
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4 text-brand-text-secondary sm:px-8">{{ $employee->email }}</td>
+                                <td class="hidden whitespace-nowrap px-6 py-4 text-brand-text-secondary md:table-cell sm:px-8">{{ $employee->phone ?: '—' }}</td>
+                                <td class="whitespace-nowrap px-6 py-4 sm:px-8">
+                                    @if ($st === 'pending')
+                                        <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-950 ring-1 ring-amber-200/80">
+                                            <span class="size-1.5 rounded-full bg-amber-500"></span>
+                                            Pending
+                                        </span>
+                                    @elseif ($st === 'active')
+                                        <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900 ring-1 ring-emerald-200/80">
+                                            <span class="size-1.5 rounded-full bg-emerald-500"></span>
+                                            Active
+                                        </span>
+                                    @elseif ($st === 'declined' || $st === 'rejected')
+                                        <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-900 ring-1 ring-red-200/80">
+                                            <span class="size-1.5 rounded-full bg-red-500"></span>
+                                            Declined
+                                        </span>
+                                    @else
+                                        <span class="inline-flex rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">{{ $st ?: '—' }}</span>
+                                    @endif
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4 tabular-nums text-brand-text-secondary sm:px-8">
+                                    {{ $employee->created_at?->timezone(config('app.timezone'))->format('M j, Y') }}<span class="hidden lg:inline">{{ $employee->created_at?->timezone(config('app.timezone'))->format(' · g:i A') }}</span>
+                                </td>
+                                <td class="whitespace-nowrap px-6 py-4 text-right sm:px-8">
+                                    <a
+                                        href="{{ route('admin.registrations.show', ['companySlug' => $currentCompany->slug, 'publicId' => $employee->public_id]) }}"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-border bg-white px-3 py-2 text-xs font-bold text-brand-primary shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface"
+                                    >View <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg></a>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <div class="border-t border-brand-border bg-brand-surface/40 px-6 py-4 text-sm text-brand-text-secondary sm:px-8">
+                Showing <span class="font-semibold text-brand-text">{{ count($rows) }}</span> record(s) for <span class="font-medium text-brand-label">{{ $currentCompany->name }}</span>
+                @if ($statusFilter)
+                    · filter: <span class="font-semibold text-brand-text">{{ $statusFilter }}</span>
+                @endif
+            </div>
+        @endif
     </section>
 @endsection
