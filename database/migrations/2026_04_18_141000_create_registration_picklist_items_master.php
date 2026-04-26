@@ -14,6 +14,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection($this->connection)->hasTable('registration_picklist_items')) {
+            return;
+        }
+
         Schema::connection($this->connection)->create('registration_picklist_items', function (Blueprint $table) {
             $table->id();
             $table->string('picklist_key', 64)->index();

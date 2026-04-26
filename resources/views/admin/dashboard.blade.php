@@ -27,75 +27,98 @@
         </div>
     @endif
 
-    {{-- Hero --}}
-    <div class="relative mb-10 overflow-hidden rounded-3xl border border-brand-primary-dark/15 shadow-lg shadow-brand-primary/10 ring-1 ring-black/[0.04]">
-        <div class="absolute inset-0 bg-gradient-to-br from-brand-primary via-brand-primary-dark to-[#001428] opacity-[0.97]"></div>
-        <div class="pointer-events-none absolute inset-0 opacity-[0.07]" style="background-image: url(&quot;data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E&quot;);"></div>
-        <div class="pointer-events-none absolute -right-24 top-1/2 size-[420px] -translate-y-1/2 rounded-full bg-brand-primary-light/25 blur-3xl"></div>
-        <div class="relative px-6 py-8 sm:px-10 sm:py-10">
-            <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                <div class="max-w-xl">
-                    <div class="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/90 ring-1 ring-white/20">
-                        <svg class="size-3.5 text-emerald-300" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                        {{ now()->format('l · F j, Y') }}
-                    </div>
-                    <h2 class="mt-4 text-3xl font-bold tracking-tight text-white sm:text-4xl">{{ $currentCompany->name }}</h2>
-                    <p class="mt-2 font-mono text-xs text-white/65">{{ $currentCompany->slug }}</p>
-                    <p class="mt-5 text-sm leading-relaxed text-white/85">
-                        Review registrations submitted through your workforce mobile app. Numbers below reflect your full tenant database.
-                    </p>
-                </div>
-                <div class="grid w-full max-w-2xl shrink-0 grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 lg:max-w-3xl lg:gap-5">
-                    <div class="rounded-2xl bg-white/12 px-3 py-4 text-center ring-1 ring-white/20 backdrop-blur-sm sm:px-4">
-                        <p class="text-2xl font-bold tabular-nums text-white sm:text-3xl">{{ $statsTotal }}</p>
-                        <p class="mt-1 text-[11px] font-semibold uppercase tracking-wide text-white/75">Total</p>
-                    </div>
-                    <div class="rounded-2xl bg-amber-400/15 px-3 py-4 text-center ring-1 ring-amber-300/35 backdrop-blur-sm sm:px-4">
-                        <p class="text-2xl font-bold tabular-nums text-amber-100 sm:text-3xl">{{ $statsPending }}</p>
-                        <p class="mt-1 text-[11px] font-semibold uppercase tracking-wide text-amber-100/90">Pending</p>
-                    </div>
-                    <div class="rounded-2xl bg-emerald-400/10 px-3 py-4 text-center ring-1 ring-emerald-400/25 backdrop-blur-sm sm:px-4">
-                        <p class="text-2xl font-bold tabular-nums text-emerald-100 sm:text-3xl">{{ $statsActive }}</p>
-                        <p class="mt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-100/90">Active</p>
-                    </div>
-                    <div class="rounded-2xl bg-red-400/10 px-3 py-4 text-center ring-1 ring-red-300/30 backdrop-blur-sm sm:px-4">
-                        <p class="text-2xl font-bold tabular-nums text-red-100 sm:text-3xl">{{ $statsDeclined }}</p>
-                        <p class="mt-1 text-[11px] font-semibold uppercase tracking-wide text-red-100/90">Declined</p>
-                    </div>
-                </div>
-            </div>
+    {{-- Organization + counts: minimal, one accent, no decoration --}}
+    <div
+        class="mb-6 overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm"
+    >
+        <div
+            class="border-b border-b-brand-border border-l-4 border-l-brand-primary bg-white px-5 py-4 sm:px-6 sm:py-5"
+        >
+            <h2 class="text-xl font-semibold text-brand-text sm:text-2xl">
+                {{ $currentCompany->name }}
+            </h2>
+            <p class="mt-1.5 text-sm text-brand-text-secondary">
+                <time datetime="{{ now()->toDateString() }}">{{ now()->format('l, F j, Y') }}</time>
+                <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
+                <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
+            </p>
         </div>
-    </div>
 
-    {{-- Filters --}}
-    <div class="mb-8 flex flex-col gap-4 rounded-2xl border border-brand-border bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div>
-            <p class="text-sm font-semibold text-brand-text">Filter applications</p>
-            <p class="mt-0.5 text-sm text-brand-text-secondary">Choose a status or view everyone in the table.</p>
-        </div>
-        <div class="inline-flex flex-wrap rounded-xl bg-brand-surface p-1 ring-1 ring-brand-border">
+        <div
+            class="flex flex-col divide-y divide-brand-border sm:flex-row sm:divide-x sm:divide-y-0"
+            role="list"
+            aria-label="Registration counts. Select to filter the table below."
+        >
             <a
                 href="{{ route('admin.dashboard') }}"
-                class="rounded-lg px-4 py-2 text-sm font-semibold transition {{ $statusFilter === null || $statusFilter === '' ? 'bg-white text-brand-primary shadow-sm ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text' }}"
-            >All</a>
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsTotal }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Total</span>
+            </a>
             <a
                 href="{{ route('admin.dashboard', ['status' => 'pending']) }}"
-                class="rounded-lg px-4 py-2 text-sm font-semibold transition {{ $statusFilter === 'pending' ? 'bg-white text-brand-primary shadow-sm ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text' }}"
-            >Pending</a>
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsPending }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Pending</span>
+            </a>
             <a
                 href="{{ route('admin.dashboard', ['status' => 'active']) }}"
-                class="rounded-lg px-4 py-2 text-sm font-semibold transition {{ $statusFilter === 'active' ? 'bg-white text-brand-primary shadow-sm ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text' }}"
-            >Active</a>
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsActive }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Active</span>
+            </a>
             <a
                 href="{{ route('admin.dashboard', ['status' => 'declined']) }}"
-                class="rounded-lg px-4 py-2 text-sm font-semibold transition {{ $statusFilter === 'declined' ? 'bg-white text-brand-primary shadow-sm ring-1 ring-brand-border' : 'text-brand-text-secondary hover:text-brand-text' }}"
-            >Declined</a>
+                role="listitem"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsDeclined }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Declined</span>
+            </a>
+        </div>
+
+        <div
+            class="border-t border-brand-border bg-white px-5 py-2.5 sm:px-6"
+        >
+            <nav
+                class="flex flex-wrap items-baseline gap-x-1 gap-y-1.5 text-sm"
+                aria-label="Filter by status"
+            >
+                <span class="pr-1 text-brand-text-secondary">Status</span>
+                <a
+                    href="{{ route('admin.dashboard') }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === null || $statusFilter === '' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >All</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'pending']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'pending' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Pending</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'active']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'active' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Active</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
+                    href="{{ route('admin.dashboard', ['status' => 'declined']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'declined' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Declined</a>
+            </nav>
         </div>
     </div>
 
     {{-- Table card --}}
-    <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-md shadow-black/[0.04] ring-1 ring-black/[0.03]">
-        <div class="flex flex-col gap-1 border-b border-brand-border bg-gradient-to-r from-brand-surface to-white px-6 py-6 sm:flex-row sm:items-end sm:justify-between sm:px-8">
+    <section class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
+        <div
+            class="flex flex-col gap-1 border-b border-brand-border bg-brand-surface/50 px-6 py-5 sm:flex-row sm:items-end sm:justify-between sm:px-7"
+        >
             <div>
                 <h3 class="text-lg font-bold text-brand-text">Submitted applications</h3>
                 <p class="mt-1 text-sm text-brand-text-secondary">Sorted newest first · Select a row to open full registration detail.</p>

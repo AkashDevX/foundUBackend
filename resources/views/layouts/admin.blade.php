@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#003d7a">
     <title>@yield('title', 'Admin') — {{ config('app.name', 'Attendance') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
@@ -44,14 +45,30 @@
                         </span>
                         <span>Registrations</span>
                     </a>
-                    <a href="{{ route('admin.workforce') }}" class="{{ request()->routeIs('admin.workforce') ? $navActive : $navInactive }}" @if(request()->routeIs('admin.workforce')) aria-current="page" @endif>
-                        @if(request()->routeIs('admin.workforce'))
+                    <button type="button" id="workforce-nav-toggle" class="{{ request()->routeIs('admin.workforce*') ? $navActive : $navInactive }} w-full" @if(request()->routeIs('admin.workforce*')) aria-current="page" @endif aria-expanded="{{ request()->routeIs('admin.workforce*') ? 'true' : 'false' }}">
+                        @if(request()->routeIs('admin.workforce*'))
                             <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
                         @endif
-                        <span class="{{ request()->routeIs('admin.workforce') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                        <span class="{{ request()->routeIs('admin.workforce*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
                             <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 01-4.681-3.72 8.986 8.986 0 0115.863 0 3 3 0 01-4.681 3.72z" /></svg>
                         </span>
-                        <span>Workforce setup</span>
+                        <span class="flex-1 text-left">Workforce setup</span>
+                        <svg class="size-4 transition-transform" id="workforce-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div id="workforce-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.workforce*') ? '' : 'hidden' }}">
+                        <a href="{{ route('admin.workforce.departments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.departments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Departments</a>
+                        <a href="{{ route('admin.workforce.work-locations') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.work-locations') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work locations</a>
+                        <a href="{{ route('admin.workforce.shifts') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.shifts') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Shifts</a>
+                    </div>
+
+                    <a href="{{ route('admin.employees') }}" class="{{ request()->routeIs('admin.employees*') ? $navActive : $navInactive }}" @if(request()->routeIs('admin.employees*')) aria-current="page" @endif>
+                        @if(request()->routeIs('admin.employees*'))
+                            <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
+                        @endif
+                        <span class="{{ request()->routeIs('admin.employees*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                            <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5V4H2v16h5m10 0v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4m10 0H7m10-11h.01M7 9h5" /></svg>
+                        </span>
+                        <span>Employees</span>
                     </a>
                 </nav>
                 <div class="border-t border-white/10 p-4">
@@ -65,7 +82,7 @@
                             <p class="truncate text-[11px] font-semibold uppercase tracking-wider text-white/55">{{ $pc?->name ?? 'Organization' }}</p>
                             <p class="mt-2 truncate text-sm font-semibold text-white">{{ $pu->name }}</p>
                             <p class="truncate text-xs text-white/60">{{ $pu->email }}</p>
-                            <form method="post" action="{{ route('portal.logout') }}" class="mt-4">
+                            <form method="post" action="{{ route('portal.logout') }}" class="mt-4" data-skip-form-busy>
                                 @csrf
                                 <button type="submit" class="w-full rounded-lg bg-white/12 px-3 py-2.5 text-xs font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/20">
                                     Sign out
@@ -141,6 +158,9 @@
             var toggle = document.getElementById('admin-menu-toggle');
             var sidebar = document.getElementById('admin-sidebar');
             var overlay = document.getElementById('admin-sidebar-overlay');
+            var workforceToggle = document.getElementById('workforce-nav-toggle');
+            var workforceMenu = document.getElementById('workforce-nav-submenu');
+            var workforceChevron = document.getElementById('workforce-nav-chevron');
             if (!toggle || !sidebar || !overlay) return;
             function openMenu() {
                 sidebar.classList.remove('-translate-x-full');
@@ -157,7 +177,22 @@
                 else closeMenu();
             });
             overlay.addEventListener('click', closeMenu);
+
+            if (workforceToggle && workforceMenu && workforceChevron) {
+                function syncWorkforceChevron() {
+                    var expanded = workforceToggle.getAttribute('aria-expanded') === 'true';
+                    workforceChevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+                }
+                workforceToggle.addEventListener('click', function () {
+                    var expanded = workforceToggle.getAttribute('aria-expanded') === 'true';
+                    workforceToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                    workforceMenu.classList.toggle('hidden', expanded);
+                    syncWorkforceChevron();
+                });
+                syncWorkforceChevron();
+            }
         })();
     </script>
+    @stack('scripts')
 </body>
 </html>

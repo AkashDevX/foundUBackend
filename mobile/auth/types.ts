@@ -34,10 +34,18 @@ export type WorkAssignment = {
   effective_from: string | null;
   notes: string | null;
   department: { id: number; name: string; code: string | null } | null;
-  work_location: { id: number; name: string; address: string | null; notes: string | null } | null;
+  work_location: {
+    id: number;
+    name: string;
+    address: string | null;
+    notes: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
   shift: {
     id: number;
     name: string;
+    days: string[] | null;
     start_time: string | null;
     end_time: string | null;
     breaks_summary: string | null;

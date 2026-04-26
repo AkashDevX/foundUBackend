@@ -7,7 +7,7 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { postLogin, postRegister, type FoundUApiConfig } from './founduApi';
+import { getCurrentEmployee, postLogin, postRegister, type FoundUApiConfig } from './founduApi';
 import {
   clearBearerToken,
   getAwaitingApprovalEmail,
@@ -16,7 +16,7 @@ import {
   setAwaitingApprovalEmail,
 } from './sessionStorage';
 import { formatApiErrorBody } from './apiErrors';
-import type { LoginSuccessBody, RegisterSuccessBody } from './types';
+import type { CurrentEmployeeBody, LoginSuccessBody, RegisterSuccessBody } from './types';
 
 type Phase =
   /** No token; user has not registered on this session or cleared. */
@@ -44,6 +44,9 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   /** Restore token from storage on cold start — still “authenticated” only if token exists. */
   hydrateFromStorage: () => Promise<void>;
+  /** Current `/api/v1/me` snapshot (includes `work_assignment` for active signed-in employees). */
+  currentEmployee: CurrentEmployeeBody['employee'] | null;
+  refreshCurrentEmployee: () => Promise<{ ok: true } | { ok: false; message: string }>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -55,12 +58,33 @@ export function AuthProvider(props: {
   const [apiConfig, setApiConfigState] = useState<FoundUApiConfig>(props.initialConfig);
   const [phase, setPhase] = useState<Phase>('unauthenticated');
   const [sessionReady, setSessionReady] = useState(false);
+  const [currentEmployee, setCurrentEmployee] = useState<CurrentEmployeeBody['employee'] | null>(null);
+
+  const refreshCurrentEmployee = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
+    const token = await getBearerToken();
+    if (!token) {
+        setCurrentEmployee(null);
+        return { ok: false, message: 'No bearer token available.' };
+    }
+    const me = await getCurrentEmployee(apiConfig, token);
+    if (!me.ok) {
+        if (me.status === 401 || me.status === 403) {
+            await clearBearerToken();
+            setCurrentEmployee(null);
+            setPhase('unauthenticated');
+        }
+        return { ok: false, message: formatApiErrorBody(me.body) };
+    }
+    setCurrentEmployee(me.data.employee);
+    return { ok: true };
+  }, [apiConfig]);
 
   const hydrateFromStorage = useCallback(async () => {
     const token = await getBearerToken();
     const pendingEmail = await getAwaitingApprovalEmail();
     if (token) {
       setPhase('authenticated');
+      void refreshCurrentEmployee();
       setSessionReady(true);
       return;
     }
@@ -70,8 +94,9 @@ export function AuthProvider(props: {
       return;
     }
     setPhase('unauthenticated');
+    setCurrentEmployee(null);
     setSessionReady(true);
-  }, []);
+  }, [refreshCurrentEmployee]);
 
   useEffect(() => {
     void hydrateFromStorage();
@@ -105,6 +130,7 @@ export function AuthProvider(props: {
 
       await clearBearerToken();
       await setAwaitingApprovalEmail(data.employee?.email ?? null);
+      setCurrentEmployee(null);
       setPhase('pending_org_approval');
 
       return { ok: true as const, data };
@@ -133,10 +159,15 @@ export function AuthProvider(props: {
       await saveBearerToken(data.token);
       await setAwaitingApprovalEmail(null);
       setPhase('authenticated');
+      setCurrentEmployee({
+        ...data.employee,
+        phone: null,
+      });
+      void refreshCurrentEmployee();
 
       return { ok: true as const, data };
     },
-    [apiConfig],
+    [apiConfig, refreshCurrentEmployee],
   );
 
   const logout = useCallback(async () => {
@@ -156,6 +187,7 @@ export function AuthProvider(props: {
       }
     }
     await clearBearerToken();
+    setCurrentEmployee(null);
     const pending = await getAwaitingApprovalEmail();
     setPhase(pending ? 'pending_org_approval' : 'unauthenticated');
   }, [apiConfig]);
@@ -170,8 +202,10 @@ export function AuthProvider(props: {
       login,
       logout,
       hydrateFromStorage,
+      currentEmployee,
+      refreshCurrentEmployee,
     }),
-    [phase, sessionReady, apiConfig, setApiConfig, register, login, logout, hydrateFromStorage],
+    [phase, sessionReady, apiConfig, setApiConfig, register, login, logout, hydrateFromStorage, currentEmployee, refreshCurrentEmployee],
   );
 
   return <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>;

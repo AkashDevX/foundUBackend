@@ -48,3 +48,23 @@ setApiConfig({
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`
 
 Organization portal (admin approve/decline): web UI at `/` → `/admin` after signing in.
+
+## Show assignment in RN tabs
+
+After login (or app restart with token), `AuthContext` now hydrates `currentEmployee` from `GET /api/v1/me`.
+Use the selector helpers to render each tab card:
+
+```ts
+import { useAuth, departmentTabCard, workLocationTabCard, shiftTabCard } from './auth';
+
+const { currentEmployee, refreshCurrentEmployee } = useAuth();
+
+// Optional pull-to-refresh
+await refreshCurrentEmployee();
+
+const department = departmentTabCard(currentEmployee);
+const location = workLocationTabCard(currentEmployee);
+const shift = shiftTabCard(currentEmployee);
+```
+
+`currentEmployee.work_assignment` includes admin-assigned `department`, `work_location` (with `latitude/longitude`), and `shift`.

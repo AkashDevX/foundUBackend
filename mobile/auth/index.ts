@@ -6,3 +6,4 @@ export * from './validateSignupPayload';
 export * from './submitSignup';
 export * from './AuthContext';
 export * from './RootGate';
+export * from './workAssignmentSelectors';

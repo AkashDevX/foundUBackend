@@ -161,6 +161,13 @@
 
             return $st.'–'.$en;
         };
+        $shiftDays = static function (?\App\Models\Shift $s): string {
+            if ($s === null || ! is_array($s->shift_days) || $s->shift_days === []) {
+                return 'All days';
+            }
+            $map = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
+            return collect($s->shift_days)->map(fn ($d) => $map[$d] ?? null)->filter()->join(', ');
+        };
     @endphp
 
     <section class="mb-10 overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
@@ -192,11 +199,21 @@
                     @if ($e->workLocation?->address)
                         <p class="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-brand-text-secondary">{{ $line($e->workLocation->address) }}</p>
                     @endif
+                    @if ($e->workLocation && $e->workLocation->latitude !== null && $e->workLocation->longitude !== null)
+                        @php
+                            $empOsm = 'https://www.openstreetmap.org/?mlat='.urlencode((string) $e->workLocation->latitude).'&mlon='.urlencode((string) $e->workLocation->longitude).'#map=17/'.$e->workLocation->latitude.'/'.$e->workLocation->longitude;
+                        @endphp
+                        <p class="mt-2 font-mono text-[11px] tabular-nums text-brand-text-secondary">
+                            {{ number_format((float) $e->workLocation->latitude, 5) }}, {{ number_format((float) $e->workLocation->longitude, 5) }}
+                            · <a href="{{ $empOsm }}" target="_blank" rel="noopener noreferrer" class="font-sans font-semibold text-brand-link hover:underline">Map ↗</a>
+                        </p>
+                    @endif
                 </div>
                 <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">
                     <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Shift</p>
                     <p class="mt-2 text-sm font-semibold text-brand-text">{{ $line($e->assignedShift?->name) }}</p>
                     <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($e->assignedShift) }}</p>
+                    <p class="mt-1 text-xs text-brand-text-secondary">Days: {{ $shiftDays($e->assignedShift) }}</p>
                     @if ($e->assignedShift?->breaks_summary)
                         <p class="mt-2 text-xs text-brand-text-secondary">{{ $line($e->assignedShift->breaks_summary) }}</p>
                     @endif
@@ -238,7 +255,7 @@
                                 <select name="shift_id" class="mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25">
                                     <option value="">— None —</option>
                                     @foreach ($shifts as $sh)
-                                        <option value="{{ $sh->id }}" @selected((string) old('shift_id', $e->shift_id) === (string) $sh->id)>{{ $sh->name }} ({{ $shiftTimes($sh) }})</option>
+                                        <option value="{{ $sh->id }}" @selected((string) old('shift_id', $e->shift_id) === (string) $sh->id)>{{ $sh->name }} ({{ $shiftTimes($sh) }}, {{ $shiftDays($sh) }})</option>
                                     @endforeach
                                 </select>
                             </div>
