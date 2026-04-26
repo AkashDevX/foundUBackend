@@ -141,6 +141,8 @@ class Employee extends Model
                 'name' => $loc->name,
                 'address' => $loc->address,
                 'notes' => $loc->notes,
+                'latitude' => $loc->latitude,
+                'longitude' => $loc->longitude,
             ] : null,
             'shift' => $shift instanceof Shift ? [
                 'id' => $shift->id,
@@ -150,6 +152,79 @@ class Employee extends Model
                 'breaks_summary' => $shift->breaks_summary,
                 'notes' => $shift->notes,
             ] : null,
+        ];
+    }
+
+    /**
+     * GET /api/v1/me — fields from the tenant `employees` row for the mobile My Profile screen.
+     * Omits password, tokens, and raw bank account number.
+     *
+     * @return array<string, mixed>
+     */
+    public function toMobileProfilePayload(?Company $tenantCompany = null): array
+    {
+        $assignment = $this->workAssignmentForApi();
+        $assignedDepartment = is_array($assignment['department'] ?? null) ? $assignment['department'] : null;
+        $assignedWorkLocation = is_array($assignment['work_location'] ?? null) ? $assignment['work_location'] : null;
+        $assignedShift = is_array($assignment['shift'] ?? null) ? $assignment['shift'] : null;
+
+        return [
+            'public_id' => $this->public_id,
+            'company_slug' => $tenantCompany?->slug,
+            'registration_company_slug' => $this->registration_company_slug,
+            'company_name' => $this->company_display_name,
+            'company_display_name' => $this->company_display_name,
+            'email' => $this->email,
+            'phone' => $this->phone,
+            'first_name' => $this->first_name,
+            'last_name' => $this->last_name,
+            'full_legal_name' => $this->full_legal_name,
+            'date_of_birth' => $this->date_of_birth,
+            'sex' => $this->sex,
+            'marital_status' => $this->marital_status,
+            'address' => $this->address,
+            'emergency_contact_name' => $this->emergency_contact_name,
+            'emergency_contact_phone' => $this->emergency_contact_phone,
+            'emergency_contact_relationship' => $this->emergency_contact_relationship,
+            'visa_status' => $this->visa_status,
+            'unrestricted_work_rights' => $this->unrestricted_work_rights,
+            'visa_expiry' => $this->visa_expiry,
+            'hours_per_week' => $this->hours_per_week,
+            'weekly_availability_summary' => $this->weekly_availability_summary,
+            'id_documents_summary' => $this->id_documents_summary,
+            'police_check_expiry' => $this->police_check_expiry,
+            'police_check_uploaded' => $this->police_check_uploaded,
+            'fit_to_work_expiry' => $this->fit_to_work_expiry,
+            'fit_to_work_uploaded' => $this->fit_to_work_uploaded,
+            'licences_summary' => $this->licences_summary,
+            'insurances_summary' => $this->insurances_summary,
+            'bank_account_name' => $this->bank_account_name,
+            'bank_name' => $this->bank_name,
+            'bank_branch_code' => $this->bank_branch_code,
+            'mode_of_transport' => $this->mode_of_transport,
+            'vehicle_registration' => $this->vehicle_registration,
+            'vehicle_expiry' => $this->vehicle_expiry,
+            'vehicle_insurance_uploaded' => $this->vehicle_insurance_uploaded,
+            'employment_status' => $this->employment_status,
+            'job_title' => $this->job_title,
+            'department' => $this->department,
+            'work_assignment' => $assignment,
+            // Flat aliases for mobile clients that map assignment fields at the profile root.
+            'assigned_department' => $assignedDepartment['name'] ?? $this->department,
+            'assigned_shift_name' => $assignedShift['name'] ?? null,
+            'assigned_shift_start_time' => $assignedShift['start_time'] ?? null,
+            'assigned_shift_end_time' => $assignedShift['end_time'] ?? null,
+            'assigned_work_location_name' => $assignedWorkLocation['name'] ?? null,
+            'assigned_work_location_address' => $assignedWorkLocation['address'] ?? null,
+            'assigned_work_location_lat' => $assignedWorkLocation['latitude'] ?? null,
+            'assigned_work_location_lng' => $assignedWorkLocation['longitude'] ?? null,
+            'assigned_shift_date' => $assignment['effective_from'] ?? null,
+            'assigned_shift_status' => $this->employment_status,
+            'assigned_department_code' => $assignedDepartment['code'] ?? null,
+            'assigned_shift_breaks_summary' => $assignedShift['breaks_summary'] ?? null,
+            'assigned_shift_notes' => $assignedShift['notes'] ?? null,
+            'assigned_work_location_notes' => $assignedWorkLocation['notes'] ?? null,
+            'assignment_notes' => is_array($assignment) ? ($assignment['notes'] ?? null) : null,
         ];
     }
 

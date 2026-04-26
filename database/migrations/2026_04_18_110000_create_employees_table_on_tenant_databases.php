@@ -15,6 +15,10 @@ return new class extends Migration
     public function up(): void
     {
         foreach (config('tenants.tenant_migration_connections', []) as $connection) {
+            if (Schema::connection($connection)->hasTable('employees')) {
+                continue;
+            }
+
             Schema::connection($connection)->create('employees', function (Blueprint $table) {
                 $table->id();
 

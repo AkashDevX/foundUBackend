@@ -3,14 +3,45 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Department;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Models\Shift;
+use App\Models\WorkLocation;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AdminEmployeeAssignmentController extends Controller
 {
+    public function index(Request $request): View
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $employeesQuery = Employee::on($conn)
+            ->with(['assignedDepartment', 'workLocation', 'assignedShift'])
+            ->where('employment_status', 'active')
+            ->orderBy('full_legal_name');
+
+        $employees = $employeesQuery->get();
+        $departments = Department::on($conn)->where('is_active', true)->orderBy('name')->get();
+        $workLocations = WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get();
+        $shifts = Shift::on($conn)->where('is_active', true)->orderBy('name')->get();
+
+        return view('admin.employees', [
+            'company' => $company,
+            'employees' => $employees,
+            'departments' => $departments,
+            'workLocations' => $workLocations,
+            'shifts' => $shifts,
+        ]);
+    }
+
     public function update(Request $request, string $companySlug, string $publicId): RedirectResponse
     {
         /** @var OrganizationPortalUser $portalUser */
@@ -25,6 +56,34 @@ class AdminEmployeeAssignmentController extends Controller
             ->where('public_id', $publicId)
             ->firstOrFail();
 
+        $this->updateAssignmentForEmployee($request, $employee, $conn);
+
+        return redirect()
+            ->route('admin.registrations.show', ['companySlug' => $companySlug, 'publicId' => $publicId])
+            ->with('status', 'Work assignment updated.');
+    }
+
+    public function updateFromList(Request $request, string $publicId): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        /** @var Employee $employee */
+        $employee = Employee::on($conn)
+            ->where('public_id', $publicId)
+            ->firstOrFail();
+
+        $this->updateAssignmentForEmployee($request, $employee, $conn);
+
+        return redirect()
+            ->route('admin.employees')
+            ->with('status', 'Work assignment updated for '.$employee->full_legal_name.'.');
+    }
+
+    private function updateAssignmentForEmployee(Request $request, Employee $employee, string $conn): void
+    {
         $nullableInt = static function (mixed $v): ?int {
             if ($v === null || $v === '') {
                 return null;
@@ -68,10 +127,6 @@ class AdminEmployeeAssignmentController extends Controller
             'assignment_effective_from' => $data['assignment_effective_from'] ?? null,
             'assignment_notes' => $data['assignment_notes'] ?? null,
         ])->save();
-
-        return redirect()
-            ->route('admin.registrations.show', ['companySlug' => $companySlug, 'publicId' => $publicId])
-            ->with('status', 'Work assignment updated.');
     }
 
     private function assertBelongsToTenant(string $connection, string $table, ?int $id): void
@@ -80,7 +135,7 @@ class AdminEmployeeAssignmentController extends Controller
             return;
         }
 
-        $exists = \Illuminate\Support\Facades\DB::connection($connection)
+        $exists = DB::connection($connection)
             ->table($table)
             ->where('id', $id)
             ->exists();

@@ -10,6 +10,13 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (! Schema::connection($this->connection)->hasTable('companies')) {
+            return;
+        }
+        if (Schema::connection($this->connection)->hasColumn('companies', 'app_key')) {
+            return;
+        }
+
         Schema::connection($this->connection)->table('companies', function (Blueprint $table) {
             $table->string('app_key', 64)->nullable()->unique()->after('slug');
         });

@@ -12,6 +12,10 @@ return new class extends Migration
     public function up(): void
     {
         foreach (config('tenants.tenant_migration_connections', []) as $connection) {
+            if (Schema::connection($connection)->hasTable('personal_access_tokens')) {
+                continue;
+            }
+
             Schema::connection($connection)->create('personal_access_tokens', function (Blueprint $table) {
                 $table->id();
                 $table->morphs('tokenable');

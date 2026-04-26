@@ -17,6 +17,13 @@ return new class extends Migration
     public function up(): void
     {
         foreach (config('tenants.tenant_migration_connections', []) as $connection) {
+            if (! Schema::connection($connection)->hasTable('employees')) {
+                continue;
+            }
+            if (Schema::connection($connection)->hasColumn('employees', 'full_legal_name')) {
+                continue;
+            }
+
             Schema::connection($connection)->table('employees', function (Blueprint $table) {
                 // Step 1 — company picker + identity + address + emergency contact
                 $table->string('company_app_id', 64)->nullable()->after('public_id')->index();
@@ -71,9 +78,13 @@ return new class extends Migration
             });
 
             // Widen phone for international formats; avoids requiring doctrine/dbal for ->change().
-            DB::connection($connection)->statement(
-                'ALTER TABLE employees MODIFY phone VARCHAR(48) NULL'
-            );
+            try {
+                DB::connection($connection)->statement(
+                    'ALTER TABLE employees MODIFY phone VARCHAR(48) NULL'
+                );
+            } catch (\Throwable) {
+                /* column width may already match */
+            }
         }
     }
 

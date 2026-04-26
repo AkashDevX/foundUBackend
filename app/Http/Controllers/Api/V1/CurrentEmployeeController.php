@@ -16,17 +16,7 @@ class CurrentEmployeeController extends Controller
         $employee->loadMissing(['assignedDepartment', 'workLocation', 'assignedShift']);
 
         return response()->json([
-            'employee' => [
-                'public_id' => $employee->public_id,
-                'email' => $employee->email,
-                'full_legal_name' => $employee->full_legal_name,
-                'first_name' => $employee->first_name,
-                'last_name' => $employee->last_name,
-                'employment_status' => $employee->employment_status,
-                'company_display_name' => $employee->company_display_name,
-                'phone' => $employee->phone,
-                'work_assignment' => $employee->workAssignmentForApi(),
-            ],
+            'employee' => $employee->toMobileProfilePayload($request->tenantCompany()),
         ]);
     }
 }
