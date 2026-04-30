@@ -7,6 +7,8 @@ use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class AdminRegistrationDecisionController extends Controller
 {
@@ -19,7 +21,7 @@ class AdminRegistrationDecisionController extends Controller
         }
 
         // No API access until they call POST /login with the same email + password (Sanctum token is only created there).
-        $employee->tokens()->delete();
+        $this->revokeEmployeeTokens($employee);
 
         $employee->forceFill([
             'employment_status' => 'active',
@@ -41,7 +43,7 @@ class AdminRegistrationDecisionController extends Controller
             'employment_status' => 'declined',
         ])->save();
 
-        $employee->tokens()->delete();
+        $this->revokeEmployeeTokens($employee);
 
         return back()->with('success', 'Registration declined. This person will not be able to sign in to the mobile app.');
     }
@@ -60,5 +62,24 @@ class AdminRegistrationDecisionController extends Controller
             ->firstOrFail();
 
         return $employee;
+    }
+
+    private function revokeEmployeeTokens(Employee $employee): void
+    {
+        $connection = $employee->getConnectionName();
+
+        if (! is_string($connection) || $connection === '') {
+            return;
+        }
+
+        if (! Schema::connection($connection)->hasTable('personal_access_tokens')) {
+            return;
+        }
+
+        DB::connection($connection)
+            ->table('personal_access_tokens')
+            ->where('tokenable_type', Employee::class)
+            ->where('tokenable_id', $employee->getKey())
+            ->delete();
     }
 }
