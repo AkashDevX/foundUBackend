@@ -101,7 +101,10 @@
 
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Effective from</label>
-                        <input type="date" name="assignment_effective_from" value="{{ optional($employee->assignment_effective_from)->format('Y-m-d') }}" class="mt-1.5 w-full rounded-xl border border-brand-border px-3 py-2.5 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25" />
+                        @php
+                            $effFrom = \App\Support\RegistrationDisplay::toHtmlDateInput(old('assignment_effective_from', $employee->assignment_effective_from));
+                        @endphp
+                        <input type="date" name="assignment_effective_from" value="{{ $effFrom }}" class="mt-1.5 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm [color-scheme:light] focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25" />
                     </div>
 
                     <div class="lg:col-span-4">

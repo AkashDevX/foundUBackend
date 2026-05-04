@@ -41,6 +41,67 @@
 
         return route('admin.registration.file', $p);
     };
+
+    $canEditProfile = ($e->employment_status ?? '') === 'active';
+    /** @var \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, \App\Models\RegistrationPicklistItem>> $registrationPicklists */
+    $registrationPicklists = $registrationPicklists ?? collect();
+    /** @var array<string, array{on: bool, start: string, end: string}> $availabilityCalendar */
+    $availabilityCalendar = $availabilityCalendar ?? \App\Support\AdminWeeklyAvailability::calendarState($e->weekly_availability_json);
+    $editIn = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-inner [color-scheme:light] placeholder:text-brand-text-secondary/60 focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25';
+    /** Native date inputs; value is ISO Y-m-d from server */
+    $nativeDateIn = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm [color-scheme:light] focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25';
+    $editTa = $editIn.' min-h-[4.5rem] resize-y align-top';
+    $calDayLabels = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
+    /** @var array<string, string> $registrationDateInputs precomputed in {@see \App\Http\Controllers\Admin\AdminDashboardController::show} */
+    $registrationDateInputs = $registrationDateInputs ?? [];
+    $profileDateLine = static function (string $field, array $metaKeys) use ($line, $e): string {
+        $iso = \App\Support\RegistrationDisplay::toHtmlDateInput(
+            \App\Support\RegistrationDisplay::employeeRawDateValue($e, $field, $metaKeys)
+        );
+
+        return $line($iso !== '' ? $iso : null);
+    };
+    $sexForSelect = static function (mixed $v): string {
+        if ($v === null || $v === '') {
+            return '';
+        }
+        $s = strtolower(trim((string) $v));
+        if (in_array($s, ['male', 'm', 'man'], true)) {
+            return 'Male';
+        }
+        if (in_array($s, ['female', 'f', 'woman'], true)) {
+            return 'Female';
+        }
+        if (str_starts_with($s, 'male')) {
+            return 'Male';
+        }
+        if (str_starts_with($s, 'female')) {
+            return 'Female';
+        }
+        $t = trim((string) $v);
+        if (strcasecmp($t, 'Male') === 0) {
+            return 'Male';
+        }
+        if (strcasecmp($t, 'Female') === 0) {
+            return 'Female';
+        }
+
+        return '';
+    };
+    $yesNoPickVal = static function ($v): string {
+        if ($v === null || $v === '') {
+            return '';
+        }
+        $s = is_string($v) ? strtolower(trim($v)) : (string) $v;
+        if (in_array($s, ['1', 'true', 'yes', 'y', 'on'], true)) {
+            return 'Yes';
+        }
+        if (in_array($s, ['0', 'false', 'no', 'n', 'off'], true)) {
+            return 'No';
+        }
+
+        return is_string($v) ? trim($v) : '';
+    };
 @endphp
 
 @section('title', 'Registration — '.$e->full_legal_name)
@@ -60,7 +121,7 @@
 
     @if ($errors->any())
         <div class="mb-8 rounded-2xl border border-red-200/90 bg-red-50 px-5 py-4 text-sm text-red-950 shadow-sm ring-1 ring-red-100">
-            <p class="font-semibold">Could not save assignment</p>
+            <p class="font-semibold">Could not save changes</p>
             <ul class="mt-2 list-inside list-disc space-y-1">
                 @foreach ($errors->all() as $err)
                     <li>{{ $err }}</li>
@@ -262,7 +323,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Effective from</label>
-                            <input type="date" name="assignment_effective_from" value="{{ old('assignment_effective_from', optional($e->assignment_effective_from)?->format('Y-m-d')) }}" class="mt-2 w-full rounded-xl border border-brand-border px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25" />
+                            <input type="date" name="assignment_effective_from" value="{{ $registrationDateInputs['assignment_effective_from'] ?? '' }}" class="mt-2 {{ $nativeDateIn }}" />
                         </div>
                         <div class="lg:col-span-2">
                             <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Assignment notes</label>
@@ -287,249 +348,23 @@
         $cardHead = 'border-b border-brand-border bg-gradient-to-r from-brand-surface to-white px-6 py-4 sm:px-8';
     @endphp
 
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">Identity &amp; personal</h3>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Full legal name</dt><dd class="text-brand-text">{{ $line($e->full_legal_name) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">First / last (split)</dt><dd class="text-brand-text">{{ $line($e->first_name) }} · {{ $line($e->last_name) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Date of birth</dt><dd class="text-brand-text">{{ $line($e->date_of_birth) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Sex</dt><dd class="text-brand-text">{{ $line($e->sex) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Marital status</dt><dd class="text-brand-text">{{ $line($e->marital_status) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Address</dt><dd class="whitespace-pre-wrap text-brand-text">{{ $line($e->address) }}</dd></div>
-        </div>
-    </section>
+    @if ($canEditProfile)
+        <form method="post" action="{{ route('admin.registrations.profile.update', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" enctype="multipart/form-data" class="block">
+            @csrf
+    @endif
 
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">Emergency contact</h3>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Name</dt><dd class="text-brand-text">{{ $line($e->emergency_contact_name) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Phone</dt><dd class="text-brand-text">{{ $line($e->emergency_contact_phone) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Relationship</dt><dd class="text-brand-text">{{ $line($e->emergency_contact_relationship) }}</dd></div>
-        </div>
-    </section>
+    @include('admin.partials.registration-profile-body')
 
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">Work eligibility &amp; availability</h3>
-            <p class="mt-1 text-sm text-brand-text-secondary">Readable schedule from the app — no raw data.</p>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa status</dt><dd class="text-brand-text">{{ $line($e->visa_status) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Unrestricted work rights</dt><dd class="text-brand-text">{{ $yesNo($e->unrestricted_work_rights) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa expiry</dt><dd class="text-brand-text">{{ $line($e->visa_expiry) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Hours per week</dt><dd class="text-brand-text">{{ $line($e->hours_per_week) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Summary</dt><dd class="whitespace-pre-wrap text-brand-text">{{ $line($e->weekly_availability_summary) }}</dd></div>
-            <div class="{{ $dl }} items-start">
-                <dt class="pt-1 font-medium text-brand-label">Weekly availability</dt>
-                <dd class="min-w-0">
-                    @if ($weeklySections !== [])
-                        <div class="space-y-5">
-                            @foreach ($weeklySections as $block)
-                                <div class="rounded-xl border border-brand-border bg-brand-surface/80 px-4 py-3">
-                                    <p class="text-sm font-bold text-brand-text">{{ $block['label'] }}</p>
-                                    <ul class="mt-2 list-inside list-disc space-y-1.5 text-sm leading-relaxed text-brand-text">
-                                        @foreach ($block['lines'] as $ln)
-                                            <li class="marker:text-brand-primary">{{ $ln }}</li>
-                                        @endforeach
-                                    </ul>
-                                </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-sm text-brand-text-secondary">No structured weekly hours were saved for this application.</p>
-                    @endif
-                </dd>
+    @if ($canEditProfile)
+            <div class="mb-10 flex flex-wrap items-center gap-3 border-t border-brand-border pt-8">
+                <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-brand-primary px-6 py-3 text-sm font-bold text-white shadow-lg shadow-brand-primary/25 transition hover:bg-brand-primary-dark">
+                    Save profile changes
+                </button>
             </div>
-        </div>
-    </section>
+        </form>
 
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">ID &amp; checks</h3>
-            <p class="mt-1 text-sm text-brand-text-secondary">Uploaded copies open in a new tab. Images show inline.</p>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">ID documents (notes)</dt><dd class="whitespace-pre-wrap text-brand-text">{{ $line($e->id_documents_summary) }}</dd></div>
-            <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">ID document uploads</dt>
-                <dd class="min-w-0 w-full">
-                    @if ($idDocRows === [])
-                        <p class="text-sm text-brand-text-secondary">No ID document rows on file.</p>
-                    @else
-                        <div class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
-                            @foreach ($idDocRows as $doc)
-                                <div class="overflow-hidden rounded-xl border border-brand-border bg-brand-surface/40 p-4">
-                                    <p class="font-semibold text-brand-text">{{ $doc['title'] }}</p>
-                                    @if ($doc['subtitle'] !== '')
-                                        <p class="mt-1 text-sm text-brand-text-secondary">{{ $doc['subtitle'] }}</p>
-                                    @endif
-                                    @foreach ($doc['meta'] as $metaLine)
-                                        <p class="mt-2 text-xs text-brand-text-secondary">{{ $metaLine }}</p>
-                                    @endforeach
-                                    @if ($doc['storage_path'] !== null && $doc['row_key'] !== null)
-                                        @php $url = $fileUrl('id-document', $doc['row_key']); @endphp
-                                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($doc['storage_path']))
-                                            <div class="mt-3 overflow-hidden rounded-lg border border-brand-border bg-white">
-                                                <img src="{{ $url }}" alt="{{ $doc['title'] }}" class="max-h-72 w-full object-contain" loading="lazy" />
-                                            </div>
-                                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($doc['storage_path']))
-                                            <a href="{{ $url }}" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-2 rounded-lg bg-brand-primary px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-primary-dark">View PDF</a>
-                                        @else
-                                            <a href="{{ $url }}" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex text-xs font-bold text-brand-link hover:underline">Open uploaded file</a>
-                                        @endif
-                                    @else
-                                        <p class="mt-3 text-xs italic text-brand-text-secondary">No file attached for this row.</p>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </dd>
-            </div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check expiry</dt><dd class="text-brand-text">{{ $line($e->police_check_expiry) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check uploaded (declaration)</dt><dd class="text-brand-text">{{ $yesNo($e->police_check_uploaded) }}</dd></div>
-            @if ($e->police_check_path)
-                <div class="{{ $dl }} items-start">
-                    <dt class="pt-1 font-medium text-brand-label">Police check file</dt>
-                    <dd class="min-w-0">
-                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($e->police_check_path))
-                            <div class="overflow-hidden rounded-xl border border-brand-border bg-white shadow-inner">
-                                <img src="{{ $fileUrl('police-check') }}" alt="Police check" class="max-h-80 w-full object-contain" loading="lazy" />
-                            </div>
-                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($e->police_check_path))
-                            <a href="{{ $fileUrl('police-check') }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-primary-dark">View police check (PDF)</a>
-                        @else
-                            <a href="{{ $fileUrl('police-check') }}" target="_blank" rel="noopener noreferrer" class="font-semibold text-brand-link hover:underline">Download police check file</a>
-                        @endif
-                    </dd>
-                </div>
-            @endif
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work expiry</dt><dd class="text-brand-text">{{ $line($e->fit_to_work_expiry) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work uploaded (declaration)</dt><dd class="text-brand-text">{{ $yesNo($e->fit_to_work_uploaded) }}</dd></div>
-            @if ($e->fit_to_work_path)
-                <div class="{{ $dl }} items-start">
-                    <dt class="pt-1 font-medium text-brand-label">Fit to work file</dt>
-                    <dd class="min-w-0">
-                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($e->fit_to_work_path))
-                            <div class="overflow-hidden rounded-xl border border-brand-border bg-white shadow-inner">
-                                <img src="{{ $fileUrl('fit-to-work') }}" alt="Fit to work" class="max-h-80 w-full object-contain" loading="lazy" />
-                            </div>
-                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($e->fit_to_work_path))
-                            <a href="{{ $fileUrl('fit-to-work') }}" target="_blank" class="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-primary-dark">View fit to work (PDF)</a>
-                        @else
-                            <a href="{{ $fileUrl('fit-to-work') }}" target="_blank" class="font-semibold text-brand-link hover:underline">Download fit to work file</a>
-                        @endif
-                    </dd>
-                </div>
-            @endif
-        </div>
-    </section>
-
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">Licences &amp; insurance</h3>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Licences (notes)</dt><dd class="whitespace-pre-wrap text-brand-text">{{ $line($e->licences_summary) }}</dd></div>
-            <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Licence uploads</dt>
-                <dd class="min-w-0 w-full">
-                    @if ($licenceRows === [])
-                        <p class="text-sm text-brand-text-secondary">No licence rows on file.</p>
-                    @else
-                        <div class="grid gap-4 lg:grid-cols-2">
-                            @foreach ($licenceRows as $doc)
-                                <div class="rounded-xl border border-brand-border bg-brand-surface/40 p-4">
-                                    <p class="font-semibold text-brand-text">{{ $doc['title'] }}</p>
-                                    @foreach ($doc['meta'] as $metaLine)
-                                        <p class="mt-2 text-xs text-brand-text-secondary">{{ $metaLine }}</p>
-                                    @endforeach
-                                    @if ($doc['storage_path'] !== null && $doc['row_key'] !== null)
-                                        @php $url = $fileUrl('licence', $doc['row_key']); @endphp
-                                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($doc['storage_path']))
-                                            <div class="mt-3 overflow-hidden rounded-lg border border-brand-border bg-white">
-                                                <img src="{{ $url }}" alt="{{ $doc['title'] }}" class="max-h-72 w-full object-contain" loading="lazy" />
-                                            </div>
-                                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($doc['storage_path']))
-                                            <a href="{{ $url }}" target="_blank" class="mt-3 inline-flex rounded-lg bg-brand-primary px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-primary-dark">View PDF</a>
-                                        @else
-                                            <a href="{{ $url }}" target="_blank" class="mt-3 inline-flex text-xs font-bold text-brand-link hover:underline">Open file</a>
-                                        @endif
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </dd>
-            </div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Insurances (notes)</dt><dd class="whitespace-pre-wrap text-brand-text">{{ $line($e->insurances_summary) }}</dd></div>
-            <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Insurance uploads</dt>
-                <dd class="min-w-0 w-full">
-                    @if ($insuranceRows === [])
-                        <p class="text-sm text-brand-text-secondary">No insurance rows on file.</p>
-                    @else
-                        <div class="grid gap-4 lg:grid-cols-2">
-                            @foreach ($insuranceRows as $doc)
-                                <div class="rounded-xl border border-brand-border bg-brand-surface/40 p-4">
-                                    <p class="font-semibold text-brand-text">{{ $doc['title'] }}</p>
-                                    @foreach ($doc['meta'] as $metaLine)
-                                        <p class="mt-2 text-xs text-brand-text-secondary">{{ $metaLine }}</p>
-                                    @endforeach
-                                    @if ($doc['storage_path'] !== null && $doc['row_key'] !== null)
-                                        @php $url = $fileUrl('insurance', $doc['row_key']); @endphp
-                                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($doc['storage_path']))
-                                            <div class="mt-3 overflow-hidden rounded-lg border border-brand-border bg-white">
-                                                <img src="{{ $url }}" alt="{{ $doc['title'] }}" class="max-h-72 w-full object-contain" loading="lazy" />
-                                            </div>
-                                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($doc['storage_path']))
-                                            <a href="{{ $url }}" target="_blank" class="mt-3 inline-flex rounded-lg bg-brand-primary px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-primary-dark">View PDF</a>
-                                        @else
-                                            <a href="{{ $url }}" target="_blank" class="mt-3 inline-flex text-xs font-bold text-brand-link hover:underline">Open file</a>
-                                        @endif
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </dd>
-            </div>
-        </div>
-    </section>
-
-    <section class="{{ $card }}">
-        <div class="{{ $cardHead }}">
-            <h3 class="text-lg font-bold text-brand-text">Payroll, transport &amp; role</h3>
-        </div>
-        <div class="divide-y divide-brand-border px-6 sm:px-8">
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account name</dt><dd class="text-brand-text">{{ $line($e->bank_account_name) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account number</dt><dd class="font-mono text-brand-text">{{ $bankMasked }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Branch code</dt><dd class="text-brand-text">{{ $line($e->bank_branch_code) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Bank name</dt><dd class="text-brand-text">{{ $line($e->bank_name) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Mode of transport</dt><dd class="text-brand-text">{{ $line($e->mode_of_transport) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle registration</dt><dd class="text-brand-text">{{ $line($e->vehicle_registration) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle expiry</dt><dd class="text-brand-text">{{ $line($e->vehicle_expiry) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle insurance uploaded (declaration)</dt><dd class="text-brand-text">{{ $yesNo($e->vehicle_insurance_uploaded) }}</dd></div>
-            @if ($e->vehicle_insurance_path)
-                <div class="{{ $dl }} items-start">
-                    <dt class="pt-1 font-medium text-brand-label">Vehicle insurance file</dt>
-                    <dd class="min-w-0">
-                        @if (\App\Support\RegistrationDisplay::isLikelyImagePath($e->vehicle_insurance_path))
-                            <div class="overflow-hidden rounded-xl border border-brand-border bg-white shadow-inner">
-                                <img src="{{ $fileUrl('vehicle-insurance') }}" alt="Vehicle insurance" class="max-h-80 w-full object-contain" loading="lazy" />
-                            </div>
-                        @elseif (\App\Support\RegistrationDisplay::isLikelyPdfPath($e->vehicle_insurance_path))
-                            <a href="{{ $fileUrl('vehicle-insurance') }}" target="_blank" class="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-brand-primary-dark">View vehicle insurance (PDF)</a>
-                        @else
-                            <a href="{{ $fileUrl('vehicle-insurance') }}" target="_blank" class="font-semibold text-brand-link hover:underline">Download vehicle insurance file</a>
-                        @endif
-                    </dd>
-                </div>
-            @endif
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Job title</dt><dd class="text-brand-text">{{ $line($e->job_title) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Department</dt><dd class="text-brand-text">{{ $line($e->department) }}</dd></div>
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Employee code</dt><dd class="text-brand-text">{{ $line($e->employee_code) }}</dd></div>
-        </div>
-    </section>
+        @push('scripts')
+            @vite(['resources/js/registration-admin-profile.js'])
+        @endpush
+    @endif
 @endsection

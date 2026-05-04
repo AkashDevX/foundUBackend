@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Support\RegistrationDisplay;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
@@ -76,17 +79,17 @@ class Employee extends Model
     use SoftDeletes;
 
     /** Assigned org department (FK). Distinct from the legacy `department` registration text column. */
-    public function assignedDepartment(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function assignedDepartment(): BelongsTo
     {
         return $this->belongsTo(Department::class, 'department_id');
     }
 
-    public function workLocation(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function workLocation(): BelongsTo
     {
         return $this->belongsTo(WorkLocation::class);
     }
 
-    public function assignedShift(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    public function assignedShift(): BelongsTo
     {
         return $this->belongsTo(Shift::class, 'shift_id');
     }
@@ -121,7 +124,7 @@ class Employee extends Model
             if ($value === null) {
                 return null;
             }
-            if ($value instanceof \Carbon\CarbonInterface) {
+            if ($value instanceof CarbonInterface) {
                 return $value->format('H:i');
             }
 
@@ -179,7 +182,9 @@ class Employee extends Model
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'full_legal_name' => $this->full_legal_name,
-            'date_of_birth' => $this->date_of_birth,
+            'date_of_birth' => RegistrationDisplay::toNullableIsoDate(
+                RegistrationDisplay::employeeRawDateValue($this, 'date_of_birth', ['dateOfBirth', 'date_of_birth', 'dob', 'birthDate'])
+            ),
             'sex' => $this->sex,
             'marital_status' => $this->marital_status,
             'address' => $this->address,
@@ -188,13 +193,19 @@ class Employee extends Model
             'emergency_contact_relationship' => $this->emergency_contact_relationship,
             'visa_status' => $this->visa_status,
             'unrestricted_work_rights' => $this->unrestricted_work_rights,
-            'visa_expiry' => $this->visa_expiry,
+            'visa_expiry' => RegistrationDisplay::toNullableIsoDate(
+                RegistrationDisplay::employeeRawDateValue($this, 'visa_expiry', ['visaExpiry', 'visa_expiry'])
+            ),
             'hours_per_week' => $this->hours_per_week,
             'weekly_availability_summary' => $this->weekly_availability_summary,
             'id_documents_summary' => $this->id_documents_summary,
-            'police_check_expiry' => $this->police_check_expiry,
+            'police_check_expiry' => RegistrationDisplay::toNullableIsoDate(
+                RegistrationDisplay::employeeRawDateValue($this, 'police_check_expiry', ['policeCheckExpiry', 'police_check_expiry'])
+            ),
             'police_check_uploaded' => $this->police_check_uploaded,
-            'fit_to_work_expiry' => $this->fit_to_work_expiry,
+            'fit_to_work_expiry' => RegistrationDisplay::toNullableIsoDate(
+                RegistrationDisplay::employeeRawDateValue($this, 'fit_to_work_expiry', ['fitToWorkExpiry', 'fit_to_work_expiry'])
+            ),
             'fit_to_work_uploaded' => $this->fit_to_work_uploaded,
             'licences_summary' => $this->licences_summary,
             'insurances_summary' => $this->insurances_summary,
@@ -203,7 +214,9 @@ class Employee extends Model
             'bank_branch_code' => $this->bank_branch_code,
             'mode_of_transport' => $this->mode_of_transport,
             'vehicle_registration' => $this->vehicle_registration,
-            'vehicle_expiry' => $this->vehicle_expiry,
+            'vehicle_expiry' => RegistrationDisplay::toNullableIsoDate(
+                RegistrationDisplay::employeeRawDateValue($this, 'vehicle_expiry', ['vehicleExpiry', 'vehicle_expiry'])
+            ),
             'vehicle_insurance_uploaded' => $this->vehicle_insurance_uploaded,
             'employment_status' => $this->employment_status,
             'job_title' => $this->job_title,
@@ -218,7 +231,7 @@ class Employee extends Model
             'assigned_work_location_address' => $assignedWorkLocation['address'] ?? null,
             'assigned_work_location_lat' => $assignedWorkLocation['latitude'] ?? null,
             'assigned_work_location_lng' => $assignedWorkLocation['longitude'] ?? null,
-            'assigned_shift_date' => $assignment['effective_from'] ?? null,
+            'assigned_shift_date' => RegistrationDisplay::toNullableIsoDate($assignment['effective_from'] ?? null),
             'assigned_shift_status' => $this->employment_status,
             'assigned_department_code' => $assignedDepartment['code'] ?? null,
             'assigned_shift_breaks_summary' => $assignedShift['breaks_summary'] ?? null,

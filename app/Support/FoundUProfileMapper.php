@@ -17,6 +17,7 @@ class FoundUProfileMapper
         'registrationCompanyAppKey' => 'registration_company_app_key',
         'companyName' => 'company_display_name',
         'fullLegalName' => 'full_legal_name',
+        'gender' => 'sex',
         'dateOfBirth' => 'date_of_birth',
         'maritalStatus' => 'marital_status',
         'emergencyContactName' => 'emergency_contact_name',

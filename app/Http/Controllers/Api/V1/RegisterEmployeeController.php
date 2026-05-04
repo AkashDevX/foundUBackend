@@ -8,6 +8,7 @@ use App\Http\Requests\RegisterEmployeeRequest;
 use App\Models\Employee;
 use App\Services\RegistrationDocumentStorage;
 use App\Support\FoundUProfileMapper;
+use App\Support\RegistrationDisplay;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -83,6 +84,12 @@ class RegisterEmployeeController extends Controller
             'job_title',
             'department',
         ]);
+
+        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry'] as $dateField) {
+            if (array_key_exists($dateField, $payload)) {
+                $payload[$dateField] = RegistrationDisplay::toNullableIsoDate($payload[$dateField]);
+            }
+        }
 
         $employee = null;
 

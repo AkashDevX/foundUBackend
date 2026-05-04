@@ -61,6 +61,7 @@ function initWorkLocationRoot(root) {
     const reverseUrl = root.dataset.reverseUrl;
     const searchUrl = root.dataset.searchUrl;
     const form = root.closest('form');
+    const clearAddressBtn = root.querySelector('[data-wf-clear-address]');
 
     const mapOnly = root.dataset.mapOnly === 'true';
     const lazyMap = root.dataset.lazyMap === 'true';
@@ -136,6 +137,33 @@ function initWorkLocationRoot(root) {
         addressSuggestions.classList.add('hidden');
     }
 
+    function syncAddressClearVisibility() {
+        if (!clearAddressBtn || !inputAddress) return;
+        clearAddressBtn.classList.toggle('hidden', inputAddress.value.trim() === '');
+    }
+
+    function clearAddressFromControl() {
+        if (!inputAddress) return;
+        applyingSuggestion = true;
+        inputAddress.value = '';
+        hideSuggestions();
+        hasPin = false;
+        inputLat.value = '';
+        inputLng.value = '';
+        displayLat.value = '';
+        displayLng.value = '';
+        syncAddressClearVisibility();
+        setStatus('Address cleared. Search again or click the map to set a pin.', 'warn');
+        if (marker && map) {
+            const r = randomPinNearBrisbane();
+            marker.setLatLng([r.lat, r.lng]);
+            map.panTo([r.lat, r.lng]);
+        }
+        setTimeout(() => {
+            applyingSuggestion = false;
+        }, 0);
+    }
+
     function renderHintSuggestion(message, { busy = false } = {}) {
         if (!addressSuggestions) return;
         addressSuggestions.innerHTML = '';
@@ -159,10 +187,13 @@ function initWorkLocationRoot(root) {
             hasPin = true;
             if (marker && map) {
                 marker.setLatLng([item.lat, item.lng]);
-                map.panTo([item.lat, item.lng]);
+                map.setView([item.lat, item.lng], Math.max(map.getZoom(), 16));
+            } else {
+                scheduleEnsureMap();
             }
-            setStatus('Address selected. Coordinates prepared for saving.', 'ok');
+            setStatus('Address selected. Pin placed — drag the map if you need to fine-tune.', 'ok');
         }
+        syncAddressClearVisibility();
         setTimeout(() => {
             applyingSuggestion = false;
         }, 0);
@@ -194,7 +225,7 @@ function initWorkLocationRoot(root) {
     }
 
     async function fetchAddressSuggestions(query) {
-        if (!searchUrl || mapOnly) return;
+        if (!searchUrl) return;
         suggestAbort?.abort();
         suggestAbort = new AbortController();
         renderHintSuggestion('Searching OpenStreetMap...', { busy: true });
@@ -273,6 +304,7 @@ function initWorkLocationRoot(root) {
             setStatus('Network error. Type the address below if needed.', 'err');
         } finally {
             geocodeStatus?.classList.remove('wf-is-geocoding');
+            syncAddressClearVisibility();
         }
     }
 
@@ -284,33 +316,45 @@ function initWorkLocationRoot(root) {
             return mapInitPromise;
         }
 
-        mapInitPromise = (async () => {
+                mapInitPromise = (async () => {
             try {
                 if (mapLoader) {
                     setMapSurfaceLoading(true, 'Preparing map…');
                 }
-                const startLat = parseFloat(inputLat.value);
-                const startLng = parseFloat(inputLng.value);
-                const hasStart = !Number.isNaN(startLat) && !Number.isNaN(startLng);
 
+                const readPinnedCoords = () => {
+                    const la = parseFloat(inputLat.value);
+                    const ln = parseFloat(inputLng.value);
+                    return !Number.isNaN(la) && !Number.isNaN(ln) ? { lat: la, lng: ln } : null;
+                };
+
+                let pinned = readPinnedCoords();
                 let viewLat;
                 let viewLng;
                 let viewZoom;
                 let fromDevice = null;
 
-                if (hasStart) {
+                if (pinned) {
                     setMapSurfaceLoading(true, 'Loading map & tiles…');
-                    viewLat = startLat;
-                    viewLng = startLng;
+                    viewLat = pinned.lat;
+                    viewLng = pinned.lng;
                     viewZoom = defaultZoom;
                 } else {
                     setMapSurfaceLoading(true, 'Finding your location…');
                     setStatus('Detecting your location…', 'neutral');
                     fromDevice = await resolveUserGpsOrRandomBrisbane();
+                    pinned = readPinnedCoords();
                     setMapSurfaceLoading(true, 'Loading map & tiles…');
-                    viewLat = fromDevice.lat;
-                    viewLng = fromDevice.lng;
-                    viewZoom = autoLocateZoom;
+                    if (pinned) {
+                        viewLat = pinned.lat;
+                        viewLng = pinned.lng;
+                        viewZoom = defaultZoom;
+                        fromDevice = null;
+                    } else {
+                        viewLat = fromDevice.lat;
+                        viewLng = fromDevice.lng;
+                        viewZoom = autoLocateZoom;
+                    }
                 }
 
                 map = L.map(mapEl, { scrollWheelZoom: true }).setView([viewLat, viewLng], viewZoom);
@@ -343,8 +387,8 @@ function initWorkLocationRoot(root) {
 
                 setMapSurfaceLoading(false);
 
-                if (hasStart) {
-                    setStatus('Pin loaded from saved coordinates. Drag to adjust.', 'ok');
+                if (pinned && !fromDevice) {
+                    setStatus('Pin loaded. Drag to adjust or edit the address above.', 'ok');
                 } else if (fromDevice) {
                     if (fromDevice.source === 'gps') {
                         setStatus('Placed from your current location. Drag to fine-tune.', 'ok');
@@ -428,25 +472,45 @@ function initWorkLocationRoot(root) {
         }
     });
 
-    if (inputAddress && !mapOnly) {
+    clearAddressBtn?.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        suppressBlurHide = true;
+    });
+    clearAddressBtn?.addEventListener('click', () => {
+        clearAddressFromControl();
+        suppressBlurHide = false;
+        inputAddress?.focus();
+    });
+
+    if (inputAddress) {
         inputAddress.addEventListener('input', () => {
             const query = inputAddress.value.trim();
             if (!applyingSuggestion) {
-                hasPin = false;
-                inputLat.value = '';
-                inputLng.value = '';
-                displayLat.value = '';
-                displayLng.value = '';
+                if (!mapOnly) {
+                    hasPin = false;
+                    inputLat.value = '';
+                    inputLng.value = '';
+                    displayLat.value = '';
+                    displayLng.value = '';
+                } else if (query === '') {
+                    hasPin = false;
+                    inputLat.value = '';
+                    inputLng.value = '';
+                    displayLat.value = '';
+                    displayLng.value = '';
+                }
             }
             if (query.length < 2) {
                 if (suggestTimer) clearTimeout(suggestTimer);
                 hideSuggestions();
+                syncAddressClearVisibility();
                 return;
             }
             if (suggestTimer) clearTimeout(suggestTimer);
             suggestTimer = setTimeout(() => {
                 void fetchAddressSuggestions(query);
             }, 320);
+            syncAddressClearVisibility();
         });
 
         inputAddress.addEventListener('focus', () => {
@@ -465,6 +529,8 @@ function initWorkLocationRoot(root) {
                 hideSuggestions();
             }, 140);
         });
+
+        syncAddressClearVisibility();
     }
 
     form?.addEventListener('submit', (event) => {

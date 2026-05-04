@@ -173,15 +173,52 @@
                         class="rounded-2xl border border-brand-border bg-brand-surface/40 p-4 ring-1 ring-black/[0.03] sm:p-5"
                         data-wf-loc-root
                         data-map-only="true"
+                        data-search-url="{{ route('admin.workforce.geocode.search') }}"
                         data-reverse-url="{{ route('admin.workforce.geocode.reverse') }}"
                         data-default-lat="{{ $mapDefaultLat }}"
                         data-default-lng="{{ $mapDefaultLng }}"
                         data-default-zoom="{{ $mapDefaultZoom }}"
                     >
                         <p class="text-xs leading-relaxed text-brand-text-secondary">
-                            Place a pin on the map (OpenStreetMap). We fill the address automatically — you can edit it afterward.
+                            Search for an address to place the pin, or click and drag the map below. Moving the pin updates the address  you can edit the text anytime.
                         </p>
                         <div class="mt-4 space-y-3">
+                            <div class="{{ $wfGrid }}">
+                                <label for="loc-address" class="{{ $lbl }} sm:pt-2.5">Address</label>
+                                <div class="relative">
+                                    <input
+                                        id="loc-address"
+                                        name="address"
+                                        type="text"
+                                        maxlength="2000"
+                                        value="{{ old('address') }}"
+                                        data-wf-address
+                                        autocomplete="off"
+                                        class="{{ $in }} pe-9"
+                                        placeholder="Start typing — pick a suggestion to set the pin"
+                                    />
+                                    <button
+                                        type="button"
+                                        data-wf-clear-address
+                                        class="absolute right-1 top-1/2 z-10 hidden -translate-y-1/2 rounded-md p-1 text-brand-text-secondary/80 transition hover:bg-brand-surface hover:text-brand-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40"
+                                        aria-label="Clear address"
+                                    >
+                                        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                    <div
+                                        data-wf-address-suggestions
+                                        class="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-auto rounded-xl border border-brand-border bg-white py-1 shadow-lg ring-1 ring-black/[0.06] hidden"
+                                        role="listbox"
+                                        aria-label="Address suggestions"
+                                    ></div>
+                                </div>
+                            </div>
+                            <p
+                                data-wf-geocode-status
+                                class="flex min-h-[1.25rem] items-start gap-2 text-xs leading-relaxed text-brand-text-secondary"
+                            >
+                                Type an address and choose a match, or use the map.
+                            </p>
                             <div
                                 class="relative overflow-hidden rounded-xl border border-brand-border bg-white shadow-inner ring-1 ring-black/[0.04]"
                                 data-wf-map-wrap
@@ -222,16 +259,6 @@
                                         <input type="text" readonly class="{{ $in }} cursor-default bg-brand-surface/80 font-mono text-xs" value="{{ old('longitude') }}" data-wf-lng-display tabindex="-1" />
                                     </div>
                                 </div>
-                            </div>
-                            <p
-                                data-wf-geocode-status
-                                class="flex min-h-[1.25rem] items-start gap-2 text-xs leading-relaxed text-brand-text-secondary"
-                            >
-                                Click the map to place a pin.
-                            </p>
-                            <div class="{{ $wfGrid }}">
-                                <label for="loc-address" class="{{ $lbl }} sm:pt-2.5">Address</label>
-                                <textarea id="loc-address" name="address" rows="3" maxlength="2000" data-wf-address class="{{ $in }} min-h-[5.5rem] resize-y" placeholder="Filled when you place the pin — edit if needed">{{ old('address') }}</textarea>
                             </div>
                         </div>
                     </div>
@@ -316,15 +343,50 @@
                                         data-wf-loc-root
                                         data-map-only="true"
                                         data-lazy-map="true"
+                                        data-search-url="{{ route('admin.workforce.geocode.search') }}"
                                         data-reverse-url="{{ route('admin.workforce.geocode.reverse') }}"
                                         data-default-lat="{{ $hasCoords ? $loc->latitude : $mapDefaultLat }}"
                                         data-default-lng="{{ $hasCoords ? $loc->longitude : $mapDefaultLng }}"
                                         data-default-zoom="{{ $hasCoords ? '16' : $mapDefaultZoom }}"
                                     >
                                         <p class="text-xs leading-relaxed text-brand-text-secondary">
-                                            Move the pin on the map to update coordinates. Address updates when you place or drag the pin.
+                                            Search for an address or move the pin on the map. Dragging the pin refreshes the address — edit the text if it is not quite right.
                                         </p>
                                         <div class="mt-4 space-y-3">
+                                            <div class="{{ $wfGrid }}">
+                                                <label for="loc-edit-address-{{ $loc->id }}" class="{{ $lbl }} sm:pt-2.5">Address</label>
+                                                <div class="relative">
+                                                    <input
+                                                        id="loc-edit-address-{{ $loc->id }}"
+                                                        name="address"
+                                                        type="text"
+                                                        maxlength="2000"
+                                                        value="{{ $loc->address }}"
+                                                        data-wf-address
+                                                        autocomplete="off"
+                                                        class="{{ $in }} pe-9"
+                                                        placeholder="Start typing — pick a suggestion to move the pin"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        data-wf-clear-address
+                                                        class="absolute right-1 top-1/2 z-10 hidden -translate-y-1/2 rounded-md p-1 text-brand-text-secondary/80 transition hover:bg-brand-surface hover:text-brand-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40"
+                                                        aria-label="Clear address"
+                                                    >
+                                                        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+                                                    <div
+                                                        data-wf-address-suggestions
+                                                        class="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-auto rounded-xl border border-brand-border bg-white py-1 shadow-lg ring-1 ring-black/[0.06] hidden"
+                                                        role="listbox"
+                                                        aria-label="Address suggestions"
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                            <p
+                                                data-wf-geocode-status
+                                                class="flex min-h-[1.25rem] items-start gap-2 text-xs leading-relaxed text-brand-text-secondary"
+                                            ></p>
                                             <div
                                                 class="relative overflow-hidden rounded-xl border border-brand-border bg-white shadow-inner ring-1 ring-black/[0.04]"
                                                 data-wf-map-wrap
@@ -366,14 +428,6 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <p
-                                                data-wf-geocode-status
-                                                class="flex min-h-[1.25rem] items-start gap-2 text-xs leading-relaxed text-brand-text-secondary"
-                                            ></p>
-                                            <div class="{{ $wfGrid }}">
-                                                <label for="loc-edit-address-{{ $loc->id }}" class="{{ $lbl }} sm:pt-2.5">Address</label>
-                                                <textarea id="loc-edit-address-{{ $loc->id }}" name="address" rows="3" maxlength="2000" data-wf-address class="{{ $in }} min-h-[5.5rem] resize-y" placeholder="Filled from the map — edit if needed">{{ $loc->address }}</textarea>
-                                            </div>
                                         </div>
                                     </div>
                                     <div class="{{ $wfGrid }}">
@@ -395,7 +449,7 @@
                             <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" /></svg>
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No work locations yet</p>
-                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Drop a pin on the map above to add your first site.</p>
+                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Search for an address or drop a pin on the map in the form above to add your first site.</p>
                     </div>
                 @endforelse
             </div>

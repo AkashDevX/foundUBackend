@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Models\RegistrationPicklistItem;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use App\Support\AdminWeeklyAvailability;
+use App\Support\RegistrationDisplay;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 
@@ -76,6 +79,8 @@ class AdminDashboardController extends Controller
 
         $conn = $sessionCompany->tenant_connection;
 
+        RegistrationDisplay::resetDatabaseRowCache();
+
         /** @var Employee $employee */
         $employee = Employee::on($conn)
             ->where('public_id', $publicId)
@@ -87,13 +92,32 @@ class AdminDashboardController extends Controller
         $workLocations = WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get();
         $shifts = Shift::on($conn)->where('is_active', true)->orderBy('name')->get();
 
+        $registrationPicklists = RegistrationPicklistItem::query()
+            ->where('is_active', true)
+            ->orderBy('picklist_key')
+            ->orderBy('sort_order')
+            ->orderBy('value')
+            ->get()
+            ->groupBy('picklist_key');
+
+        $availabilityCalendar = AdminWeeklyAvailability::calendarState($employee->weekly_availability_json);
+
+        $registrationDateInputs = [];
+        foreach (RegistrationDisplay::adminProfileDateMetadataKeys() as $column => $metaKeys) {
+            $registrationDateInputs[$column] = RegistrationDisplay::adminDateInputValue($request, $employee, $column, $metaKeys);
+        }
+        $registrationDateInputs['assignment_effective_from'] = RegistrationDisplay::adminAssignmentEffectiveInput($request, $employee);
+        $registrationDateInputs = RegistrationDisplay::mergeRegistrationDatesFromDatabase($conn, $publicId, $registrationDateInputs);
+
         return view('admin.registration-show', [
             'company' => $sessionCompany,
             'employee' => $employee,
             'departments' => $departments,
             'workLocations' => $workLocations,
             'shifts' => $shifts,
+            'registrationPicklists' => $registrationPicklists,
+            'availabilityCalendar' => $availabilityCalendar,
+            'registrationDateInputs' => $registrationDateInputs,
         ]);
     }
-
 }

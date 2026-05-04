@@ -38,6 +38,8 @@ Route::middleware('auth:portal')->group(function (): void {
         ->name('admin.registrations.show');
     Route::post('/admin/registrations/{companySlug}/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'update'])
         ->name('admin.registrations.assignment.update');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/profile', [AdminEmployeeAssignmentController::class, 'updateProfile'])
+        ->name('admin.registrations.profile.update');
     Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'index'])->name('admin.employees');
     Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
         ->name('admin.employees.assignment.update');
