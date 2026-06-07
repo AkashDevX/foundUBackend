@@ -40,7 +40,8 @@ Route::middleware('auth:portal')->group(function (): void {
         ->name('admin.registrations.assignment.update');
     Route::post('/admin/registrations/{companySlug}/{publicId}/profile', [AdminEmployeeAssignmentController::class, 'updateProfile'])
         ->name('admin.registrations.profile.update');
-    Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'index'])->name('admin.employees');
+    Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'assignments'])->name('admin.employees.assignments');
+    Route::get('/admin/employees/time-clock', [AdminEmployeeAssignmentController::class, 'timeClock'])->name('admin.employees.time-clock');
     Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
         ->name('admin.employees.assignment.update');
     Route::post('/admin/registrations/{companySlug}/{publicId}/accept', [AdminRegistrationDecisionController::class, 'accept'])

@@ -100,14 +100,20 @@ class AdminDashboardController extends Controller
             ->get()
             ->groupBy('picklist_key');
 
-        $availabilityCalendar = AdminWeeklyAvailability::calendarState($employee->weekly_availability_json);
+        $weeklyGrid = AdminWeeklyAvailability::mobileGridStateForEmployee(
+            $employee->weekly_availability_json,
+            $employee->weekly_availability_summary
+        );
 
         $registrationDateInputs = [];
+        $registrationDateFormats = [];
         foreach (RegistrationDisplay::adminProfileDateMetadataKeys() as $column => $metaKeys) {
             $registrationDateInputs[$column] = RegistrationDisplay::adminDateInputValue($request, $employee, $column, $metaKeys);
+            $registrationDateFormats[$column] = RegistrationDisplay::adminDateStorageFormat($request, $employee, $column, $metaKeys);
         }
         $registrationDateInputs['assignment_effective_from'] = RegistrationDisplay::adminAssignmentEffectiveInput($request, $employee);
         $registrationDateInputs = RegistrationDisplay::mergeRegistrationDatesFromDatabase($conn, $publicId, $registrationDateInputs);
+        $registrationDateFormats = RegistrationDisplay::mergeRegistrationDateFormatsFromDatabase($conn, $publicId, $registrationDateFormats);
 
         return view('admin.registration-show', [
             'company' => $sessionCompany,
@@ -116,8 +122,9 @@ class AdminDashboardController extends Controller
             'workLocations' => $workLocations,
             'shifts' => $shifts,
             'registrationPicklists' => $registrationPicklists,
-            'availabilityCalendar' => $availabilityCalendar,
+            'weeklyGrid' => $weeklyGrid,
             'registrationDateInputs' => $registrationDateInputs,
+            'registrationDateFormats' => $registrationDateFormats,
         ]);
     }
 }

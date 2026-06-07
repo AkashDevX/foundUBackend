@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AppBootstrapController;
+use App\Http\Controllers\Api\V1\ClockInEmployeeController;
+use App\Http\Controllers\Api\V1\ClockOutEmployeeController;
 use App\Http\Controllers\Api\V1\CurrentEmployeeController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
+use App\Http\Controllers\Api\V1\TimeClockStatusController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -30,6 +33,7 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
      * - POST /login — only email+password grants a Bearer token (status must be active).
      * - Org approval does not log anyone in; RN must not treat approval as auth — user signs in manually.
      * - GET /me, POST /logout — Authorization: Bearer {token} from /login only.
+     * - GET /time-clock/status, POST /time-clock/clock-in|clock-out — GPS geofence vs assigned work site.
      */
     Route::post('/register', RegisterEmployeeController::class);
     Route::post('/login', LoginEmployeeController::class);
@@ -37,6 +41,10 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', CurrentEmployeeController::class);
         Route::post('/logout', LogoutEmployeeController::class);
+
+        Route::get('/time-clock/status', TimeClockStatusController::class);
+        Route::post('/time-clock/clock-in', ClockInEmployeeController::class);
+        Route::post('/time-clock/clock-out', ClockOutEmployeeController::class);
     });
 
     Route::get('/tenant/context', function () {

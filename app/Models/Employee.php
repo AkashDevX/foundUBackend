@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
@@ -92,6 +93,11 @@ class Employee extends Model
     public function assignedShift(): BelongsTo
     {
         return $this->belongsTo(Shift::class, 'shift_id');
+    }
+
+    public function timeClockEntries(): HasMany
+    {
+        return $this->hasMany(TimeClockEntry::class);
     }
 
     /**

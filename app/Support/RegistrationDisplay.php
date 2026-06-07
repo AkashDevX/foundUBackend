@@ -47,6 +47,8 @@ final class RegistrationDisplay
      */
     public static function employeeRawDateValue(Employee $employee, string $column, array $metadataKeys = []): mixed
     {
+        $candidates = [];
+
         $attrs = $employee->getAttributes();
         $v = $attrs[$column] ?? null;
         if (($v === null || (is_string($v) && trim($v) === '')) && method_exists($employee, 'getRawOriginal')) {
@@ -58,11 +60,13 @@ final class RegistrationDisplay
             } catch (\Throwable) {
             }
         }
-        if ($v !== null && ! is_string($v)) {
-            return $v;
+        if ($v !== null && (! is_string($v) || trim($v) !== '')) {
+            $candidates[] = $v;
         }
-        if (is_string($v) && trim($v) !== '') {
-            return $v;
+
+        $direct = self::databaseColumnValue($employee, $column);
+        if ($direct !== null && (! is_string($direct) || trim($direct) !== '')) {
+            $candidates[] = $direct;
         }
 
         $meta = $employee->profile_metadata;
@@ -95,25 +99,31 @@ final class RegistrationDisplay
             if ($mv === null || $mv === '' || $mv === []) {
                 continue;
             }
-
-            return $mv;
+            $candidates[] = $mv;
         }
 
         $nested = self::firstScalarMatchInTree($meta, $metadataKeys);
         if ($nested !== null && $nested !== '') {
-            return $nested;
+            $candidates[] = $nested;
         }
 
         if ($column === 'date_of_birth') {
             $fromDocs = self::firstScalarMatchInDocumentRows($employee->id_documents_json ?? null, $metadataKeys);
             if ($fromDocs !== null && $fromDocs !== '') {
-                return $fromDocs;
+                $candidates[] = $fromDocs;
             }
         }
 
-        $direct = self::databaseColumnValue($employee, $column);
-        if ($direct !== null && (! is_string($direct) || trim($direct) !== '')) {
-            return $direct;
+        foreach ($candidates as $candidate) {
+            if (self::parseStoredDateWithFormat($candidate) !== null) {
+                return $candidate;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate !== null && (! is_string($candidate) || trim($candidate) !== '')) {
+                return $candidate;
+            }
         }
 
         return null;
@@ -133,13 +143,49 @@ final class RegistrationDisplay
             if (is_array($old) && array_key_exists($column, $old)) {
                 $ov = $old[$column];
                 if ($ov !== null && $ov !== '') {
-                    return self::toHtmlDateInput($ov);
+                    $parsedOld = self::parseStoredDateWithFormat($ov);
+                    if ($parsedOld !== null) {
+                        return $parsedOld['iso'];
+                    }
                 }
-                // Flashed empty string (stale session / other form) must not hide a persisted DB date
+                // Flashed empty or unparseable old input must not hide a persisted DB date
             }
         }
 
-        return self::toHtmlDateInput($fromModel);
+        $parsed = self::parseStoredDateWithFormat($fromModel);
+        if ($parsed !== null) {
+            return $parsed['iso'];
+        }
+
+        $fromDb = self::databaseColumnValue($employee, $column);
+        $parsedDb = self::parseStoredDateWithFormat($fromDb);
+
+        return $parsedDb['iso'] ?? '';
+    }
+
+    /**
+     * PHP date() format token for round-tripping admin saves (hidden input per date field).
+     *
+     * @param  list<string>  $metadataKeys
+     */
+    public static function adminDateStorageFormat(Request $request, Employee $employee, string $column, array $metadataKeys): string
+    {
+        $formatKey = $column.'_storage_format';
+        $errors = $request->session()->get('errors');
+        if ($errors instanceof ViewErrorBag && $errors->any()) {
+            $old = $request->session()->getOldInput();
+            if (is_array($old) && array_key_exists($formatKey, $old)) {
+                $candidate = trim((string) $old[$formatKey]);
+                if ($candidate !== '' && in_array($candidate, self::allowedStorageDateFormats(), true)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        $fromModel = self::employeeRawDateValue($employee, $column, $metadataKeys);
+        $parsed = self::parseStoredDateWithFormat($fromModel);
+
+        return $parsed['format'] ?? 'Y-m-d';
     }
 
     public static function adminAssignmentEffectiveInput(Request $request, Employee $employee): string
@@ -183,12 +229,12 @@ final class RegistrationDisplay
                 if (! array_key_exists($col, $arr)) {
                     continue;
                 }
-                $iso = self::toHtmlDateInput($arr[$col]);
-                if ($iso === '') {
+                $parsed = self::parseStoredDateWithFormat($arr[$col]);
+                if ($parsed === null) {
                     continue;
                 }
                 if (($inputs[$col] ?? '') === '') {
-                    $inputs[$col] = $iso;
+                    $inputs[$col] = $parsed['iso'];
                 }
             }
             if (array_key_exists('assignment_effective_from', $arr)) {
@@ -205,6 +251,36 @@ final class RegistrationDisplay
     }
 
     /**
+     * Fills still-empty storage-format hints from the raw tenant row.
+     *
+     * @param  array<string, string>  $formats
+     * @return array<string, string>
+     */
+    public static function mergeRegistrationDateFormatsFromDatabase(string $connection, string $publicId, array $formats): array
+    {
+        try {
+            $row = DB::connection($connection)->table('employees')->where('public_id', $publicId)->first();
+            if ($row === null) {
+                return $formats;
+            }
+            $arr = (array) $row;
+            foreach (array_keys(self::adminProfileDateMetadataKeys()) as $col) {
+                if (! array_key_exists($col, $arr) || ($formats[$col] ?? '') !== '') {
+                    continue;
+                }
+                $parsed = self::parseStoredDateWithFormat($arr[$col]);
+                if ($parsed !== null) {
+                    $formats[$col] = $parsed['format'];
+                }
+            }
+
+            return $formats;
+        } catch (\Throwable) {
+            return $formats;
+        }
+    }
+
+    /**
      * @return array<string, list<string>>
      */
     public static function adminProfileDateMetadataKeys(): array
@@ -215,6 +291,8 @@ final class RegistrationDisplay
             'police_check_expiry' => ['policeCheckExpiry', 'police_check_expiry'],
             'fit_to_work_expiry' => ['fitToWorkExpiry', 'fit_to_work_expiry'],
             'vehicle_expiry' => ['vehicleExpiry', 'vehicle_expiry'],
+            'licences_summary' => ['licencesSummary', 'licences_summary'],
+            'insurances_summary' => ['insurancesSummary', 'insurances_summary'],
         ];
     }
 
@@ -318,10 +396,37 @@ final class RegistrationDisplay
     }
 
     /**
-     * Normalize a stored or submitted date to Y-m-d, or null if empty / unparseable.
-     * Use for API JSON and persisting so clients and HTML date inputs always see ISO calendar dates.
+     * @return list<string>
      */
-    public static function toNullableIsoDate(mixed $value): ?string
+    public static function allowedStorageDateFormats(): array
+    {
+        return [
+            'Y-m-d',
+            'Y/m/d',
+            'm/d/Y',
+            'n/j/Y',
+            'm-d-Y',
+            'n-j-Y',
+            'd/m/Y',
+            'j/n/Y',
+            'd-m-Y',
+            'j-n-Y',
+            'd.m.Y',
+            'Ymd',
+            'd/m/y',
+            'm-d-y',
+            'n-j-y',
+            'd-m-y',
+            'j-n-y',
+        ];
+    }
+
+    /**
+     * Parse a stored registration date and remember its display/storage format for admin round-trip.
+     *
+     * @return array{iso: string, format: string}|null
+     */
+    public static function parseStoredDateWithFormat(mixed $value): ?array
     {
         if ($value === null) {
             return null;
@@ -335,11 +440,12 @@ final class RegistrationDisplay
             if ($f > 1.0e12) {
                 $f = $f / 1000.0;
             }
-            $tz = config('app.timezone');
-            // Skip bare years like 1990 (treat as string below). Real Unix times for DOB are much larger.
+            $tz = DisplayTimezone::name();
             if (abs($f) > 31_536_000) {
                 try {
-                    return Carbon::createFromTimestamp((int) $f)->timezone($tz)->format('Y-m-d');
+                    $iso = Carbon::createFromTimestamp((int) $f)->timezone($tz)->format('Y-m-d');
+
+                    return ['iso' => $iso, 'format' => 'Y-m-d'];
                 } catch (\Throwable) {
                 }
             }
@@ -351,53 +457,58 @@ final class RegistrationDisplay
                 $m = (int) $value['month'];
                 $d = (int) $value['day'];
                 if ($y > 0 && $m > 0 && $d > 0 && checkdate($m, $d, $y)) {
-                    return sprintf('%04d-%02d-%02d', $y, $m, $d);
+                    return ['iso' => sprintf('%04d-%02d-%02d', $y, $m, $d), 'format' => 'Y-m-d'];
                 }
                 if ($y > 0 && $m >= 0 && $m <= 11 && $d > 0) {
                     $m1 = $m + 1;
                     if (checkdate($m1, $d, $y)) {
-                        return sprintf('%04d-%02d-%02d', $y, $m1, $d);
+                        return ['iso' => sprintf('%04d-%02d-%02d', $y, $m1, $d), 'format' => 'Y-m-d'];
                     }
                 }
             }
         }
 
         if ($value instanceof CarbonInterface) {
-            return $value->format('Y-m-d');
+            return ['iso' => $value->format('Y-m-d'), 'format' => 'Y-m-d'];
         }
         if ($value instanceof \DateTimeInterface) {
             try {
-                return Carbon::parse($value)->format('Y-m-d');
+                $iso = Carbon::parse($value)->format('Y-m-d');
+
+                return ['iso' => $iso, 'format' => 'Y-m-d'];
             } catch (\Throwable) {
                 return null;
             }
         }
 
-        $s = trim((string) $value);
+        $s = self::normalizeDateString((string) $value);
         if ($s === '') {
             return null;
         }
 
-        $s = str_replace("\xC2\xA0", ' ', $s);
-        $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
-
-        // Strip a single pair of surrounding ASCII quotes (stored JSON fragments, copy/paste).
-        if (
-            strlen($s) >= 2
-            && (($s[0] === '"' && $s[strlen($s) - 1] === '"') || ($s[0] === "'" && $s[strlen($s) - 1] === "'"))
-        ) {
-            $s = trim(substr($s, 1, -1));
+        if (preg_match('#^(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?:\s|T).+#', $s, $datePrefix)) {
+            $prefixParsed = self::parseStoredDateWithFormat($datePrefix[1]);
+            if ($prefixParsed !== null) {
+                return $prefixParsed;
+            }
         }
 
-        if ($s === '') {
-            return null;
+        $strictFormat = self::detectStorageDateFormat($s);
+        if ($strictFormat !== null) {
+            try {
+                $parsed = Carbon::createFromFormat('!'.$strictFormat, $s);
+                if ($parsed !== false) {
+                    return ['iso' => $parsed->format('Y-m-d'), 'format' => $strictFormat];
+                }
+            } catch (\Throwable) {
+            }
         }
 
         if (preg_match('/^(\d{4}-\d{2}-\d{2})/', $s, $m)) {
             try {
                 $day = Carbon::createFromFormat('Y-m-d', $m[1]);
                 if ($day !== false && $day->format('Y-m-d') === $m[1]) {
-                    return $m[1];
+                    return ['iso' => $m[1], 'format' => 'Y-m-d'];
                 }
             } catch (\Throwable) {
             }
@@ -407,31 +518,54 @@ final class RegistrationDisplay
             try {
                 $day = Carbon::createFromFormat('Y-m-d', $m[1]);
                 if ($day !== false && $day->format('Y-m-d') === $m[1]) {
-                    return $m[1];
+                    return ['iso' => $m[1], 'format' => 'Y-m-d'];
                 }
             } catch (\Throwable) {
             }
         }
 
-        // Numeric month/day/year with -, /, or . (DB often stores mm-dd-yyyy; HTML date inputs require Y-m-d).
-        // Prefer US order (month/day/year) when it is a valid calendar date; otherwise try day/month/year.
-        if (preg_match('#^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b#', $s, $m)) {
+        if (preg_match('#^(\d{1,2})([-/.])(\d{1,2})\2(\d{2,4})(?:\D|$)#', $s, $m)) {
             $a = (int) $m[1];
-            $b = (int) $m[2];
-            $year = (int) $m[3];
+            $b = (int) $m[3];
+            $year = (int) $m[4];
+            if ($year >= 0 && $year < 100) {
+                $year += $year >= 70 ? 1900 : 2000;
+            }
             if ($year >= 1000 && $year <= 9999) {
-                if ($a >= 1 && $a <= 12 && $b >= 1 && $b <= 31 && checkdate($a, $b, $year)) {
-                    return sprintf('%04d-%02d-%02d', $year, $a, $b);
+                $usValid = $a >= 1 && $a <= 12 && $b >= 1 && $b <= 31 && checkdate($a, $b, $year);
+                $euValid = $b >= 1 && $b <= 12 && $a >= 1 && $a <= 31 && checkdate($b, $a, $year);
+                if ($usValid && ! $euValid) {
+                    return [
+                        'iso' => sprintf('%04d-%02d-%02d', $year, $a, $b),
+                        'format' => self::inferNumericDateFormat($s, true),
+                    ];
                 }
-                if ($b >= 1 && $b <= 12 && $a >= 1 && $a <= 31 && checkdate($b, $a, $year)) {
-                    return sprintf('%04d-%02d-%02d', $year, $b, $a);
+                if ($euValid && ! $usValid) {
+                    return [
+                        'iso' => sprintf('%04d-%02d-%02d', $year, $b, $a),
+                        'format' => self::inferNumericDateFormat($s, false),
+                    ];
+                }
+                if ($usValid) {
+                    return [
+                        'iso' => sprintf('%04d-%02d-%02d', $year, $a, $b),
+                        'format' => self::inferNumericDateFormat($s, true),
+                    ];
+                }
+                if ($euValid) {
+                    return [
+                        'iso' => sprintf('%04d-%02d-%02d', $year, $b, $a),
+                        'format' => self::inferNumericDateFormat($s, false),
+                    ];
                 }
             }
         }
 
         if (preg_match('/^\d{8}$/', $s)) {
             try {
-                return Carbon::createFromFormat('Ymd', $s)->format('Y-m-d');
+                $parsed = Carbon::createFromFormat('Ymd', $s);
+
+                return ['iso' => $parsed->format('Y-m-d'), 'format' => 'Ymd'];
             } catch (\Throwable) {
             }
         }
@@ -442,48 +576,152 @@ final class RegistrationDisplay
                 : (int) $s;
             if ($ts > 0) {
                 try {
-                    return Carbon::createFromTimestamp($ts)->timezone(config('app.timezone'))->format('Y-m-d');
+                    $iso = Carbon::createFromTimestamp($ts)->timezone(DisplayTimezone::name())->format('Y-m-d');
+
+                    return ['iso' => $iso, 'format' => 'Y-m-d'];
                 } catch (\Throwable) {
                 }
             }
         }
 
         try {
-            return Carbon::parse($s)->format('Y-m-d');
+            $iso = Carbon::parse($s)->format('Y-m-d');
+
+            return ['iso' => $iso, 'format' => 'Y-m-d'];
         } catch (\Throwable) {
         }
 
-        $formats = [
-            'Y-m-d',
-            'm-d-Y',
-            'n-j-Y',
-            'm/d/Y',
-            'n/j/Y',
-            'd/m/Y',
-            'd-m-Y',
-            'd.m.Y',
-            'j/n/Y',
-            'j-n-Y',
-            'Y/m/d',
-            'Y-m-d H:i:s',
-            'Y-m-d H:i:s.u',
-            'd/m/y',
-            'j M Y',
-            'j F Y',
-            'M j, Y',
-            'F j, Y',
-        ];
-        foreach ($formats as $fmt) {
+        foreach (self::allowedStorageDateFormats() as $fmt) {
             try {
                 $parsed = Carbon::createFromFormat($fmt, $s);
                 if ($parsed !== false) {
-                    return $parsed->format('Y-m-d');
+                    return ['iso' => $parsed->format('Y-m-d'), 'format' => $fmt];
                 }
             } catch (\Throwable) {
             }
         }
 
         return null;
+    }
+
+    /**
+     * Normalize a stored or submitted date to Y-m-d, or null if empty / unparseable.
+     */
+    public static function toNullableIsoDate(mixed $value): ?string
+    {
+        return self::parseStoredDateWithFormat($value)['iso'] ?? null;
+    }
+
+    /**
+     * Convert an HTML date input value (Y-m-d) back to the employee's original storage format.
+     */
+    public static function isoDateToStorageFormat(string $iso, string $storageFormat): ?string
+    {
+        $format = trim($storageFormat);
+        if ($format === '' || $format === 'Y-m-d') {
+            return $iso;
+        }
+        if (! in_array($format, self::allowedStorageDateFormats(), true)) {
+            return $iso;
+        }
+        try {
+            return Carbon::createFromFormat('Y-m-d', $iso)->format($format);
+        } catch (\Throwable) {
+            return $iso;
+        }
+    }
+
+    /**
+     * Persist admin date field: accept picker ISO, store using remembered format.
+     */
+    public static function persistAdminDateField(mixed $submitted, ?string $storageFormat): ?string
+    {
+        $iso = self::toNullableIsoDate($submitted);
+        if ($iso === null) {
+            return null;
+        }
+
+        return self::isoDateToStorageFormat($iso, $storageFormat ?? 'Y-m-d');
+    }
+
+    private static function normalizeDateString(string $value): string
+    {
+        $s = trim($value);
+        if ($s === '') {
+            return '';
+        }
+
+        $s = str_replace("\xC2\xA0", ' ', $s);
+        $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+
+        if (
+            strlen($s) >= 2
+            && (($s[0] === '"' && $s[strlen($s) - 1] === '"') || ($s[0] === "'" && $s[strlen($s) - 1] === "'"))
+        ) {
+            $s = trim(substr($s, 1, -1));
+        }
+
+        return self::compactSpacedDateString(trim($s));
+    }
+
+    /**
+     * DB/mobile dates sometimes store spaces around separators ("03 / 15 / 2026") or between parts.
+     */
+    private static function compactSpacedDateString(string $s): string
+    {
+        if ($s === '') {
+            return '';
+        }
+
+        // "03 / 15 / 2026", "2026 - 03 - 15", "03. 15. 2026" → compact separators
+        $s = preg_replace('/\s*([\-\/\.])\s*/u', '$1', $s) ?? $s;
+
+        // "03 15 2026" or "2026 03 15" (spaces only, no separator)
+        if (preg_match('/^(\d{1,4})\s+(\d{1,2})\s+(\d{1,4})$/', $s, $m)) {
+            return $m[1].'/'.$m[2].'/'.$m[3];
+        }
+
+        // Any remaining internal spaces (e.g. typo "03/ 15/ 2026" after partial cleanup)
+        if (preg_match('/^\d/', $s) && preg_match('/\d$/', $s) && str_contains($s, ' ')) {
+            $s = preg_replace('/\s+/u', '', $s) ?? $s;
+        }
+
+        return trim($s);
+    }
+
+    private static function detectStorageDateFormat(string $s): ?string
+    {
+        foreach (self::allowedStorageDateFormats() as $fmt) {
+            try {
+                $parsed = Carbon::createFromFormat('!'.$fmt, $s);
+                if ($parsed !== false && $parsed->format($fmt) === $s) {
+                    return $fmt;
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        return null;
+    }
+
+    private static function inferNumericDateFormat(string $s, bool $monthFirst): string
+    {
+        if (! preg_match('#^(\d{1,2})([-/.])(\d{1,2})\2(\d{4})\b#', $s, $m)) {
+            return $monthFirst ? 'm/d/Y' : 'd/m/Y';
+        }
+        $sep = $m[2];
+        $first = $m[1];
+        $second = $m[3];
+        if ($monthFirst) {
+            $monthToken = strlen($first) >= 2 ? 'm' : 'n';
+            $dayToken = strlen($second) >= 2 ? 'd' : 'j';
+
+            return $monthToken.$sep.$dayToken.$sep.'Y';
+        }
+        $dayToken = strlen($first) >= 2 ? 'd' : 'j';
+        $monthToken = strlen($second) >= 2 ? 'm' : 'n';
+
+        return $dayToken.$sep.$monthToken.$sep.'Y';
     }
 
     /**
@@ -619,6 +857,7 @@ final class RegistrationDisplay
 
             $out[] = [
                 'title' => $title,
+                'display_label' => self::pickDocumentTitle($row) ?: '',
                 'subtitle' => $subtitle,
                 'meta' => $meta,
                 'storage_path' => $path,
@@ -634,13 +873,35 @@ final class RegistrationDisplay
      */
     private static function pickDocumentTitle(array $row): string
     {
-        foreach (['documentType', 'document_type', 'type', 'name', 'title', 'label'] as $k) {
+        foreach (['documentType', 'document_type', 'idType', 'id_type', 'type', 'name', 'title', 'label'] as $k) {
             if (! empty($row[$k]) && is_scalar($row[$k])) {
                 return trim((string) $row[$k]);
             }
         }
 
         return '';
+    }
+
+    /**
+     * Match a stored document type string to a picklist value (value or label).
+     *
+     * @param  iterable<int, object{value: string, label?: string|null}>  $items
+     */
+    public static function matchPicklistValue(string $candidate, iterable $items): string
+    {
+        $c = trim($candidate);
+        if ($c === '') {
+            return '';
+        }
+        foreach ($items as $item) {
+            $value = (string) ($item->value ?? '');
+            $label = (string) ($item->label ?? $value);
+            if (strcasecmp($value, $c) === 0 || strcasecmp($label, $c) === 0) {
+                return $value;
+            }
+        }
+
+        return $c;
     }
 
     /**

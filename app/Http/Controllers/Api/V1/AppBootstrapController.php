@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\RegistrationPicklistItem;
+use App\Support\DisplayTimezone;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -39,7 +40,9 @@ class AppBootstrapController extends Controller
         }
 
         return response()->json([
-            'generated_at' => now()->toIso8601String(),
+            'generated_at' => now('UTC')->toIso8601String(),
+            'timezone' => DisplayTimezone::name(),
+            'locale' => DisplayTimezone::locale(),
             'companies' => $companies->map(fn (Company $c): array => [
                 'id' => $c->id,
                 'appKey' => $c->app_key,

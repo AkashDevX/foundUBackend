@@ -21,30 +21,73 @@ use Illuminate\Validation\ValidationException;
 
 class AdminEmployeeAssignmentController extends Controller
 {
-    public function index(Request $request): View
+    public function assignments(Request $request): View
+    {
+        $data = $this->employeePageData($request, loadTimeClockEntries: false);
+
+        return view('admin.employees-assignments', $data);
+    }
+
+    public function timeClock(Request $request): View
+    {
+        $data = $this->employeePageData($request, loadTimeClockEntries: true);
+
+        $selectedPublicId = $request->query('employee');
+        $selectedEmployee = null;
+        if (is_string($selectedPublicId) && $selectedPublicId !== '') {
+            $selectedEmployee = $data['employees']->firstWhere('public_id', $selectedPublicId);
+        }
+
+        $eventFilter = $request->query('event', 'all');
+        if (! in_array($eventFilter, ['all', 'clock_in', 'clock_out'], true)) {
+            $eventFilter = 'all';
+        }
+
+        $data['selectedEmployee'] = $selectedEmployee;
+        $data['eventFilter'] = $eventFilter;
+
+        return view('admin.employees-time-clock', $data);
+    }
+
+    /**
+     * @return array{
+     *     company: \App\Models\Company,
+     *     employees: \Illuminate\Support\Collection<int, Employee>,
+     *     departments: \Illuminate\Support\Collection,
+     *     workLocations: \Illuminate\Support\Collection,
+     *     shifts: \Illuminate\Support\Collection,
+     * }
+     */
+    private function employeePageData(Request $request, bool $loadTimeClockEntries): array
     {
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $company = $portalUser->company()->firstOrFail();
         $conn = $company->tenant_connection;
 
-        $employeesQuery = Employee::on($conn)
-            ->with(['assignedDepartment', 'workLocation', 'assignedShift'])
+        $with = ['assignedDepartment', 'workLocation', 'assignedShift'];
+        if ($loadTimeClockEntries) {
+            $with['timeClockEntries'] = static function ($query): void {
+                $query->with(['workLocation', 'department', 'shift'])
+                    ->orderByDesc('clocked_at')
+                    ->orderByDesc('id')
+                    ->limit(100);
+            };
+        }
+
+        $employees = Employee::on($conn)
+            ->with($with)
             ->where('employment_status', 'active')
-            ->orderBy('full_legal_name');
+            ->orderBy('full_legal_name')
+            ->get();
 
-        $employees = $employeesQuery->get();
-        $departments = Department::on($conn)->where('is_active', true)->orderBy('name')->get();
-        $workLocations = WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get();
-        $shifts = Shift::on($conn)->where('is_active', true)->orderBy('name')->get();
-
-        return view('admin.employees', [
+        return [
             'company' => $company,
             'employees' => $employees,
-            'departments' => $departments,
-            'workLocations' => $workLocations,
-            'shifts' => $shifts,
-        ]);
+            'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'shifts' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
+        ];
     }
 
     public function update(Request $request, string $companySlug, string $publicId): RedirectResponse
@@ -181,6 +224,9 @@ class AdminEmployeeAssignmentController extends Controller
         [$firstName, $lastName] = FoundUProfileMapper::splitFullLegalName($data['full_legal_name']);
 
         $weeklyJson = AdminWeeklyAvailability::encodeFromRequest($request);
+        $weeklySummary = AdminWeeklyAvailability::summaryTextFromMobileGrid(
+            AdminWeeklyAvailability::mobileGridState($weeklyJson)
+        );
 
         $sexNormalized = $this->normalizeSex($data['sex'] ?? null);
 
@@ -202,8 +248,13 @@ class AdminEmployeeAssignmentController extends Controller
                 'last_name' => $lastName,
                 'sex' => $sexNormalized,
                 'weekly_availability_json' => $weeklyJson,
+                'weekly_availability_summary' => $weeklySummary,
             ])
             ->all();
+
+        if ($this->isUnrestrictedWorkRightsYes($fill['unrestricted_work_rights'] ?? null)) {
+            $fill['visa_expiry'] = null;
+        }
 
         if (! $this->transportIsOwnVehicle($fill['mode_of_transport'] ?? null)) {
             $fill['vehicle_registration'] = null;
@@ -216,13 +267,17 @@ class AdminEmployeeAssignmentController extends Controller
             $fill['vehicle_insurance_uploaded'] = $data['vehicle_insurance_uploaded'] ?? null;
         }
 
-        if (($fill['bank_account_number'] ?? '') === '') {
+        $bankNum = trim((string) ($fill['bank_account_number'] ?? ''));
+        if ($bankNum === '' || preg_match('/^X{10}\d{4}$/i', $bankNum)) {
             unset($fill['bank_account_number']);
         }
 
-        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry'] as $dateField) {
+        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry', 'licences_summary', 'insurances_summary'] as $dateField) {
             if (array_key_exists($dateField, $fill)) {
-                $fill[$dateField] = RegistrationDisplay::toNullableIsoDate($fill[$dateField]);
+                $fill[$dateField] = RegistrationDisplay::persistAdminDateField(
+                    $fill[$dateField],
+                    $request->input($dateField.'_storage_format')
+                );
             }
         }
 
@@ -232,6 +287,17 @@ class AdminEmployeeAssignmentController extends Controller
         $employee->save();
 
         app(RegistrationDocumentStorage::class)->attach($request, $employee, $sessionCompany->slug);
+
+        $uploadFlags = [];
+        if ($request->hasFile('police_check')) {
+            $uploadFlags['police_check_uploaded'] = 'Yes';
+        }
+        if ($request->hasFile('fit_to_work')) {
+            $uploadFlags['fit_to_work_uploaded'] = 'Yes';
+        }
+        if ($uploadFlags !== []) {
+            $employee->forceFill($uploadFlags)->save();
+        }
 
         if (! $this->transportIsOwnVehicle($employee->mode_of_transport)) {
             $employee->forceFill([
@@ -262,7 +328,7 @@ class AdminEmployeeAssignmentController extends Controller
         $this->updateAssignmentForEmployee($request, $employee, $conn);
 
         return redirect()
-            ->route('admin.employees')
+            ->route('admin.employees.assignments')
             ->with('status', 'Work assignment updated for '.$employee->full_legal_name.'.');
     }
 
@@ -430,6 +496,15 @@ class AdminEmployeeAssignmentController extends Controller
         }
 
         return strcasecmp(trim($mode), 'Own vehicle') === 0;
+    }
+
+    private function isUnrestrictedWorkRightsYes(?string $value): bool
+    {
+        if ($value === null || trim($value) === '') {
+            return false;
+        }
+
+        return strcasecmp(trim($value), 'Yes') === 0;
     }
 
     private function assertPicklistOptional(?string $value, string $picklistKey, string $errorField): void

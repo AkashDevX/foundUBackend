@@ -4,9 +4,11 @@ namespace App\Providers;
 
 use App\Models\Company;
 use App\Models\TenantPersonalAccessToken;
+use App\Support\DisplayTimezone;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 
@@ -34,6 +36,13 @@ class AppServiceProvider extends ServiceProvider
         Request::macro('tenantCompany', function (): ?Company {
             /** @var Request $this */
             return $this->attributes->get('tenant_company');
+        });
+
+        View::composer(['layouts.admin', 'admin.*'], function ($view): void {
+            $view->with([
+                'displayTimezone' => DisplayTimezone::name(),
+                'displayTimezoneLabel' => DisplayTimezone::label(),
+            ]);
         });
     }
 }

@@ -65,7 +65,21 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => env('APP_TIMEZONE', 'UTC'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Display Timezone (admin UI, mobile API metadata, reports)
+    |--------------------------------------------------------------------------
+    |
+    | All user-facing times use Australian business time. Punch timestamps and
+    | other datetimes are stored in UTC (APP_TIMEZONE) and converted here.
+    |
+    */
+
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Australia/Sydney'),
+
+    'display_locale' => env('APP_DISPLAY_LOCALE', 'en_AU'),
 
     /*
     |--------------------------------------------------------------------------
@@ -78,7 +92,7 @@ return [
     |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    'locale' => env('APP_LOCALE', 'en_AU'),
 
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 

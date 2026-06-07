@@ -6,6 +6,7 @@ This folder is **not** a standalone app. Copy `mobile/auth/` into your React Nat
 
 ```bash
 npm install @react-native-async-storage/async-storage
+npx expo install expo-location
 ```
 
 For production tokens, prefer `expo-secure-store` (Expo) or Keychain and swap `sessionStorage.ts`.
@@ -46,6 +47,9 @@ setApiConfig({
 - `POST /api/v1/register` — header `X-Company-Slug`; creates **pending** employee (tenant DB)
 - `POST /api/v1/login` — email + password; **Bearer token** only if status is **active**
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`
+- `GET /api/v1/time-clock/status` — current clock state + assignment geofence info
+- `POST /api/v1/time-clock/clock-in` — body `{ latitude, longitude, accuracy_meters? }` (must be within radius of assigned work site)
+- `POST /api/v1/time-clock/clock-out` — same body; must be clocked in first
 
 Organization portal (admin approve/decline): web UI at `/` → `/admin` after signing in.
 
@@ -68,3 +72,18 @@ const shift = shiftTabCard(currentEmployee);
 ```
 
 `currentEmployee.work_assignment` includes admin-assigned `department`, `work_location` (with `latitude/longitude`), and `shift`.
+
+## Clock in / clock out (GPS geofence)
+
+Uses **`time_clock_entries`** only (one row per punch: `clock_in` / `clock_out`). Legacy `time_clock_sessions` was removed.
+
+Copy `timeClockApi.ts`, `timeClockTypes.ts`, `useTimeClock.ts`, and optionally `TimeClockScreen.pattern.tsx`.
+
+```ts
+import { useTimeClock } from './auth';
+
+const { status, clockIn, clockOut, refresh } = useTimeClock();
+// status.is_clocked_in, status.can_clock_in, status.geofence_radius_meters
+```
+
+The API compares device GPS to the **assigned work location** coordinates (set in the admin workforce UI). Default allowed radius: **100 m** (`TIME_CLOCK_GEOFENCE_RADIUS_METERS` on the server).

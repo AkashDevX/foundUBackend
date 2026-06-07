@@ -13,6 +13,7 @@
         /** @var \App\Models\Company $currentCompany */
         /** @var array<int, array{employee: \App\Models\Employee}> $rows */
         /** @var string|null $tenantError */
+        use App\Support\DisplayTimezone;
         /** @var string|null $statusFilter */
         /** @var int $statsTotal */
         /** @var int $statsPending */
@@ -38,7 +39,7 @@
                 {{ $currentCompany->name }}
             </h2>
             <p class="mt-1.5 text-sm text-brand-text-secondary">
-                <time datetime="{{ now()->toDateString() }}">{{ now()->format('l, F j, Y') }}</time>
+                <time datetime="{{ DisplayTimezone::now()->toDateString() }}">{{ DisplayTimezone::now()->format('l, F j, Y') }}</time>
                 <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
                 <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
             </p>
@@ -186,7 +187,7 @@
                                     @endif
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 tabular-nums text-brand-text-secondary sm:px-8">
-                                    {{ $employee->created_at?->timezone(config('app.timezone'))->format('M j, Y') }}<span class="hidden lg:inline">{{ $employee->created_at?->timezone(config('app.timezone'))->format(' · g:i A') }}</span>
+                                    {{ DisplayTimezone::formatDate($employee->created_at) }}<span class="hidden lg:inline">{{ DisplayTimezone::format($employee->created_at, ' · g:i A') }}</span>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-right sm:px-8">
                                     <a

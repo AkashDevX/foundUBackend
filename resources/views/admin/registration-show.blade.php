@@ -3,6 +3,8 @@
 @php
     /** @var \App\Models\Company $company */
     /** @var \App\Models\Employee $employee */
+    use App\Support\DisplayTimezone;
+
     $e = $employee;
     $line = static function (?string $v): string {
         return $v !== null && trim($v) !== '' ? e(trim($v)) : '—';
@@ -22,7 +24,8 @@
         return e((string) $v);
     };
     $bank = $e->bank_account_number;
-    $bankMasked = ($bank !== null && $bank !== '') ? '········'.substr((string) $bank, max(-4, -strlen((string) $bank))) : '—';
+    $bankHasAccount = $bank !== null && trim((string) $bank) !== '';
+    $bankMasked = $bankHasAccount ? str_repeat('X', 10).substr((string) $bank, -4) : '—';
 
     $weeklySections = \App\Support\RegistrationDisplay::weeklyAvailabilitySections($e->weekly_availability_json);
     $idDocRows = \App\Support\RegistrationDisplay::idDocumentRows($e->id_documents_json);
@@ -45,13 +48,15 @@
     $canEditProfile = ($e->employment_status ?? '') === 'active';
     /** @var \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, \App\Models\RegistrationPicklistItem>> $registrationPicklists */
     $registrationPicklists = $registrationPicklists ?? collect();
-    /** @var array<string, array{on: bool, start: string, end: string}> $availabilityCalendar */
-    $availabilityCalendar = $availabilityCalendar ?? \App\Support\AdminWeeklyAvailability::calendarState($e->weekly_availability_json);
+    /** @var array<string, array{morning: bool, evening: bool}> $weeklyGrid */
+    $weeklyGrid = $weeklyGrid ?? \App\Support\AdminWeeklyAvailability::mobileGridStateForEmployee(
+        $e->weekly_availability_json,
+        $e->weekly_availability_summary
+    );
     $editIn = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-inner [color-scheme:light] placeholder:text-brand-text-secondary/60 focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25';
     /** Native date inputs; value is ISO Y-m-d from server */
     $nativeDateIn = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm [color-scheme:light] focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25';
     $editTa = $editIn.' min-h-[4.5rem] resize-y align-top';
-    $calDayLabels = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
     /** @var array<string, string> $registrationDateInputs precomputed in {@see \App\Http\Controllers\Admin\AdminDashboardController::show} */
     $registrationDateInputs = $registrationDateInputs ?? [];
     $profileDateLine = static function (string $field, array $metaKeys) use ($line, $e): string {
@@ -109,7 +114,7 @@
 @section('heading', 'Application details')
 
 @section('subheading')
-    {{ $company->name }} · Submitted {{ $e->created_at?->timezone(config('app.timezone'))->format('M j, Y g:i A') ?? '—' }}
+    {{ $company->name }} · Submitted {{ DisplayTimezone::formatDateTime($e->created_at) }}
 @endsection
 
 @section('content')
@@ -172,7 +177,7 @@
         </div>
     @endif
 
-    @if ($e->profile_photo_path)
+    @if ($e->profile_photo_path && ! $canEditProfile)
         <div class="mb-10 rounded-2xl border border-brand-border bg-white p-6 shadow-sm">
             <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Profile photo</p>
             <div class="mt-3 overflow-hidden rounded-2xl border border-brand-border bg-brand-surface shadow-inner">
@@ -281,7 +286,7 @@
                 </div>
                 <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">
                     <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Effective / notes</p>
-                    <p class="mt-2 text-sm font-semibold text-brand-text">{{ $e->assignment_effective_from?->timezone(config('app.timezone'))->format('M j, Y') ?? '—' }}</p>
+                    <p class="mt-2 text-sm font-semibold text-brand-text">{{ DisplayTimezone::formatDate($e->assignment_effective_from) }}</p>
                     <p class="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-brand-text-secondary">{{ $line($e->assignment_notes) }}</p>
                 </div>
             </div>
@@ -343,7 +348,8 @@
     </section>
 
     @php
-        $dl = 'grid gap-4 border-b border-brand-border py-4 text-sm sm:grid-cols-[minmax(0,220px)_1fr] last:border-b-0';
+        $dl = 'grid gap-4 border-b border-brand-border py-4 text-sm sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center last:border-b-0';
+        $dlStart = 'grid gap-4 border-b border-brand-border py-4 text-sm sm:grid-cols-[minmax(0,220px)_1fr] sm:items-start last:border-b-0';
         $card = 'mb-10 overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm';
         $cardHead = 'border-b border-brand-border bg-gradient-to-r from-brand-surface to-white px-6 py-4 sm:px-8';
     @endphp

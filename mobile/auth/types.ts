@@ -3,6 +3,8 @@
  * Copy this folder into your RN app (e.g. src/auth/).
  */
 
+import type { TimeClockStatus } from './timeClockTypes';
+
 export type TenantHeaders = {
   'X-Company-Slug': string;
   'Content-Type': 'application/json';
@@ -85,6 +87,7 @@ export type CurrentEmployeeBody = {
     company_display_name: string | null;
     phone: string | null;
     work_assignment: WorkAssignment | null;
+    time_clock?: TimeClockStatus;
   };
 };
 
