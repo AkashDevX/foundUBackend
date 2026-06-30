@@ -125,6 +125,7 @@
                             <th class="hidden whitespace-nowrap px-4 py-3 lg:table-cell sm:px-5">Shift</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Distance</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Geofence</th>
+                            <th class="whitespace-nowrap px-4 py-3 sm:px-5">Source</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-brand-border/80">
@@ -178,6 +179,11 @@
                                     @else
                                         <span class="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900 ring-1 ring-amber-200">Outside</span>
                                     @endif
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3.5 sm:px-5">
+                                    <span class="inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold ring-1 {{ AdminTimeClockDisplay::punchSourceBadgeClasses($entry->punch_source) }}">
+                                        {{ AdminTimeClockDisplay::punchSourceLabel($entry->punch_source) }}
+                                    </span>
                                 </td>
                             </tr>
                         @endforeach

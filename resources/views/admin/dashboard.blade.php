@@ -22,10 +22,7 @@
     @endphp
 
     @if ($tenantError !== null)
-        <div class="mb-8 rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-amber-100/80 px-5 py-4 text-sm text-amber-950 shadow-sm ring-1 ring-amber-200/60">
-            <p class="font-semibold">Could not reach this organization’s database</p>
-            <p class="mt-2 font-mono text-xs leading-relaxed text-amber-900/90">{{ $tenantError }}</p>
-        </div>
+        <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
     {{-- Organization + counts: minimal, one accent, no decoration --}}

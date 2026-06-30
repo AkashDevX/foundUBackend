@@ -91,6 +91,24 @@ class RegisterEmployeeController extends Controller
             }
         }
 
+        if (array_key_exists('licences_json', $payload)) {
+            $payload['licences_json'] = RegistrationDisplay::normalizeDocumentJsonExpiryRows(
+                is_array($payload['licences_json']) ? $payload['licences_json'] : null
+            );
+            $payload['licences_summary'] = RegistrationDisplay::rebuildDocumentRowsSummary(
+                is_array($payload['licences_json']) ? $payload['licences_json'] : null
+            ) ?? ($payload['licences_summary'] ?? null);
+        }
+
+        if (array_key_exists('insurances_json', $payload)) {
+            $payload['insurances_json'] = RegistrationDisplay::normalizeDocumentJsonExpiryRows(
+                is_array($payload['insurances_json']) ? $payload['insurances_json'] : null
+            );
+            $payload['insurances_summary'] = RegistrationDisplay::rebuildDocumentRowsSummary(
+                is_array($payload['insurances_json']) ? $payload['insurances_json'] : null
+            ) ?? ($payload['insurances_summary'] ?? null);
+        }
+
         $employee = null;
 
         DB::connection()->transaction(function () use (

@@ -44,6 +44,7 @@ setApiConfig({
 ## Backend API (same host)
 
 - `GET /api/v1/bootstrap` — companies + picklists (master DB)
+- `POST /api/v1/request-organization` — header `X-Platform-Slug: crulynk`; new organisation access request (master DB, **CruLynk platform portal only**)
 - `POST /api/v1/register` — header `X-Company-Slug`; creates **pending** employee (tenant DB)
 - `POST /api/v1/login` — email + password; **Bearer token** only if status is **active**
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`

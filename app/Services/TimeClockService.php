@@ -76,6 +76,7 @@ class TimeClockService
                 $device,
                 $location,
                 $geofence,
+                TimeClockEntry::PUNCH_SOURCE_MANUAL,
             );
 
             return [
@@ -111,6 +112,45 @@ class TimeClockService
                 $device,
                 $location,
                 $geofence,
+                TimeClockEntry::PUNCH_SOURCE_MANUAL,
+            );
+
+            return [
+                'entry' => $entry,
+                'time_clock' => $this->statusFor($employee),
+            ];
+        });
+    }
+
+    /**
+     * Clock out when the employee leaves the geofence while still clocked in.
+     *
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null}  $device
+     * @return array{entry: TimeClockEntry, time_clock: array<string, mixed>}
+     */
+    public function autoClockOutOnGeofenceExit(Employee $employee, array $device): array
+    {
+        return DB::transaction(function () use ($employee, $device) {
+            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            $employee->loadMissing(['workLocation', 'assignedDepartment', 'assignedShift']);
+
+            $this->assertCanClockOut($employee);
+
+            $location = $employee->workLocation;
+            if (! $location instanceof WorkLocation) {
+                throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
+            }
+
+            $geofence = $this->evaluateGeofence($location, $device['latitude'], $device['longitude']);
+            $this->assertOutsideGeofence($geofence);
+
+            $entry = $this->createEntry(
+                $employee,
+                TimeClockEntry::EVENT_CLOCK_OUT,
+                $device,
+                $location,
+                $geofence,
+                TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT,
             );
 
             return [
@@ -212,6 +252,38 @@ class TimeClockService
     }
 
     /**
+     * @param  array{
+     *     distance_meters: float,
+     *     allowed_radius_meters: int,
+     *     within_geofence: bool,
+     *     expected_latitude: float,
+     *     expected_longitude: float,
+     * }  $geofence
+     */
+    private function assertOutsideGeofence(array $geofence): void
+    {
+        if (! $geofence['within_geofence']) {
+            return;
+        }
+
+        throw new TimeClockException(
+            'still_within_geofence',
+            sprintf(
+                'You are still within the work site geofence (about %.0f m away; allowed radius is %d m).',
+                $geofence['distance_meters'],
+                $geofence['allowed_radius_meters'],
+            ),
+            422,
+            [
+                'distance_from_site_meters' => $geofence['distance_meters'],
+                'allowed_radius_meters' => $geofence['allowed_radius_meters'],
+                'expected_latitude' => $geofence['expected_latitude'],
+                'expected_longitude' => $geofence['expected_longitude'],
+            ],
+        );
+    }
+
+    /**
      * @return array{
      *     distance_meters: float,
      *     allowed_radius_meters: int,
@@ -257,6 +329,7 @@ class TimeClockService
         array $device,
         WorkLocation $location,
         array $geofence,
+        string $punchSource = TimeClockEntry::PUNCH_SOURCE_MANUAL,
     ): TimeClockEntry {
         return TimeClockEntry::query()->create([
             'employee_id' => $employee->id,
@@ -271,6 +344,7 @@ class TimeClockService
             'distance_from_site_meters' => $geofence['distance_meters'],
             'allowed_radius_meters' => $geofence['allowed_radius_meters'],
             'within_geofence' => $geofence['within_geofence'],
+            'punch_source' => $punchSource,
             'department_id' => $employee->department_id,
             'shift_id' => $employee->shift_id,
         ]);

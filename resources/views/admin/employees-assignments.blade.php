@@ -8,6 +8,7 @@
     {{ $company->name }} — assign department, work location, and shift for active employees.
 @endsection
 
+
 @section('content')
     @php
         /** @var \Illuminate\Support\Collection<int, \App\Models\Employee> $employees */
@@ -32,23 +33,6 @@
             return collect($s->shift_days)->map(fn ($d) => $map[$d] ?? null)->filter()->join(', ');
         };
     @endphp
-
-    @if (session('status'))
-        <div class="mb-6 rounded-2xl border border-emerald-200/90 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-950 shadow-sm ring-1 ring-emerald-100">
-            {{ session('status') }}
-        </div>
-    @endif
-
-    @if ($errors->any())
-        <div class="mb-6 rounded-2xl border border-red-200/90 bg-red-50 px-5 py-4 text-sm text-red-950 shadow-sm ring-1 ring-red-100">
-            <p class="font-semibold">Could not save assignment</p>
-            <ul class="mt-2 list-inside list-disc space-y-1">
-                @foreach ($errors->all() as $err)
-                    <li>{{ $err }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     <p class="mb-6 rounded-xl border border-brand-border bg-white px-4 py-3 text-sm text-brand-text-secondary shadow-sm">
         Active employees only. 

@@ -16,7 +16,7 @@ class CurrentEmployeeController extends Controller
     {
         /** @var Employee $employee */
         $employee = $request->user();
-        $employee->loadMissing(['assignedDepartment', 'workLocation', 'assignedShift']);
+        $employee->loadMissing(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift']);
 
         $payload = $employee->toMobileProfilePayload($request->tenantCompany());
 

@@ -31,14 +31,24 @@ class AppServiceProvider extends ServiceProvider
 
         Authenticate::redirectUsing(fn () => route('portal.login'));
 
-        RedirectIfAuthenticated::redirectUsing(fn () => route('admin.dashboard'));
+        RedirectIfAuthenticated::redirectUsing(function () {
+            /** @var \App\Models\OrganizationPortalUser|null $user */
+            $user = auth('portal')->user();
+            $company = $user?->company;
+
+            if ($company !== null && $company->isPlatformController()) {
+                return route('platform.dashboard');
+            }
+
+            return route('admin.dashboard');
+        });
 
         Request::macro('tenantCompany', function (): ?Company {
             /** @var Request $this */
             return $this->attributes->get('tenant_company');
         });
 
-        View::composer(['layouts.admin', 'admin.*'], function ($view): void {
+        View::composer(['layouts.admin', 'admin.*', 'layouts.platform', 'platform.*'], function ($view): void {
             $view->with([
                 'displayTimezone' => DisplayTimezone::name(),
                 'displayTimezoneLabel' => DisplayTimezone::label(),

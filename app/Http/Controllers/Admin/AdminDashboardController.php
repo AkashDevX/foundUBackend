@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\JobTitle;
 use App\Models\OrganizationPortalUser;
 use App\Models\RegistrationPicklistItem;
 use App\Models\Shift;
@@ -86,9 +87,10 @@ class AdminDashboardController extends Controller
             ->where('public_id', $publicId)
             ->firstOrFail();
 
-        $employee->load(['assignedDepartment', 'workLocation', 'assignedShift']);
+        $employee->load(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift']);
 
         $departments = Department::on($conn)->where('is_active', true)->orderBy('name')->get();
+        $jobTitles = JobTitle::on($conn)->where('is_active', true)->orderBy('name')->get();
         $workLocations = WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get();
         $shifts = Shift::on($conn)->where('is_active', true)->orderBy('name')->get();
 
@@ -119,6 +121,7 @@ class AdminDashboardController extends Controller
             'company' => $sessionCompany,
             'employee' => $employee,
             'departments' => $departments,
+            'jobTitles' => $jobTitles,
             'workLocations' => $workLocations,
             'shifts' => $shifts,
             'registrationPicklists' => $registrationPicklists,

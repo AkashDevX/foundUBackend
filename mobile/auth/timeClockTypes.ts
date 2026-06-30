@@ -13,6 +13,7 @@ export type TimeClockEntryPayload = {
   distance_from_site_meters: number | null;
   allowed_radius_meters: number;
   within_geofence: boolean;
+  punch_source?: 'manual' | 'auto_geofence_exit';
   department_id: number | null;
   shift_id: number | null;
 };
@@ -55,6 +56,7 @@ export type TimeClockErrorBody = {
     | 'already_clocked_in'
     | 'not_clocked_in'
     | 'outside_geofence'
+    | 'still_within_geofence'
     | 'work_location_not_found';
   details: Record<string, unknown>;
 };

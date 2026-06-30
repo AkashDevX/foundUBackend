@@ -10,6 +10,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#003d7a">
+    @if (session('success'))
+        <meta name="flash-success" content="{{ e(session('success')) }}">
+    @endif
+    @if (isset($errors) && $errors->any())
+        <meta name="portal-has-validation-errors" content="1">
+    @endif
     <title>Login — {{ config('app.name') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
@@ -69,10 +75,10 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
                             </svg>
                         </div>
-                        <span class="text-4xl font-bold tracking-tight text-white sm:text-5xl">Workforce</span>
+                        <span class="text-4xl font-bold tracking-tight text-white sm:text-5xl">{{ config('app.name', 'CruLynk') }}</span>
                     </div>
                     <p class="max-w-lg text-[15px] leading-relaxed text-white/75 sm:text-base">
-                        Workforce registration portal — sign in to review applications for your organization.
+                        {{ config('app.name', 'CruLynk') }} registration portal — sign in to review applications for your organization.
                     </p>
                 </div>
             </div>
@@ -84,18 +90,7 @@
                 <h1 class="text-3xl font-bold tracking-tight text-brand-text sm:text-[2rem]">Login</h1>
                 <p class="mt-2 text-[15px] leading-relaxed text-brand-text-secondary">Please fill your information below.</p>
 
-                @if ($errors->any())
-                    <div class="mt-8 flex gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm ring-1 ring-red-100" role="alert">
-                        <svg class="mt-0.5 size-5 shrink-0 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
-                        <ul class="list-disc space-y-1 pl-1">
-                            @foreach ($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-
-                <form method="post" action="{{ route('portal.login.store') }}" class="mt-10 space-y-6">
+                <form method="post" action="{{ route('portal.login.store') }}" class="mt-10 space-y-6" data-portal-login>
                     @csrf
 
                     <div>
@@ -108,9 +103,19 @@
                                 name="company_id"
                                 id="company_id"
                                 required
-                                class="block w-full appearance-none rounded-xl border border-brand-border bg-white py-3.5 pl-11 pr-10 text-[15px] font-medium text-brand-text shadow-sm outline-none transition focus:border-brand-primary-light focus:ring-4 focus:ring-brand-primary-light/20"
+                                @class([
+                                    'block w-full appearance-none rounded-xl border bg-white py-3.5 pl-11 pr-10 text-[15px] font-medium text-brand-text shadow-sm outline-none transition focus:ring-4',
+                                    'border-brand-border focus:border-brand-primary-light focus:ring-brand-primary-light/20' => ! $errors->has('company_id'),
+                                    'border-brand-primary-light ring-4 ring-brand-primary-light/20' => $errors->has('company_id'),
+                                ])
                             >
                                 <option value="" disabled {{ old('company_id') ? '' : 'selected' }}>Choose your organization</option>
+                                @if ($platformCompany)
+                                    <option value="{{ $platformCompany->id }}" @selected(old('company_id') == $platformCompany->id)>{{ $platformCompany->name }} (Platform)</option>
+                                    @if ($companies->isNotEmpty())
+                                        <option disabled>──────────</option>
+                                    @endif
+                                @endif
                                 @foreach ($companies as $org)
                                     <option value="{{ $org->id }}" @selected(old('company_id') == $org->id)>{{ $org->name }}</option>
                                 @endforeach
@@ -119,9 +124,6 @@
                                 <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                             </span>
                         </div>
-                        @error('company_id')
-                            <p class="mt-1.5 text-sm text-red-600">{{ $message }}</p>
-                        @enderror
                     </div>
 
                     <div>
@@ -138,13 +140,14 @@
                                 required
                                 autocomplete="username"
                                 inputmode="email"
-                                class="block w-full rounded-xl border border-brand-border bg-white py-3.5 pl-11 pr-4 text-[15px] text-brand-text shadow-sm outline-none placeholder:text-brand-icon focus:border-brand-primary-light focus:ring-4 focus:ring-brand-primary-light/20"
+                                @class([
+                                    'block w-full rounded-xl border bg-white py-3.5 pl-11 pr-4 text-[15px] text-brand-text shadow-sm outline-none placeholder:text-brand-icon focus:ring-4',
+                                    'border-brand-border focus:border-brand-primary-light focus:ring-brand-primary-light/20' => ! $errors->has('email') && ! $errors->has('login'),
+                                    'border-brand-primary-light ring-4 ring-brand-primary-light/20' => $errors->has('email') || $errors->has('login'),
+                                ])
                                 placeholder="you@company.com"
                             />
                         </div>
-                        @error('email')
-                            <p class="mt-1.5 text-sm text-red-600">{{ $message }}</p>
-                        @enderror
                     </div>
 
                     <div>
@@ -162,13 +165,14 @@
                                 id="password"
                                 required
                                 autocomplete="current-password"
-                                class="block w-full rounded-xl border border-brand-border bg-white py-3.5 pl-11 pr-4 text-[15px] text-brand-text shadow-sm outline-none focus:border-brand-primary-light focus:ring-4 focus:ring-brand-primary-light/20"
+                                @class([
+                                    'block w-full rounded-xl border bg-white py-3.5 pl-11 pr-4 text-[15px] text-brand-text shadow-sm outline-none focus:ring-4',
+                                    'border-brand-border focus:border-brand-primary-light focus:ring-brand-primary-light/20' => ! $errors->has('password') && ! $errors->has('login'),
+                                    'border-brand-primary-light ring-4 ring-brand-primary-light/20' => $errors->has('password') || $errors->has('login'),
+                                ])
                             />
                         </div>
                         <p class="mt-1.5 text-xs text-brand-text-secondary">Password resets are handled by your organization. Contact an administrator if you are locked out.</p>
-                        @error('password')
-                            <p class="mt-1.5 text-sm text-red-600">{{ $message }}</p>
-                        @enderror
                     </div>
 
                     <label class="flex cursor-pointer items-center gap-3">
@@ -194,7 +198,55 @@
                     </div>
                 </div>
             </div>
+            @include('partials.cru-lynk-flash', ['validationErrorTitle' => 'Sign in failed'])
         </main>
     </div>
+    @if (isset($errors) && $errors->any())
+        <script>
+            (function () {
+                var attempts = 0;
+                function tryShowLoginValidation() {
+                    if (window.__portalValidationShown) {
+                        return;
+                    }
+                    var payload = document.getElementById('portal-validation-payload');
+                    if (!payload || !window.CruLynkDialog) {
+                        if (attempts++ < 40) {
+                            setTimeout(tryShowLoginValidation, 50);
+                        }
+                        return;
+                    }
+                    window.__portalValidationShown = true;
+                    if (typeof window.CruLynkDialog.alertValidationErrors === 'function') {
+                        try {
+                            var data = JSON.parse(payload.textContent || '{}');
+                            var errors = Array.isArray(data.errors) ? data.errors : [];
+                            var title = data.title || 'Sign in failed';
+                            payload.remove();
+                            if (errors.length === 1 && typeof window.CruLynkDialog.alert === 'function') {
+                                window.CruLynkDialog.alert({
+                                    title: title,
+                                    text: errors[0],
+                                    icon: 'error',
+                                    confirmText: 'Try again',
+                                }).then(function () {
+                                    (document.getElementById('password') || document.getElementById('email'))?.focus();
+                                });
+                            } else if (errors.length > 0) {
+                                window.CruLynkDialog.alertValidationErrors(title, errors);
+                            }
+                        } catch (e) {
+                            /* initCruLynkDialogs handles payload if parse fails */
+                        }
+                    }
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', tryShowLoginValidation);
+                } else {
+                    tryShowLoginValidation();
+                }
+            })();
+        </script>
+    @endif
 </body>
 </html>

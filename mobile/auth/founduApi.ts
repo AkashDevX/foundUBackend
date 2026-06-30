@@ -91,3 +91,24 @@ export async function getCurrentEmployee(
   }
   return { ok: true, data: json as CurrentEmployeeBody };
 }
+
+/** Employee task allocations for the signed-in employee. */
+export async function getEmployeeTasks(
+  cfg: FoundUApiConfig,
+  bearerToken: string,
+  date?: string,
+): Promise<{ ok: true; data: import('./taskTypes').EmployeeTasksBody } | { ok: false; status: number; body: unknown }> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/tasks${query}`, {
+    method: 'GET',
+    headers: {
+      ...headers(cfg),
+      Authorization: `Bearer ${bearerToken}`,
+    },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: json };
+  }
+  return { ok: true, data: json as import('./taskTypes').EmployeeTasksBody };
+}

@@ -117,24 +117,8 @@
     {{ $company->name }} · Submitted {{ DisplayTimezone::formatDateTime($e->created_at) }}
 @endsection
 
+
 @section('content')
-    @if (session('status'))
-        <div class="mb-8 rounded-2xl border border-emerald-200/90 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-950 shadow-sm ring-1 ring-emerald-100">
-            {{ session('status') }}
-        </div>
-    @endif
-
-    @if ($errors->any())
-        <div class="mb-8 rounded-2xl border border-red-200/90 bg-red-50 px-5 py-4 text-sm text-red-950 shadow-sm ring-1 ring-red-100">
-            <p class="font-semibold">Could not save changes</p>
-            <ul class="mt-2 list-inside list-disc space-y-1">
-                @foreach ($errors->all() as $err)
-                    <li>{{ $err }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
     <div class="mb-8 flex flex-wrap items-center gap-3">
         <a href="{{ route('admin.dashboard') }}" class="inline-flex items-center gap-2 text-sm font-semibold text-brand-link hover:underline">
             <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -155,7 +139,16 @@
                     </p>
                 </div>
                 <div class="flex flex-wrap items-center gap-3">
-                    <form method="post" action="{{ route('admin.registrations.accept', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" class="inline">
+                    <form
+                        method="post"
+                        action="{{ route('admin.registrations.accept', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}"
+                        class="inline"
+                        data-confirm="This person will be able to sign in to the mobile app with their registration email and password."
+                        data-confirm-title="Approve registration?"
+                        data-confirm-confirm="Approve"
+                        data-confirm-cancel="Not yet"
+                        data-confirm-icon="question"
+                    >
                         @csrf
                         <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-600/30 transition hover:bg-emerald-700">
                             Approve
@@ -165,7 +158,11 @@
                         method="post"
                         action="{{ route('admin.registrations.decline', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}"
                         class="inline"
-                        onsubmit="return confirm('Decline this registration? This person will not be able to sign in to the app.');"
+                        data-confirm="This person will not be able to sign in to the app."
+                        data-confirm-title="Decline registration?"
+                        data-confirm-confirm="Decline"
+                        data-confirm-cancel="Go back"
+                        data-confirm-danger="1"
                     >
                         @csrf
                         <button type="submit" class="inline-flex items-center justify-center rounded-xl border-2 border-red-200 bg-white px-6 py-3 text-sm font-bold text-red-800 shadow-sm transition hover:bg-red-50">
@@ -242,11 +239,11 @@
                 <div>
                     <h3 class="text-lg font-bold text-brand-text">Work assignment</h3>
                     <p class="mt-1 text-sm text-brand-text-secondary">
-                        Shown to the employee in the mobile app after sign-in (<code class="rounded bg-brand-surface px-1 py-0.5 font-mono text-xs">GET /api/v1/me</code>).
+                        <!-- Shown to the employee in the mobile app after sign-in (<code class="rounded bg-brand-surface px-1 py-0.5 font-mono text-xs">GET /api/v1/me</code>). -->
                     </p>
                 </div>
                 <a href="{{ route('admin.workforce') }}" class="inline-flex shrink-0 items-center gap-2 rounded-xl border border-brand-border bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface">
-                    Workforce setup
+                    Organization setup
                 </a>
             </div>
         </div>
@@ -294,7 +291,7 @@
             @if (($e->employment_status ?? '') === 'active')
                 <div class="border-t border-brand-border pt-8">
                     <p class="text-base font-bold text-brand-text">Update assignment</p>
-                    <p class="mt-1 text-sm text-brand-text-secondary">Choose catalogs from Workforce setup. Leave as “None” to clear a field.</p>
+                    <p class="mt-1 text-sm text-brand-text-secondary">Choose catalogs from Organization setup. Leave as “None” to clear a field.</p>
                     <form method="post" action="{{ route('admin.registrations.assignment.update', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" class="mt-6 grid gap-5 lg:grid-cols-2">
                         @csrf
                         <div class="lg:col-span-2 grid gap-5 sm:grid-cols-3">

@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'distance_from_site_meters',
     'allowed_radius_meters',
     'within_geofence',
+    'punch_source',
     'department_id',
     'shift_id',
 ])]
@@ -27,6 +28,10 @@ class TimeClockEntry extends Model
     public const EVENT_CLOCK_IN = 'clock_in';
 
     public const EVENT_CLOCK_OUT = 'clock_out';
+
+    public const PUNCH_SOURCE_MANUAL = 'manual';
+
+    public const PUNCH_SOURCE_AUTO_GEOFENCE_EXIT = 'auto_geofence_exit';
 
     public function employee(): BelongsTo
     {
@@ -66,6 +71,7 @@ class TimeClockEntry extends Model
             'distance_from_site_meters' => $this->distance_from_site_meters !== null ? (float) $this->distance_from_site_meters : null,
             'allowed_radius_meters' => $this->allowed_radius_meters,
             'within_geofence' => (bool) $this->within_geofence,
+            'punch_source' => $this->punch_source ?? self::PUNCH_SOURCE_MANUAL,
             'department_id' => $this->department_id,
             'shift_id' => $this->shift_id,
         ];

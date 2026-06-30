@@ -18,10 +18,17 @@ class OrganizationPortalAuthController extends Controller
     {
         $companies = Company::query()
             ->where('is_active', true)
+            ->tenantOrganizations()
             ->orderBy('name')
             ->get(['id', 'name', 'slug']);
 
-        return view('portal.login', compact('companies'));
+        $platformCompany = Company::query()
+            ->where('is_active', true)
+            ->platformController()
+            ->orderBy('name')
+            ->first(['id', 'name', 'slug']);
+
+        return view('portal.login', compact('companies', 'platformCompany'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -40,7 +47,7 @@ class OrganizationPortalAuthController extends Controller
 
         if (! $companyOk) {
             throw ValidationException::withMessages([
-                'company_id' => __('The selected organization is invalid.'),
+                'login' => __('Please select a valid organization and try again.'),
             ]);
         }
 
@@ -54,7 +61,7 @@ class OrganizationPortalAuthController extends Controller
 
         if ($user === null || ! Hash::check($validated['password'], $user->getAuthPassword())) {
             throw ValidationException::withMessages([
-                'email' => __('These credentials do not match our records for this organization.'),
+                'login' => __('The email or password is incorrect for the selected organization.'),
             ]);
         }
 
@@ -62,7 +69,12 @@ class OrganizationPortalAuthController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('admin.dashboard'));
+        $company = $user->company()->firstOrFail();
+        $homeRoute = $company->isPlatformController()
+            ? 'platform.dashboard'
+            : 'admin.dashboard';
+
+        return redirect()->intended(route($homeRoute));
     }
 
     public function destroy(Request $request): RedirectResponse

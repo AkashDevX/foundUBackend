@@ -10,6 +10,7 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/js/workforce.js',
                 'resources/js/registration-admin-profile.js',
+                'resources/js/employee-autocomplete.js',
             ],
             refresh: true,
         }),

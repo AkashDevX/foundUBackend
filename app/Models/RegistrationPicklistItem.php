@@ -16,4 +16,18 @@ class RegistrationPicklistItem extends Model
             'is_active' => 'boolean',
         ];
     }
+
+    /**
+     * @return list<string>
+     */
+    public static function activeValues(string $picklistKey): array
+    {
+        return self::query()
+            ->where('picklist_key', $picklistKey)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('value')
+            ->pluck('value')
+            ->all();
+    }
 }

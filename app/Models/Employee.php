@@ -61,6 +61,7 @@ use Laravel\Sanctum\HasApiTokens;
     'police_check_path',
     'fit_to_work_path',
     'job_title',
+    'job_title_id',
     'department',
     'department_id',
     'work_location_id',
@@ -85,6 +86,11 @@ class Employee extends Model
         return $this->belongsTo(Department::class, 'department_id');
     }
 
+    public function assignedJobTitle(): BelongsTo
+    {
+        return $this->belongsTo(JobTitle::class, 'job_title_id');
+    }
+
     public function workLocation(): BelongsTo
     {
         return $this->belongsTo(WorkLocation::class);
@@ -98,6 +104,16 @@ class Employee extends Model
     public function timeClockEntries(): HasMany
     {
         return $this->hasMany(TimeClockEntry::class);
+    }
+
+    public function timesheetApprovals(): HasMany
+    {
+        return $this->hasMany(TimesheetApproval::class);
+    }
+
+    public function taskAssignments(): HasMany
+    {
+        return $this->hasMany(EmployeeTaskAssignment::class);
     }
 
     /**
@@ -160,6 +176,7 @@ class Employee extends Model
                 'end_time' => $fmtTime($shift->end_time),
                 'breaks_summary' => $shift->breaks_summary,
                 'notes' => $shift->notes,
+                'shift_days' => is_array($shift->shift_days) ? $shift->shift_days : [],
             ] : null,
         ];
     }
@@ -176,6 +193,9 @@ class Employee extends Model
         $assignedDepartment = is_array($assignment['department'] ?? null) ? $assignment['department'] : null;
         $assignedWorkLocation = is_array($assignment['work_location'] ?? null) ? $assignment['work_location'] : null;
         $assignedShift = is_array($assignment['shift'] ?? null) ? $assignment['shift'] : null;
+
+        $this->loadMissing(['assignedJobTitle']);
+        $jobTitleDisplay = $this->assignedJobTitle?->name ?? $this->job_title;
 
         return [
             'public_id' => $this->public_id,
@@ -204,6 +224,8 @@ class Employee extends Model
             ),
             'hours_per_week' => $this->hours_per_week,
             'weekly_availability_summary' => $this->weekly_availability_summary,
+            'weekly_availability_json' => $this->weekly_availability_json,
+            'assigned_shift_days' => $assignedShift['shift_days'] ?? null,
             'id_documents_summary' => $this->id_documents_summary,
             'police_check_expiry' => RegistrationDisplay::toNullableIsoDate(
                 RegistrationDisplay::employeeRawDateValue($this, 'police_check_expiry', ['policeCheckExpiry', 'police_check_expiry'])
@@ -225,8 +247,14 @@ class Employee extends Model
             ),
             'vehicle_insurance_uploaded' => $this->vehicle_insurance_uploaded,
             'employment_status' => $this->employment_status,
-            'job_title' => $this->job_title,
+            'employee_code' => $this->employee_code,
+            'job_title' => $jobTitleDisplay,
             'department' => $this->department,
+            'role' => [
+                'job_title' => $jobTitleDisplay,
+                'department' => $assignedDepartment['name'] ?? $this->department,
+                'employee_code' => $this->employee_code,
+            ],
             'work_assignment' => $assignment,
             // Flat aliases for mobile clients that map assignment fields at the profile root.
             'assigned_department' => $assignedDepartment['name'] ?? $this->department,

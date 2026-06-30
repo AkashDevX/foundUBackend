@@ -7,6 +7,23 @@ use Illuminate\Support\Collection;
 
 final class AdminTimeClockDisplay
 {
+    public static function punchSourceLabel(?string $punchSource): string
+    {
+        return match ($punchSource) {
+            TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT => 'Auto (left site)',
+            TimeClockEntry::PUNCH_SOURCE_MANUAL, null, '' => 'Manual',
+            default => ucfirst(str_replace('_', ' ', $punchSource)),
+        };
+    }
+
+    public static function punchSourceBadgeClasses(?string $punchSource): string
+    {
+        return match ($punchSource) {
+            TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT => 'bg-amber-50 text-amber-900 ring-amber-200',
+            default => 'bg-slate-50 text-slate-700 ring-slate-200',
+        };
+    }
+
     public static function eventLabel(string $eventType): string
     {
         return match ($eventType) {

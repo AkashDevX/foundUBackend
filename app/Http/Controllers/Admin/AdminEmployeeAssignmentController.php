@@ -5,12 +5,17 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\JobTitle;
 use App\Models\OrganizationPortalUser;
 use App\Models\RegistrationPicklistItem;
 use App\Models\Shift;
+use App\Models\TimesheetApproval;
+use App\Models\TimeClockEntry;
 use App\Models\WorkLocation;
 use App\Services\RegistrationDocumentStorage;
+use App\Support\AdminTimesheetApproval;
 use App\Support\AdminWeeklyAvailability;
+use App\Support\DisplayTimezone;
 use App\Support\FoundUProfileMapper;
 use App\Support\RegistrationDisplay;
 use Illuminate\Contracts\View\View;
@@ -30,7 +35,12 @@ class AdminEmployeeAssignmentController extends Controller
 
     public function timeClock(Request $request): View
     {
-        $data = $this->employeePageData($request, loadTimeClockEntries: true);
+        $timesheetStatusFilter = $request->query('timesheet_status', 'pending');
+        if (! in_array($timesheetStatusFilter, ['all', 'pending', 'approved', 'rejected'], true)) {
+            $timesheetStatusFilter = 'pending';
+        }
+
+        $data = $this->employeePageData($request, loadTimeClockEntries: true, loadTimesheetHistory: true);
 
         $selectedPublicId = $request->query('employee');
         $selectedEmployee = null;
@@ -43,10 +53,94 @@ class AdminEmployeeAssignmentController extends Controller
             $eventFilter = 'all';
         }
 
+        $employeesForTimesheets = $selectedEmployee !== null
+            ? collect([$selectedEmployee])
+            : $data['employees'];
+
+        $timesheetRows = AdminTimesheetApproval::buildRows(
+            $employeesForTimesheets,
+            $data['timesheetApprovals'],
+            $timesheetStatusFilter === 'all' ? null : $timesheetStatusFilter
+        );
+
         $data['selectedEmployee'] = $selectedEmployee;
         $data['eventFilter'] = $eventFilter;
+        $data['timesheetStatusFilter'] = $timesheetStatusFilter;
+        $data['timesheetRows'] = $timesheetRows;
 
         return view('admin.employees-time-clock', $data);
+    }
+
+    public function approveTimesheet(Request $request): RedirectResponse
+    {
+        return $this->reviewTimesheet($request, TimesheetApproval::STATUS_APPROVED, 'Timesheet approved.');
+    }
+
+    public function rejectTimesheet(Request $request): RedirectResponse
+    {
+        return $this->reviewTimesheet($request, TimesheetApproval::STATUS_REJECTED, 'Timesheet rejected.');
+    }
+
+    private function reviewTimesheet(Request $request, string $status, string $flashMessage): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'employee' => ['required', 'string', 'max:64'],
+            'week_start' => ['required', 'date'],
+            'review_notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        /** @var Employee $employee */
+        $employee = Employee::on($conn)
+            ->where('public_id', $data['employee'])
+            ->where('employment_status', 'active')
+            ->firstOrFail();
+
+        $weekStart = AdminTimesheetApproval::normalizeWeekStart($data['week_start']);
+        $weekEnd = AdminTimesheetApproval::weekEndForStart($weekStart);
+
+        $since = DisplayTimezone::now()->subWeeks(12)->startOfWeek(\Carbon\Carbon::MONDAY)->utc();
+        $entries = TimeClockEntry::on($conn)
+            ->where('employee_id', $employee->id)
+            ->where('clocked_at', '>=', $since)
+            ->orderBy('clocked_at')
+            ->get();
+
+        $weekEntries = AdminTimesheetApproval::groupEntriesByWeek($entries)[$weekStart] ?? collect();
+        if ($weekEntries->isEmpty()) {
+            throw ValidationException::withMessages([
+                'week_start' => 'No clock activity found for that week.',
+            ]);
+        }
+
+        $summary = \App\Support\AdminTimeClockDisplay::summarizeWorkSessions($weekEntries);
+
+        TimesheetApproval::on($conn)->updateOrCreate(
+            [
+                'employee_id' => $employee->id,
+                'week_start' => $weekStart,
+            ],
+            [
+                'week_end' => $weekEnd,
+                'total_seconds' => (int) $summary['total_seconds'],
+                'completed_sessions' => (int) $summary['completed_sessions'],
+                'status' => $status,
+                'reviewed_by' => $portalUser->name ?: $portalUser->email,
+                'reviewed_at' => now('UTC'),
+                'review_notes' => $data['review_notes'] ?? null,
+            ]
+        );
+
+        return redirect()
+            ->route('admin.employees.time-clock', array_filter([
+                'employee' => $employee->public_id,
+                'timesheet_status' => $request->input('timesheet_status', 'pending'),
+            ]))
+            ->with('status', $flashMessage);
     }
 
     /**
@@ -56,9 +150,10 @@ class AdminEmployeeAssignmentController extends Controller
      *     departments: \Illuminate\Support\Collection,
      *     workLocations: \Illuminate\Support\Collection,
      *     shifts: \Illuminate\Support\Collection,
+     *     timesheetApprovals: \Illuminate\Support\Collection<int, TimesheetApproval>,
      * }
      */
-    private function employeePageData(Request $request, bool $loadTimeClockEntries): array
+    private function employeePageData(Request $request, bool $loadTimeClockEntries, bool $loadTimesheetHistory = false): array
     {
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
@@ -67,11 +162,17 @@ class AdminEmployeeAssignmentController extends Controller
 
         $with = ['assignedDepartment', 'workLocation', 'assignedShift'];
         if ($loadTimeClockEntries) {
-            $with['timeClockEntries'] = static function ($query): void {
+            $with['timeClockEntries'] = static function ($query) use ($loadTimesheetHistory): void {
                 $query->with(['workLocation', 'department', 'shift'])
                     ->orderByDesc('clocked_at')
-                    ->orderByDesc('id')
-                    ->limit(100);
+                    ->orderByDesc('id');
+
+                if ($loadTimesheetHistory) {
+                    $since = DisplayTimezone::now()->subWeeks(12)->startOfWeek(\Carbon\Carbon::MONDAY)->utc();
+                    $query->where('clocked_at', '>=', $since);
+                } else {
+                    $query->limit(100);
+                }
             };
         }
 
@@ -81,12 +182,19 @@ class AdminEmployeeAssignmentController extends Controller
             ->orderBy('full_legal_name')
             ->get();
 
+        $sinceWeek = DisplayTimezone::now()->subWeeks(12)->startOfWeek(\Carbon\Carbon::MONDAY)->toDateString();
+        $timesheetApprovals = TimesheetApproval::on($conn)
+            ->whereIn('employee_id', $employees->pluck('id'))
+            ->where('week_start', '>=', $sinceWeek)
+            ->get();
+
         return [
             'company' => $company,
             'employees' => $employees,
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'shifts' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'timesheetApprovals' => $timesheetApprovals,
         ];
     }
 
@@ -166,8 +274,8 @@ class AdminEmployeeAssignmentController extends Controller
             'vehicle_expiry' => ['nullable', 'string', 'max:32'],
             'vehicle_insurance_uploaded' => ['nullable', 'string', 'max:32'],
             'employee_code' => ['nullable', 'string', 'max:64'],
-            'job_title' => ['nullable', 'string', 'max:160'],
-            'department' => ['nullable', 'string', 'max:160'],
+            'job_title_id' => ['nullable', 'integer'],
+            'department_id' => ['nullable', 'integer'],
             'profile_photo' => ['nullable', 'file', 'max:15360'],
             'police_check' => ['nullable', 'file', 'max:15360'],
             'fit_to_work' => ['nullable', 'file', 'max:15360'],
@@ -230,6 +338,29 @@ class AdminEmployeeAssignmentController extends Controller
 
         $sexNormalized = $this->normalizeSex($data['sex'] ?? null);
 
+        $nullableInt = static function (mixed $v): ?int {
+            if ($v === null || $v === '') {
+                return null;
+            }
+            if (is_numeric($v)) {
+                return (int) $v;
+            }
+
+            return null;
+        };
+
+        $departmentId = $nullableInt($request->input('department_id'));
+        $this->assertBelongsToTenant($conn, 'departments', $departmentId);
+        $departmentName = $departmentId === null
+            ? null
+            : Department::on($conn)->whereKey($departmentId)->value('name');
+
+        $jobTitleId = $nullableInt($request->input('job_title_id'));
+        $this->assertBelongsToTenant($conn, 'job_titles', $jobTitleId);
+        $jobTitleName = $jobTitleId === null
+            ? null
+            : JobTitle::on($conn)->whereKey($jobTitleId)->value('name');
+
         $fill = collect($data)
             ->only([
                 'email', 'full_legal_name', 'phone',
@@ -241,7 +372,7 @@ class AdminEmployeeAssignmentController extends Controller
                 'licences_summary', 'insurances_summary',
                 'bank_account_name', 'bank_account_number', 'bank_branch_code', 'bank_name',
                 'mode_of_transport',
-                'employee_code', 'job_title', 'department',
+                'employee_code',
             ])
             ->merge([
                 'first_name' => $firstName,
@@ -249,6 +380,10 @@ class AdminEmployeeAssignmentController extends Controller
                 'sex' => $sexNormalized,
                 'weekly_availability_json' => $weeklyJson,
                 'weekly_availability_summary' => $weeklySummary,
+                'department_id' => $departmentId,
+                'department' => $departmentName,
+                'job_title_id' => $jobTitleId,
+                'job_title' => $jobTitleName,
             ])
             ->all();
 
@@ -272,7 +407,7 @@ class AdminEmployeeAssignmentController extends Controller
             unset($fill['bank_account_number']);
         }
 
-        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry', 'licences_summary', 'insurances_summary'] as $dateField) {
+        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry'] as $dateField) {
             if (array_key_exists($dateField, $fill)) {
                 $fill[$dateField] = RegistrationDisplay::persistAdminDateField(
                     $fill[$dateField],
@@ -284,6 +419,7 @@ class AdminEmployeeAssignmentController extends Controller
         $employee->forceFill($fill)->save();
 
         $this->applyJsonRowPicklistFields($request, $employee);
+        $this->applyJsonRowExpiryFields($request, $employee);
         $employee->save();
 
         app(RegistrationDocumentStorage::class)->attach($request, $employee, $sessionCompany->slug);
@@ -426,6 +562,75 @@ class AdminEmployeeAssignmentController extends Controller
             $request->input('insurance_type_row', []),
             'insurance_type',
         );
+    }
+
+    private function applyJsonRowExpiryFields(Request $request, Employee $employee): void
+    {
+        $this->patchJsonRowsWithExpiry(
+            $employee,
+            'licences_json',
+            'id',
+            $request->input('licence_expiry_row', []),
+        );
+        $this->patchJsonRowsWithExpiry(
+            $employee,
+            'insurances_json',
+            'id',
+            $request->input('insurance_expiry_row', []),
+        );
+
+        /** @var array<int, array<string, mixed>>|null $licences */
+        $licences = $employee->licences_json;
+        if (is_array($licences)) {
+            $employee->licences_json = RegistrationDisplay::normalizeDocumentJsonExpiryRows($licences);
+            $employee->licences_summary = RegistrationDisplay::rebuildDocumentRowsSummary($employee->licences_json);
+        }
+
+        /** @var array<int, array<string, mixed>>|null $insurances */
+        $insurances = $employee->insurances_json;
+        if (is_array($insurances)) {
+            $employee->insurances_json = RegistrationDisplay::normalizeDocumentJsonExpiryRows($insurances);
+            $employee->insurances_summary = RegistrationDisplay::rebuildDocumentRowsSummary($employee->insurances_json);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $submitted  row id => HTML date input (Y-m-d)
+     */
+    private function patchJsonRowsWithExpiry(
+        Employee $employee,
+        string $jsonAttribute,
+        string $rowIdKey,
+        mixed $submitted,
+    ): void {
+        if (! is_array($submitted) || $submitted === []) {
+            return;
+        }
+
+        /** @var array<int, array<string, mixed>>|null $rows */
+        $rows = $employee->{$jsonAttribute};
+        if (! is_array($rows) || $rows === []) {
+            return;
+        }
+
+        foreach ($rows as $i => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = isset($row[$rowIdKey]) && is_scalar($row[$rowIdKey]) ? (string) $row[$rowIdKey] : '';
+            if ($id === '' || ! array_key_exists($id, $submitted)) {
+                continue;
+            }
+            $iso = RegistrationDisplay::toNullableIsoDate($submitted[$id]);
+            if ($iso === null) {
+                unset($rows[$i]['expiry'], $rows[$i]['expiry_date']);
+                continue;
+            }
+            $rows[$i]['expiry'] = $iso;
+            $rows[$i]['expiry_date'] = $iso;
+        }
+
+        $employee->{$jsonAttribute} = $rows;
     }
 
     /**

@@ -1,8 +1,8 @@
 @extends('layouts.admin')
 
-@section('title', 'Workforce setup')
+@section('title', 'Organization setup')
 
-@section('heading', 'Workforce setup')
+@section('heading', 'Organization setup')
 
 @section('subheading', $company->name)
 
@@ -14,6 +14,7 @@
     @php
         /** @var \App\Models\Company $company */
         /** @var \Illuminate\Support\Collection<int, \App\Models\Department> $departments */
+        /** @var \Illuminate\Support\Collection<int, \App\Models\JobTitle> $jobTitles */
         /** @var \Illuminate\Support\Collection<int, \App\Models\WorkLocation> $workLocations */
         /** @var \Illuminate\Support\Collection<int, \App\Models\Shift> $shifts */
         /** @var float $mapDefaultLat */
@@ -43,12 +44,6 @@
             'relative flex min-h-[2.75rem] cursor-pointer select-none items-center justify-center overflow-hidden rounded-xl border border-brand-border bg-white px-3 py-2 text-center text-xs font-semibold text-brand-text shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface/60 [&:has(input:checked)]:border-brand-primary [&:has(input:checked)]:bg-brand-primary [&:has(input:checked)]:text-white [&:has(input:checked)]:shadow-md [&:has(input:checked)]:shadow-brand-primary/25';
         $savedCard = 'relative isolate overflow-hidden rounded-2xl border border-brand-border/90 bg-gradient-to-br from-white via-white to-brand-primary/[0.06] p-4 shadow-sm ring-1 ring-black/[0.04] transition duration-200 hover:border-brand-primary/35 hover:shadow-md sm:p-5';
     @endphp
-
-    @if (session('status'))
-        <div class="mb-8 rounded-2xl border border-emerald-200/90 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-950 shadow-sm ring-1 ring-emerald-100" role="status">
-            {{ session('status') }}
-        </div>
-    @endif
 
     <div class="grid gap-8 {{ $section === 'work-locations' ? 'max-w-4xl' : 'max-w-3xl' }}">
         @if ($section === 'departments')
@@ -142,6 +137,84 @@
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No departments yet</p>
                         <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Add your first department using the form above.</p>
+                    </div>
+                @endforelse
+            </div>
+        </section>
+        @endif
+
+        @if ($section === 'job-titles')
+        {{-- Job titles --}}
+        <section class="flex min-h-[32rem] flex-col overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
+            <header class="shrink-0 border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-6 py-5 sm:px-7">
+                <div class="flex items-start gap-3">
+                    <span class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
+                        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 class="text-base font-bold tracking-tight text-brand-text">Job titles</h2>
+                    </div>
+                </div>
+            </header>
+            <div class="shrink-0 border-b border-brand-border px-6 py-6 sm:px-7">
+                <form method="post" action="{{ route('admin.workforce.job-titles.store') }}" class="space-y-4">
+                    @csrf
+                    <div class="{{ $row }}">
+                        <label for="job-title-name" class="{{ $lbl }}">Name</label>
+                        <input id="job-title-name" name="job_title_name" required maxlength="160" value="{{ old('job_title_name') }}" class="{{ $in }}" placeholder="e.g. Casual Cleaner Level 1" autocomplete="off" />
+                    </div>
+                    <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-3 text-sm font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                        Add job title
+                    </button>
+                </form>
+            </div>
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+                @if ($jobTitles->isNotEmpty())
+                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved job titles</h3>
+                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $jobTitles->count() }}</span>
+                    </div>
+                @endif
+                @forelse ($jobTitles as $jt)
+                    <article class="{{ $savedCard }} mb-4 last:mb-0">
+                        <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
+                        <div class="relative flex gap-4 pl-2">
+                            <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
+                                <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                            </div>
+                            <div class="min-w-0 flex-1 text-sm">
+                                <h3 class="text-base font-bold leading-snug text-brand-text">{{ $jt->name }}</h3>
+                                <p class="mt-1 text-[11px] font-medium text-brand-text-secondary">Job title · ID {{ $jt->id }}</p>
+                            </div>
+                        </div>
+                        <details class="group/jt-edit relative mt-4 overflow-hidden rounded-xl border border-brand-border/90 bg-white/85 shadow-sm ring-1 ring-black/[0.03] open:shadow-md">
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-brand-primary transition hover:bg-white/60 [&::-webkit-details-marker]:hidden">
+                                <span>Edit job title</span>
+                                <svg class="size-4 shrink-0 text-brand-primary/70 transition group-open/jt-edit:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                            </summary>
+                            <div class="border-t border-brand-border bg-white/90 px-4 py-5 sm:px-6">
+                                <form method="post" action="{{ route('admin.workforce.job-titles.update', ['jobTitle' => $jt->id]) }}" class="space-y-5">
+                                    @csrf
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="jt-edit-name-{{ $jt->id }}" class="{{ $lbl }} sm:pt-2.5">Name</label>
+                                        <input id="jt-edit-name-{{ $jt->id }}" name="job_title_name" required maxlength="160" value="{{ $jt->name }}" class="{{ $in }}" autocomplete="off" />
+                                    </div>
+                                    <div class="flex justify-end">
+                                        <button type="submit" class="rounded-xl bg-brand-primary px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                                            Save changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </details>
+                    </article>
+                @empty
+                    <div class="rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-12 text-center">
+                        <span class="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-surface text-brand-text-secondary/80" aria-hidden="true">
+                            <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                        </span>
+                        <p class="mt-4 text-sm font-semibold text-brand-text">No job titles yet</p>
+                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Add your first job title using the form above.</p>
                     </div>
                 @endforelse
             </div>

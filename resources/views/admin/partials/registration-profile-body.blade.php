@@ -96,6 +96,20 @@
     };
     $currentUnrestrictedWorkRights = old('unrestricted_work_rights', $yesNoPickVal($e->unrestricted_work_rights));
     $showVisaExpiry = ! $unrestrictedWorkRightsYes($currentUnrestrictedWorkRights);
+    $publicLiabilityExpiry = \App\Support\RegistrationDisplay::insuranceExpiryForType(
+        $e->insurances_json,
+        'Public Liability',
+        $registrationPicklists->get('insurance_type', collect())
+    );
+    $transportModeLabel = \App\Support\RegistrationDisplay::picklistLabel(
+        $e->mode_of_transport,
+        $registrationPicklists->get('transport_mode', collect())
+    );
+    $roleDepartment = $e->assignedDepartment?->name ?? $e->department;
+    $roleJobTitle = $e->assignedJobTitle?->name ?? $e->job_title;
+    $roleEmployeeCode = ($e->employee_code !== null && trim((string) $e->employee_code) !== '')
+        ? trim((string) $e->employee_code)
+        : 'N/A';
 @endphp
 
 <section class="{{ $card }}">
@@ -163,7 +177,7 @@
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">Work eligibility &amp; availability</h3>
-        <p class="mt-1 text-sm text-brand-text-secondary">@if ($canEditProfile)Picklists are managed in the master registry (<code class="rounded bg-brand-surface px-1 font-mono text-xs">registration_picklist_items</code>).@else Readable schedule from the app.@endif</p>
+        <!-- <p class="mt-1 text-sm text-brand-text-secondary">@if ($canEditProfile)Picklists are managed in the master registry (<code class="rounded bg-brand-surface px-1 font-mono text-xs">registration_picklist_items</code>).@else Readable schedule from the app.@endif</p> -->
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Unrestricted work rights</dt><dd class="min-w-0">@if ($canEditProfile)<select name="unrestricted_work_rights" class="{{ $editIn }}" data-reg-unrestricted-work-rights><option value="">—</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected($currentUnrestrictedWorkRights === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $yesNo($e->unrestricted_work_rights) }}</span>@endif</dd></div>
@@ -192,7 +206,7 @@
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">ID &amp; checks</h3>
-        <p class="mt-1 text-sm text-brand-text-secondary">Uploaded copies open in a new tab. Images show inline.</p>
+        <!-- <p class="mt-1 text-sm text-brand-text-secondary">Uploaded copies open in a new tab. Images show inline.</p> -->
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
         <div class="{{ $dlRowStart }}">
@@ -242,115 +256,13 @@
                 @endif
             </dd>
         </div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check expiry</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'police_check_expiry', 'value' => $registrationDateInputs['police_check_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['police_check_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('police_check_expiry', ['policeCheckExpiry', 'police_check_expiry']) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check uploaded (declaration)</dt><dd class="min-w-0">@include('admin.partials.registration-profile-declaration', ['isUploaded' => $declarationIsUploaded($e->police_check_uploaded, $e->police_check_path), 'inputName' => 'police_check_uploaded', 'declarationValue' => $e->police_check_uploaded])</dd></div>
-        @if ($e->police_check_path || $canEditProfile)
-            <div class="{{ $dl }} items-start">
-                <dt class="pt-1 font-medium text-brand-label">Police check file</dt>
-                <dd class="min-w-0 w-full max-w-2xl">
-                    @include('admin.partials.registration-profile-file-upload-card', [
-                        'storagePath' => $e->police_check_path,
-                        'fileUrl' => $e->police_check_path ? $fileUrl('police-check') : null,
-                        'inputName' => 'police_check',
-                        'uploadInputId' => 'reg-police-check-upload',
-                        'canEditProfile' => $canEditProfile,
-                    ])
-                </dd>
-            </div>
-        @endif
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work expiry</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'fit_to_work_expiry', 'value' => $registrationDateInputs['fit_to_work_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['fit_to_work_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('fit_to_work_expiry', ['fitToWorkExpiry', 'fit_to_work_expiry']) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work uploaded (declaration)</dt><dd class="min-w-0">@include('admin.partials.registration-profile-declaration', ['isUploaded' => $declarationIsUploaded($e->fit_to_work_uploaded, $e->fit_to_work_path), 'inputName' => 'fit_to_work_uploaded', 'declarationValue' => $e->fit_to_work_uploaded])</dd></div>
-        @if ($e->fit_to_work_path || $canEditProfile)
-            <div class="{{ $dl }} items-start">
-                <dt class="pt-1 font-medium text-brand-label">Fit to work file</dt>
-                <dd class="min-w-0 w-full max-w-2xl">
-                    @include('admin.partials.registration-profile-file-upload-card', [
-                        'storagePath' => $e->fit_to_work_path,
-                        'fileUrl' => $e->fit_to_work_path ? $fileUrl('fit-to-work') : null,
-                        'inputName' => 'fit_to_work',
-                        'uploadInputId' => 'reg-fit-to-work-upload',
-                        'canEditProfile' => $canEditProfile,
-                    ])
-                </dd>
-            </div>
-        @endif
-    </div>
-</section>
-
-<section class="{{ $card }}">
-    <div class="{{ $cardHead }}">
-        <h3 class="text-lg font-bold text-brand-text">Licences &amp; insurance</h3>
-    </div>
-    <div class="divide-y divide-brand-border px-6 sm:px-8">
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Licences (notes)</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'licences_summary', 'value' => $registrationDateInputs['licences_summary'] ?? '', 'storageFormat' => $registrationDateFormats['licences_summary'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('licences_summary', ['licencesSummary', 'licences_summary']) }}</span>@endif</dd></div>
-        <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Licence uploads</dt>
-            <dd class="min-w-0 w-full">
-                @if ($licenceRows === [])
-                    <p class="text-sm text-brand-text-secondary">No licence rows on file.</p>
-                @else
-                    <div class="grid gap-4 lg:grid-cols-2">
-                        @foreach ($licenceRows as $doc)
-                            @if ($doc['row_key'] !== null)
-                                @include('admin.partials.registration-profile-doc-row-card', [
-                                    'doc' => $doc,
-                                    'canEditProfile' => $canEditProfile,
-                                    'picklistKey' => 'licence_type',
-                                    'typeLabel' => 'Licence type',
-                                    'typeFieldName' => 'licence_type_row',
-                                    'typeSelectedValue' => $licTypeForKey($doc['row_key']),
-                                    'uploadFieldName' => 'licence_upload',
-                                    'fileUrlKind' => 'licence',
-                                ])
-                            @endif
-                        @endforeach
-                    </div>
-                @endif
-            </dd>
-        </div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Insurances (notes)</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'insurances_summary', 'value' => $registrationDateInputs['insurances_summary'] ?? '', 'storageFormat' => $registrationDateFormats['insurances_summary'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('insurances_summary', ['insurancesSummary', 'insurances_summary']) }}</span>@endif</dd></div>
-        <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Insurance uploads</dt>
-            <dd class="min-w-0 w-full">
-                @if ($insuranceRows === [])
-                    <p class="text-sm text-brand-text-secondary">No insurance rows on file.</p>
-                @else
-                    <div class="grid gap-4 lg:grid-cols-2">
-                        @foreach ($insuranceRows as $doc)
-                            @if ($doc['row_key'] !== null)
-                                @include('admin.partials.registration-profile-doc-row-card', [
-                                    'doc' => $doc,
-                                    'canEditProfile' => $canEditProfile,
-                                    'picklistKey' => 'insurance_type',
-                                    'typeLabel' => 'Insurance type',
-                                    'typeFieldName' => 'insurance_type_row',
-                                    'typeSelectedValue' => $insTypeForKey($doc['row_key']),
-                                    'uploadFieldName' => 'insurance_upload',
-                                    'fileUrlKind' => 'insurance',
-                                ])
-                            @endif
-                        @endforeach
-                    </div>
-                @endif
-            </dd>
-        </div>
-    </div>
-</section>
-
-<section class="{{ $card }}">
-    <div class="{{ $cardHead }}">
-        <h3 class="text-lg font-bold text-brand-text">Payroll, transport &amp; role</h3>
-    </div>
-    <div class="divide-y divide-brand-border px-6 sm:px-8">
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_name" maxlength="160" value="{{ old('bank_account_name', $e->bank_account_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_account_name) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account number</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_number" maxlength="500" class="{{ $editIn }} font-mono tracking-wide" data-reg-bank-account data-bank-masked="{{ $bankHasAccount ? $bankMasked : '' }}" value="{{ old('bank_account_number') ?: ($bankHasAccount ? $bankMasked : '') }}" placeholder="{{ $bankHasAccount ? '' : 'Enter account number' }}" autocomplete="off" /><p class="mt-1 text-xs text-brand-text-secondary">@if ($bankHasAccount)Masked as {{ $bankMasked }}. Click the field to enter a new number (leave empty to keep current).@elseEnter the full account number.@endif</p>@else<span class="font-mono text-brand-text">{{ $bankMasked }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Branch code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_branch_code" maxlength="32" value="{{ old('bank_branch_code', $e->bank_branch_code) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_branch_code) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Bank name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_name" maxlength="160" value="{{ old('bank_name', $e->bank_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_name) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Mode of transport</dt><dd class="min-w-0">@if ($canEditProfile)<select name="mode_of_transport" data-reg-mode-transport data-reg-own-value="{{ $ownVehicleValue }}" class="{{ $editIn }}"><option value="">â€”</option>@foreach ($registrationPicklists->get('transport_mode', collect()) as $item)<option value="{{ $item->value }}" @selected(old('mode_of_transport', $e->mode_of_transport) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $line($e->mode_of_transport) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Mode of transport</dt><dd class="min-w-0">@if ($canEditProfile)<select name="mode_of_transport" data-reg-mode-transport data-reg-own-value="{{ $ownVehicleValue }}" class="{{ $editIn }}"><option value="">—</option>@foreach ($registrationPicklists->get('transport_mode', collect()) as $item)<option value="{{ $item->value }}" @selected(old('mode_of_transport', $e->mode_of_transport) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $line($transportModeLabel) }}</span>@endif</dd></div>
         @if ($canEditProfile)
             <div data-reg-vehicle-fields class="{{ $transportIsOwnVehicle(old('mode_of_transport', $e->mode_of_transport)) ? '' : 'hidden' }}">
                 <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle registration</dt><dd class="min-w-0"><input type="text" name="vehicle_registration" maxlength="64" value="{{ old('vehicle_registration', $e->vehicle_registration) }}" class="{{ $editIn }}" /></dd></div>
                 <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle expiry</dt><dd class="min-w-0">@include('admin.partials.registration-profile-date-input', ['name' => 'vehicle_expiry', 'value' => $registrationDateInputs['vehicle_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['vehicle_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])</dd></div>
-                <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle insurance uploaded (declaration)</dt><dd class="min-w-0"><select name="vehicle_insurance_uploaded" class="{{ $editIn }}"><option value="">â€”</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected(old('vehicle_insurance_uploaded', $yesNoPickVal($e->vehicle_insurance_uploaded)) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select></dd></div>
-<div class="{{ $dl }} items-start">
+                <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle insurance uploaded (declaration)</dt><dd class="min-w-0"><select name="vehicle_insurance_uploaded" class="{{ $editIn }}"><option value="">—</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected(old('vehicle_insurance_uploaded', $yesNoPickVal($e->vehicle_insurance_uploaded)) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select></dd></div>
+                <div class="{{ $dl }} items-start">
                     <dt class="pt-1 font-medium text-brand-label">Vehicle insurance file</dt>
                     <dd class="min-w-0 w-full max-w-2xl">
                         @include('admin.partials.registration-profile-file-upload-card', [
@@ -382,5 +294,124 @@
                 </div>
             @endif
         @endif
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check expiry</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'police_check_expiry', 'value' => $registrationDateInputs['police_check_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['police_check_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('police_check_expiry', ['policeCheckExpiry', 'police_check_expiry']) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work expiry</dt><dd class="min-w-0">@if ($canEditProfile)@include('admin.partials.registration-profile-date-input', ['name' => 'fit_to_work_expiry', 'value' => $registrationDateInputs['fit_to_work_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['fit_to_work_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])@else<span class="text-brand-text">{{ $profileDateLine('fit_to_work_expiry', ['fitToWorkExpiry', 'fit_to_work_expiry']) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Public liability expiry</dt><dd class="min-w-0"><span class="text-brand-text">{{ $line($publicLiabilityExpiry) }}</span></dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Police check uploaded (declaration)</dt><dd class="min-w-0">@include('admin.partials.registration-profile-declaration', ['isUploaded' => $declarationIsUploaded($e->police_check_uploaded, $e->police_check_path), 'inputName' => 'police_check_uploaded', 'declarationValue' => $e->police_check_uploaded])</dd></div>
+        @if ($e->police_check_path || $canEditProfile)
+            <div class="{{ $dl }} items-start">
+                <dt class="pt-1 font-medium text-brand-label">Police check file</dt>
+                <dd class="min-w-0 w-full max-w-2xl">
+                    @include('admin.partials.registration-profile-file-upload-card', [
+                        'storagePath' => $e->police_check_path,
+                        'fileUrl' => $e->police_check_path ? $fileUrl('police-check') : null,
+                        'inputName' => 'police_check',
+                        'uploadInputId' => 'reg-police-check-upload',
+                        'canEditProfile' => $canEditProfile,
+                    ])
+                </dd>
+            </div>
+        @endif
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Fit to work uploaded (declaration)</dt><dd class="min-w-0">@include('admin.partials.registration-profile-declaration', ['isUploaded' => $declarationIsUploaded($e->fit_to_work_uploaded, $e->fit_to_work_path), 'inputName' => 'fit_to_work_uploaded', 'declarationValue' => $e->fit_to_work_uploaded])</dd></div>
+        @if ($e->fit_to_work_path || $canEditProfile)
+            <div class="{{ $dl }} items-start">
+                <dt class="pt-1 font-medium text-brand-label">Fit to work file</dt>
+                <dd class="min-w-0 w-full max-w-2xl">
+                    @include('admin.partials.registration-profile-file-upload-card', [
+                        'storagePath' => $e->fit_to_work_path,
+                        'fileUrl' => $e->fit_to_work_path ? $fileUrl('fit-to-work') : null,
+                        'inputName' => 'fit_to_work',
+                        'uploadInputId' => 'reg-fit-to-work-upload',
+                        'canEditProfile' => $canEditProfile,
+                    ])
+                </dd>
+            </div>
+        @endif
+    </div>
+</section>
+
+<section class="{{ $card }}">
+    <div class="{{ $cardHead }}">
+        <h3 class="text-lg font-bold text-brand-text">Licences &amp; insurance</h3>
+    </div>
+    <div class="divide-y divide-brand-border px-6 sm:px-8">
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Licences summary</dt><dd class="min-w-0 text-sm text-brand-text">{{ $line($e->licences_summary) }}</dd></div>
+        <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Licence uploads</dt>
+            <dd class="min-w-0 w-full">
+                @if ($licenceRows === [])
+                    <p class="text-sm text-brand-text-secondary">No licence rows on file.</p>
+                @else
+                    <div class="grid gap-4 lg:grid-cols-2">
+                        @foreach ($licenceRows as $doc)
+                            @if ($doc['row_key'] !== null)
+                                @include('admin.partials.registration-profile-doc-row-card', [
+                                    'doc' => $doc,
+                                    'canEditProfile' => $canEditProfile,
+                                    'picklistKey' => 'licence_type',
+                                    'typeLabel' => 'Licence type',
+                                    'typeFieldName' => 'licence_type_row',
+                                    'typeSelectedValue' => $licTypeForKey($doc['row_key']),
+                                    'uploadFieldName' => 'licence_upload',
+                                    'fileUrlKind' => 'licence',
+                                    'expiryFieldName' => 'licence_expiry_row',
+                                ])
+                            @endif
+                        @endforeach
+                    </div>
+                @endif
+            </dd>
+        </div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Insurances summary</dt><dd class="min-w-0 text-sm text-brand-text">{{ $line($e->insurances_summary) }}</dd></div>
+        <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Insurance uploads</dt>
+            <dd class="min-w-0 w-full">
+                @if ($insuranceRows === [])
+                    <p class="text-sm text-brand-text-secondary">No insurance rows on file.</p>
+                @else
+                    <div class="grid gap-4 lg:grid-cols-2">
+                        @foreach ($insuranceRows as $doc)
+                            @if ($doc['row_key'] !== null)
+                                @include('admin.partials.registration-profile-doc-row-card', [
+                                    'doc' => $doc,
+                                    'canEditProfile' => $canEditProfile,
+                                    'picklistKey' => 'insurance_type',
+                                    'typeLabel' => 'Insurance type',
+                                    'typeFieldName' => 'insurance_type_row',
+                                    'typeSelectedValue' => $insTypeForKey($doc['row_key']),
+                                    'uploadFieldName' => 'insurance_upload',
+                                    'fileUrlKind' => 'insurance',
+                                    'expiryFieldName' => 'insurance_expiry_row',
+                                ])
+                            @endif
+                        @endforeach
+                    </div>
+                @endif
+            </dd>
+        </div>
+    </div>
+</section>
+
+<section class="{{ $card }}">
+    <div class="{{ $cardHead }}">
+        <h3 class="text-lg font-bold text-brand-text">Role</h3>
+        @if ($canEditProfile)
+            <!-- <p class="mt-1 text-sm text-brand-text-secondary">Job titles and departments come from <a href="{{ route('admin.workforce.job-titles') }}" class="font-semibold text-brand-link hover:underline">Organization setup</a>.</p> -->
+        @endif
+    </div>
+    <div class="divide-y divide-brand-border px-6 sm:px-8">
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Job title</dt><dd class="min-w-0">@if ($canEditProfile)@php $jobTitles = $jobTitles ?? collect(); @endphp<select name="job_title_id" class="{{ $editIn }}"><option value="">—</option>@foreach ($jobTitles as $jt)<option value="{{ $jt->id }}" @selected((string) old('job_title_id', $e->job_title_id) === (string) $jt->id)>{{ $jt->name }}</option>@endforeach</select>@if ($jobTitles->isEmpty())<p class="mt-1 text-xs text-brand-text-secondary">No job titles yet — add them under Organization setup.</p>@elseif (! $e->job_title_id && trim((string) ($e->job_title ?? '')) !== '')<p class="mt-1 text-xs text-brand-text-secondary">Registration note: {{ $line($e->job_title) }}</p>@endif @else<span class="text-brand-text">{{ $line($roleJobTitle) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Department</dt><dd class="min-w-0">@if ($canEditProfile)@php $departments = $departments ?? collect(); @endphp<select name="department_id" class="{{ $editIn }}"><option value="">—</option>@foreach ($departments as $d)<option value="{{ $d->id }}" @selected((string) old('department_id', $e->department_id) === (string) $d->id)>{{ $d->name }}</option>@endforeach</select>@if ($departments->isEmpty())<p class="mt-1 text-xs text-brand-text-secondary">No departments yet — add them under Organization setup.</p>@elseif (! $e->department_id && trim((string) ($e->department ?? '')) !== '')<p class="mt-1 text-xs text-brand-text-secondary">Registration note: {{ $line($e->department) }}</p>@endif @else<span class="text-brand-text">{{ $line($roleDepartment) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Employee code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="employee_code" maxlength="64" value="{{ old('employee_code', $e->employee_code) }}" class="{{ $editIn }}" placeholder="N/A" />@else<span class="text-brand-text">{{ e($roleEmployeeCode) }}</span>@endif</dd></div>
+    </div>
+</section>
+
+<section class="{{ $card }}">
+    <div class="{{ $cardHead }}">
+        <h3 class="text-lg font-bold text-brand-text">Payroll Information</h3>
+    </div>
+    <div class="divide-y divide-brand-border px-6 sm:px-8">
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_name" maxlength="160" value="{{ old('bank_account_name', $e->bank_account_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_account_name) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account number</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_number" maxlength="500" class="{{ $editIn }} font-mono tracking-wide" data-reg-bank-account data-bank-masked="{{ $bankHasAccount ? $bankMasked : '' }}" value="{{ old('bank_account_number') ?: ($bankHasAccount ? $bankMasked : '') }}" placeholder="{{ $bankHasAccount ? '' : 'Enter account number' }}" autocomplete="off" /><p class="mt-1 text-xs text-brand-text-secondary">@if ($bankHasAccount)Masked as {{ $bankMasked }}. Click the field to enter a new number (leave empty to keep current).@elseEnter the full account number.@endif</p>@else<span class="font-mono text-brand-text">{{ $bankMasked }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Branch code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_branch_code" maxlength="32" value="{{ old('bank_branch_code', $e->bank_branch_code) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_branch_code) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Bank name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_name" maxlength="160" value="{{ old('bank_name', $e->bank_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_name) }}</span>@endif</dd></div>
     </div>
 </section>

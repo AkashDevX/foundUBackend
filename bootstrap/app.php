@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'tenant' => ResolveTenantFromMaster::class,
+            'platform.api' => \App\Http\Middleware\EnsurePlatformApiRequest::class,
+            'portal.tenant' => \App\Http\Middleware\EnsureTenantPortalUser::class,
+            'portal.platform' => \App\Http\Middleware\EnsurePlatformPortalUser::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

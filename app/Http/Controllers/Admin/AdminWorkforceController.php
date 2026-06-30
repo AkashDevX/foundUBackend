@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Department;
+use App\Models\JobTitle;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
@@ -63,6 +64,11 @@ class AdminWorkforceController extends Controller
         return $this->renderSection($request, 'departments');
     }
 
+    public function jobTitles(Request $request): View
+    {
+        return $this->renderSection($request, 'job-titles');
+    }
+
     public function workLocations(Request $request): View
     {
         return $this->renderSection($request, 'work-locations');
@@ -81,12 +87,14 @@ class AdminWorkforceController extends Controller
         $conn = $company->tenant_connection;
 
         $departments = Department::on($conn)->orderBy('name')->get();
+        $jobTitles = JobTitle::on($conn)->orderBy('name')->get();
         $locations = WorkLocation::on($conn)->orderBy('name')->get();
         $shifts = Shift::on($conn)->orderBy('name')->get();
 
         return view('admin.workforce', [
             'company' => $company,
             'departments' => $departments,
+            'jobTitles' => $jobTitles,
             'workLocations' => $locations,
             'shifts' => $shifts,
             'mapDefaultLat' => config('workforce.default_map_lat'),
@@ -306,6 +314,44 @@ class AdminWorkforceController extends Controller
         ])->save();
 
         return redirect()->back()->with('status', 'Department updated.');
+    }
+
+    public function storeJobTitle(Request $request): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'job_title_name' => ['required', 'string', 'max:160'],
+        ]);
+
+        JobTitle::on($conn)->create([
+            'name' => $data['job_title_name'],
+            'is_active' => true,
+        ]);
+
+        return redirect()->back()->with('status', 'Job title created.');
+    }
+
+    public function updateJobTitle(Request $request, int $jobTitle): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'job_title_name' => ['required', 'string', 'max:160'],
+        ]);
+
+        $target = JobTitle::on($conn)->whereKey($jobTitle)->firstOrFail();
+        $target->forceFill([
+            'name' => $data['job_title_name'],
+        ])->save();
+
+        return redirect()->back()->with('status', 'Job title updated.');
     }
 
     public function storeWorkLocation(Request $request): RedirectResponse

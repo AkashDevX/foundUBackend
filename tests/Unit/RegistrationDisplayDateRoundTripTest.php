@@ -79,4 +79,32 @@ class RegistrationDisplayDateRoundTripTest extends TestCase
     {
         $this->assertSame('2026-03-15', RegistrationDisplay::toHtmlDateInput('03 / 15 / 2026'));
     }
+
+    public function test_normalizes_licence_json_expiry_to_iso(): void
+    {
+        $rows = RegistrationDisplay::normalizeDocumentJsonExpiryRows([
+            ['id' => '1', 'type' => 'Forklift', 'expiry' => '03 / 15 / 2026'],
+        ]);
+        $this->assertSame('2026-03-15', $rows[0]['expiry']);
+        $this->assertSame('2026-03-15', $rows[0]['expiry_date']);
+    }
+
+    public function test_rebuilds_summary_from_json_rows(): void
+    {
+        $summary = RegistrationDisplay::rebuildDocumentRowsSummary([
+            ['id' => '1', 'type' => 'Forklift', 'expiry' => '2026-03-15'],
+            ['id' => '2', 'type' => 'HR', 'expiry' => '2027-01-20'],
+        ]);
+        $this->assertSame('Forklift (exp. 2026-03-15) · HR (exp. 2027-01-20)', $summary);
+    }
+
+    public function test_document_row_expiry_input_from_json(): void
+    {
+        $input = RegistrationDisplay::documentRowExpiryInputValue([
+            'id' => '1',
+            'type' => 'Public Liability',
+            'expiry' => '2026-12-01',
+        ]);
+        $this->assertSame('2026-12-01', $input);
+    }
 }

@@ -86,6 +86,14 @@ export type CurrentEmployeeBody = {
     employment_status: string | null;
     company_display_name: string | null;
     phone: string | null;
+    employee_code?: string | null;
+    job_title?: string | null;
+    department?: string | null;
+    role?: {
+      job_title: string | null;
+      department: string | null;
+      employee_code: string | null;
+    };
     work_assignment: WorkAssignment | null;
     time_clock?: TimeClockStatus;
   };

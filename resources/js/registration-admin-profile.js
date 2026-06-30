@@ -1,6 +1,8 @@
 /**
  * Admin registration profile: address (Nominatim), photo preview, bank mask, ID doc preview.
  */
+import './cruLynkDialogs';
+
 function initRegAddressRoot(root) {
     const input = root.querySelector('[data-reg-address]');
     const suggestions = root.querySelector('[data-reg-addr-suggestions]');

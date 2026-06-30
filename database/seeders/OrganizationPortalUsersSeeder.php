@@ -14,7 +14,10 @@ class OrganizationPortalUsersSeeder extends Seeder
 {
     public function run(): void
     {
-        $companies = Company::query()->where('is_active', true)->get();
+        $companies = Company::query()
+            ->where('is_active', true)
+            ->tenantOrganizations()
+            ->get();
 
         foreach ($companies as $company) {
             OrganizationPortalUser::query()->updateOrCreate(

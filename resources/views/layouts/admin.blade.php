@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#003d7a">
-    <title>@yield('title', 'Admin') — {{ config('app.name', 'Attendance') }}</title>
+    @if (session('success'))
+        <meta name="flash-success" content="{{ e(session('success')) }}">
+    @endif
+    @if (session('error'))
+        <meta name="flash-error" content="{{ e(session('error')) }}">
+    @endif
+    <title>@yield('title', 'Admin') — {{ config('app.name', 'CruLynk') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -27,7 +33,7 @@
                         </svg>
                     </div>
                     <div>
-                        <p class="text-sm font-bold tracking-tight text-white">Workforce</p>
+                        <p class="text-sm font-bold tracking-tight text-white">{{ config('app.name', 'CruLynk') }}</p>
                         <p class="text-xs text-white/65">Organization portal</p>
                     </div>
                 </div>
@@ -52,11 +58,12 @@
                         <span class="{{ request()->routeIs('admin.workforce*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
                             <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 01-4.681-3.72 8.986 8.986 0 0115.863 0 3 3 0 01-4.681 3.72z" /></svg>
                         </span>
-                        <span class="flex-1 text-left">Workforce setup</span>
+                        <span class="flex-1 text-left">Organization setup</span>
                         <svg class="size-4 transition-transform" id="workforce-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                     <div id="workforce-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.workforce*') ? '' : 'hidden' }}">
                         <a href="{{ route('admin.workforce.departments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.departments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Departments</a>
+                        <a href="{{ route('admin.workforce.job-titles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.job-titles') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Job titles</a>
                         <a href="{{ route('admin.workforce.work-locations') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.work-locations') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work locations</a>
                         <a href="{{ route('admin.workforce.shifts') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.shifts') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Shifts</a>
                     </div>
@@ -73,6 +80,8 @@
                     </button>
                     <div id="employees-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.employees*') ? '' : 'hidden' }}">
                         <a href="{{ route('admin.employees.assignments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.assignments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work assignments</a>
+                        <a href="{{ route('admin.employees.weekly-schedule') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.weekly-schedule') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Weekly schedule</a>
+                        <a href="{{ route('admin.employees.tasks') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.tasks*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Tasks</a>
                         <a href="{{ route('admin.employees.time-clock') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.time-clock') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Time clock records</a>
                     </div>
                 </nav>
@@ -87,7 +96,17 @@
                             <p class="truncate text-[11px] font-semibold uppercase tracking-wider text-white/55">{{ $pc?->name ?? 'Organization' }}</p>
                             <p class="mt-2 truncate text-sm font-semibold text-white">{{ $pu->name }}</p>
                             <p class="truncate text-xs text-white/60">{{ $pu->email }}</p>
-                            <form method="post" action="{{ route('portal.logout') }}" class="mt-4" data-skip-form-busy>
+                            <form
+                                method="post"
+                                action="{{ route('portal.logout') }}"
+                                class="mt-4"
+                                data-skip-form-busy
+                                data-confirm="You will be signed out of the admin portal."
+                                data-confirm-title="Sign out?"
+                                data-confirm-confirm="Sign out"
+                                data-confirm-cancel="Stay signed in"
+                                data-confirm-icon="question"
+                            >
                                 @csrf
                                 <button type="submit" class="w-full rounded-lg bg-white/12 px-3 py-2.5 text-xs font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/20">
                                     Sign out
@@ -144,17 +163,8 @@
             </header>
 
             <main class="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
-                @if (session('success'))
-                    <div class="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-950 shadow-sm" role="status">
-                        {{ session('success') }}
-                    </div>
-                @endif
-                @if (session('error'))
-                    <div class="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-950 shadow-sm" role="alert">
-                        {{ session('error') }}
-                    </div>
-                @endif
                 @yield('content')
+                @include('partials.cru-lynk-flash')
             </main>
         </div>
     </div>

@@ -291,8 +291,6 @@ final class RegistrationDisplay
             'police_check_expiry' => ['policeCheckExpiry', 'police_check_expiry'],
             'fit_to_work_expiry' => ['fitToWorkExpiry', 'fit_to_work_expiry'],
             'vehicle_expiry' => ['vehicleExpiry', 'vehicle_expiry'],
-            'licences_summary' => ['licencesSummary', 'licences_summary'],
-            'insurances_summary' => ['insurancesSummary', 'insurances_summary'],
         ];
     }
 
@@ -797,12 +795,183 @@ final class RegistrationDisplay
     }
 
     /**
+     * AU-style profile line (d/m/Y) for expiry fields in ID & checks summaries.
+     */
+    public static function formatProfileDateLine(mixed $value): ?string
+    {
+        $iso = self::toNullableIsoDate($value);
+        if ($iso !== null) {
+            try {
+                return Carbon::createFromFormat('!Y-m-d', $iso)->format('d/m/Y');
+            } catch (\Throwable) {
+                return $iso;
+            }
+        }
+        if (is_scalar($value) && trim((string) $value) !== '') {
+            return trim((string) $value);
+        }
+
+        return null;
+    }
+
+    /**
+     * Expiry from the first insurance row whose type matches $typeLabel (value or picklist label).
+     *
+     * @param  iterable<int, object{value: string, label?: string|null}>|null  $picklistItems
+     */
+    public static function insuranceExpiryForType(?array $rows, string $typeLabel, ?iterable $picklistItems = null): ?string
+    {
+        if ($rows === null || $rows === []) {
+            return null;
+        }
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = self::pickDocumentTitle($row);
+            if ($type === '' || ! self::documentTypeMatches($type, $typeLabel, $picklistItems)) {
+                continue;
+            }
+            $expiry = self::expiryFromDocumentRow($row);
+            if ($expiry !== null && $expiry !== '') {
+                return $expiry;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public static function expiryFromDocumentRow(array $row): ?string
+    {
+        foreach (['expiry', 'expiryDate', 'expiry_date', 'documentExpiry', 'document_expiry', 'expirationDate', 'expiration_date'] as $key) {
+            if (! array_key_exists($key, $row)) {
+                continue;
+            }
+            $display = self::formatProfileDateLine($row[$key]);
+            if ($display !== null && $display !== '') {
+                return $display;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Raw expiry value from a licence / insurance JSON row (before formatting).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public static function expiryRawFromDocumentRow(array $row): mixed
+    {
+        foreach (['expiry', 'expiryDate', 'expiry_date', 'documentExpiry', 'document_expiry', 'expirationDate', 'expiration_date'] as $key) {
+            if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') {
+                return $row[$key];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Y-m-d for HTML date inputs on licence / insurance JSON rows.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public static function documentRowExpiryInputValue(array $row): string
+    {
+        return self::toHtmlDateInput(self::expiryRawFromDocumentRow($row));
+    }
+
+    /**
+     * Normalize expiry on each document row to ISO Y-m-d (mobile registration + admin saves).
+     *
+     * @param  array<int, array<string, mixed>>|null  $rows
+     * @return array<int, array<string, mixed>>|null
+     */
+    public static function normalizeDocumentJsonExpiryRows(?array $rows): ?array
+    {
+        if ($rows === null) {
+            return null;
+        }
+
+        foreach ($rows as $i => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $iso = self::toNullableIsoDate(self::expiryRawFromDocumentRow($row));
+            if ($iso === null) {
+                continue;
+            }
+            $rows[$i]['expiry'] = $iso;
+            $rows[$i]['expiry_date'] = $iso;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Human-readable summary line from structured licence / insurance JSON rows.
+     *
+     * @param  array<int, array<string, mixed>>|null  $rows
+     */
+    public static function rebuildDocumentRowsSummary(?array $rows): ?string
+    {
+        if ($rows === null || $rows === []) {
+            return null;
+        }
+
+        $parts = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = self::pickDocumentTitle($row);
+            if ($type === '') {
+                continue;
+            }
+            $iso = self::toNullableIsoDate(self::expiryRawFromDocumentRow($row));
+            $parts[] = $iso !== null ? $type.' (exp. '.$iso.')' : $type;
+        }
+
+        return $parts === [] ? null : implode(' · ', $parts);
+    }
+
+    /**
+     * @param  iterable<int, object{value: string, label?: string|null}>|null  $picklistItems
+     */
+    public static function picklistLabel(?string $storedValue, ?iterable $picklistItems): ?string
+    {
+        if ($storedValue === null || trim($storedValue) === '') {
+            return null;
+        }
+        if ($picklistItems === null) {
+            return trim($storedValue);
+        }
+        $matched = self::matchPicklistValue(trim($storedValue), $picklistItems);
+        foreach ($picklistItems as $item) {
+            if ((string) ($item->value ?? '') === $matched) {
+                $label = trim((string) ($item->label ?? ''));
+                if ($label !== '') {
+                    return $label;
+                }
+
+                return $matched;
+            }
+        }
+
+        return trim($storedValue);
+    }
+
+    /**
      * @param  array<string, mixed>  $row
      * @return list<string>
      */
     public static function metaLinesForDocumentRow(array $row): array
     {
-        $skip = ['storage_path', 'documentKey', 'id', 'uri', 'localUri'];
+        $skip = ['storage_path', 'documentKey', 'id', 'uri', 'localUri', 'expiry', 'expiryDate', 'expiry_date', 'documentExpiry', 'document_expiry', 'expirationDate', 'expiration_date', 'imageUploaded', 'image_uploaded'];
         $lines = [];
         foreach ($row as $key => $value) {
             if (in_array($key, $skip, true)) {
@@ -854,6 +1023,7 @@ final class RegistrationDisplay
             $subtitle = self::pickDocumentSubtitle($row);
             $meta = self::metaLinesForDocumentRow($row);
             $path = isset($row['storage_path']) && is_string($row['storage_path']) ? $row['storage_path'] : null;
+            $expiryInput = self::documentRowExpiryInputValue($row);
 
             $out[] = [
                 'title' => $title,
@@ -862,6 +1032,8 @@ final class RegistrationDisplay
                 'meta' => $meta,
                 'storage_path' => $path,
                 'row_key' => $key !== '' ? $key : null,
+                'expiry_input' => $expiryInput,
+                'expiry_display' => self::expiryFromDocumentRow($row),
             ];
         }
 
@@ -880,6 +1052,30 @@ final class RegistrationDisplay
         }
 
         return '';
+    }
+
+    /**
+     * @param  iterable<int, object{value: string, label?: string|null}>|null  $picklistItems
+     */
+    private static function documentTypeMatches(string $candidate, string $needle, ?iterable $picklistItems = null): bool
+    {
+        $c = trim($candidate);
+        $n = trim($needle);
+        if ($c === '' || $n === '') {
+            return false;
+        }
+        if (strcasecmp($c, $n) === 0) {
+            return true;
+        }
+        if ($picklistItems !== null) {
+            $matchedCandidate = self::matchPicklistValue($c, $picklistItems);
+            $matchedNeedle = self::matchPicklistValue($n, $picklistItems);
+            if ($matchedCandidate !== '' && $matchedNeedle !== '' && strcasecmp($matchedCandidate, $matchedNeedle) === 0) {
+                return true;
+            }
+        }
+
+        return str_contains(strtolower($c), strtolower($n));
     }
 
     /**

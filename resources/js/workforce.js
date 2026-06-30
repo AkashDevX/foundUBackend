@@ -1,3 +1,4 @@
+import './cruLynkDialogs';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -539,6 +540,7 @@ function initWorkLocationRoot(root) {
         if (usingMap && !hasPin) {
             event.preventDefault();
             setStatus('Place a pin on the map before saving.', 'warn');
+            window.CruLynkDialog?.toastWarning('Place a pin on the map before saving.');
             scheduleEnsureMap();
         }
     });
