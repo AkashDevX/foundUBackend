@@ -3,15 +3,9 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Department;
 use App\Models\Employee;
-use App\Models\JobTitle;
 use App\Models\OrganizationPortalUser;
-use App\Models\RegistrationPicklistItem;
-use App\Models\Shift;
-use App\Models\WorkLocation;
-use App\Support\AdminWeeklyAvailability;
-use App\Support\RegistrationDisplay;
+use App\Support\AdminEmployeeProfileView;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 
@@ -78,56 +72,11 @@ class AdminDashboardController extends Controller
 
         abort_unless($sessionCompany->slug === $companySlug, 403);
 
-        $conn = $sessionCompany->tenant_connection;
-
-        RegistrationDisplay::resetDatabaseRowCache();
-
         /** @var Employee $employee */
-        $employee = Employee::on($conn)
+        $employee = Employee::on($sessionCompany->tenant_connection)
             ->where('public_id', $publicId)
             ->firstOrFail();
 
-        $employee->load(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift']);
-
-        $departments = Department::on($conn)->where('is_active', true)->orderBy('name')->get();
-        $jobTitles = JobTitle::on($conn)->where('is_active', true)->orderBy('name')->get();
-        $workLocations = WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get();
-        $shifts = Shift::on($conn)->where('is_active', true)->orderBy('name')->get();
-
-        $registrationPicklists = RegistrationPicklistItem::query()
-            ->where('is_active', true)
-            ->orderBy('picklist_key')
-            ->orderBy('sort_order')
-            ->orderBy('value')
-            ->get()
-            ->groupBy('picklist_key');
-
-        $weeklyGrid = AdminWeeklyAvailability::mobileGridStateForEmployee(
-            $employee->weekly_availability_json,
-            $employee->weekly_availability_summary
-        );
-
-        $registrationDateInputs = [];
-        $registrationDateFormats = [];
-        foreach (RegistrationDisplay::adminProfileDateMetadataKeys() as $column => $metaKeys) {
-            $registrationDateInputs[$column] = RegistrationDisplay::adminDateInputValue($request, $employee, $column, $metaKeys);
-            $registrationDateFormats[$column] = RegistrationDisplay::adminDateStorageFormat($request, $employee, $column, $metaKeys);
-        }
-        $registrationDateInputs['assignment_effective_from'] = RegistrationDisplay::adminAssignmentEffectiveInput($request, $employee);
-        $registrationDateInputs = RegistrationDisplay::mergeRegistrationDatesFromDatabase($conn, $publicId, $registrationDateInputs);
-        $registrationDateFormats = RegistrationDisplay::mergeRegistrationDateFormatsFromDatabase($conn, $publicId, $registrationDateFormats);
-
-        return view('admin.registration-show', [
-            'company' => $sessionCompany,
-            'employee' => $employee,
-            'departments' => $departments,
-            'jobTitles' => $jobTitles,
-            'workLocations' => $workLocations,
-            'shifts' => $shifts,
-            'registrationPicklists' => $registrationPicklists,
-            'weeklyGrid' => $weeklyGrid,
-            'registrationDateInputs' => $registrationDateInputs,
-            'registrationDateFormats' => $registrationDateFormats,
-        ]);
+        return view('admin.registration-show', AdminEmployeeProfileView::viewData($request, $sessionCompany, $employee));
     }
 }

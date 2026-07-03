@@ -68,21 +68,38 @@
                         <a href="{{ route('admin.workforce.shifts') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.shifts') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Shifts</a>
                     </div>
 
-                    <button type="button" id="employees-nav-toggle" class="{{ request()->routeIs('admin.employees*') ? $navActive : $navInactive }} w-full" @if(request()->routeIs('admin.employees*')) aria-current="page" @endif aria-expanded="{{ request()->routeIs('admin.employees*') ? 'true' : 'false' }}">
-                        @if(request()->routeIs('admin.employees*'))
+                    <button type="button" id="employees-nav-toggle" class="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? $navActive : $navInactive }} w-full" @if(request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*')) aria-current="page" @endif aria-expanded="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? 'true' : 'false' }}">
+                        @if(request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*'))
                             <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
                         @endif
-                        <span class="{{ request()->routeIs('admin.employees*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                        <span class="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
                             <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5V4H2v16h5m10 0v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4m10 0H7m10-11h.01M7 9h5" /></svg>
                         </span>
                         <span class="flex-1 text-left">Employees</span>
                         <svg class="size-4 transition-transform" id="employees-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    <div id="employees-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.employees*') ? '' : 'hidden' }}">
+                    <div id="employees-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? '' : 'hidden' }}">
                         <a href="{{ route('admin.employees.assignments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.assignments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work assignments</a>
+                        <a href="{{ route('admin.employees.profiles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.profiles') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Employee profiles</a>
                         <a href="{{ route('admin.employees.weekly-schedule') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.weekly-schedule') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Weekly schedule</a>
                         <a href="{{ route('admin.employees.tasks') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.tasks*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Tasks</a>
-                        <a href="{{ route('admin.employees.time-clock') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.time-clock') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Time clock records</a>
+                    </div>
+
+                    <button type="button" id="payroll-time-nav-toggle" class="{{ request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*') ? $navActive : $navInactive }} w-full" @if(request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*')) aria-current="page" @endif aria-expanded="{{ request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*') ? 'true' : 'false' }}">
+                        @if(request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*'))
+                            <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
+                        @endif
+                        <span class="{{ request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                            <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </span>
+                        <span class="flex-1 text-left">Payroll</span>
+                        <svg class="size-4 transition-transform" id="payroll-time-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div id="payroll-time-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll*') ? '' : 'hidden' }}">
+                        <a href="{{ route('admin.employees.time-clock') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.time-clock*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Time clock records</a>
+                        <a href="{{ route('admin.payroll.runs') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.runs*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Payrun</a>
+                        <a href="{{ route('admin.payroll.rates') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.rates*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Award rates</a>
+                        <a href="{{ route('admin.payroll.holidays') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.holidays*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Public holidays</a>
                     </div>
                 </nav>
                 <div class="border-t border-white/10 p-4">
@@ -222,6 +239,23 @@
                     syncEmployeesChevron();
                 });
                 syncEmployeesChevron();
+            }
+
+            var payrollTimeToggle = document.getElementById('payroll-time-nav-toggle');
+            var payrollTimeMenu = document.getElementById('payroll-time-nav-submenu');
+            var payrollTimeChevron = document.getElementById('payroll-time-nav-chevron');
+            if (payrollTimeToggle && payrollTimeMenu && payrollTimeChevron) {
+                function syncPayrollTimeChevron() {
+                    var expanded = payrollTimeToggle.getAttribute('aria-expanded') === 'true';
+                    payrollTimeChevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+                }
+                payrollTimeToggle.addEventListener('click', function () {
+                    var expanded = payrollTimeToggle.getAttribute('aria-expanded') === 'true';
+                    payrollTimeToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+                    payrollTimeMenu.classList.toggle('hidden', expanded);
+                    syncPayrollTimeChevron();
+                });
+                syncPayrollTimeChevron();
             }
         })();
     </script>

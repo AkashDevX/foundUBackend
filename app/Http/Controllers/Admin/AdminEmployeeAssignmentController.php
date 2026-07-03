@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeLeaveRecord;
 use App\Models\JobTitle;
 use App\Models\OrganizationPortalUser;
 use App\Models\RegistrationPicklistItem;
@@ -13,11 +14,12 @@ use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
 use App\Models\WorkLocation;
 use App\Services\RegistrationDocumentStorage;
+use App\Support\AdminEmployeeProfileView;
 use App\Support\AdminTimesheetApproval;
 use App\Support\AdminWeeklyAvailability;
 use App\Support\DisplayTimezone;
 use App\Support\FoundUProfileMapper;
-use App\Support\RegistrationDisplay;
+use App\Support\PayrollEmployeeRates;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -31,6 +33,41 @@ class AdminEmployeeAssignmentController extends Controller
         $data = $this->employeePageData($request, loadTimeClockEntries: false);
 
         return view('admin.employees-assignments', $data);
+    }
+
+    public function profiles(Request $request): View
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $employees = Employee::on($conn)
+            ->orderBy('full_legal_name')
+            ->orderBy('email')
+            ->get();
+
+        $selectedPublicId = $request->query('employee', '');
+        if (! is_string($selectedPublicId)) {
+            $selectedPublicId = '';
+        }
+
+        $selectedEmployee = null;
+        $profileData = [];
+
+        if ($selectedPublicId !== '') {
+            $selectedEmployee = $employees->firstWhere('public_id', $selectedPublicId);
+            if ($selectedEmployee !== null) {
+                $profileData = AdminEmployeeProfileView::viewData($request, $company, $selectedEmployee);
+            }
+        }
+
+        return view('admin.employees-profiles', array_merge($profileData, [
+            'company' => $company,
+            'employees' => $employees,
+            'selectedEmployee' => $selectedEmployee,
+            'selectedPublicId' => $selectedPublicId,
+        ]));
     }
 
     public function timeClock(Request $request): View
@@ -215,7 +252,7 @@ class AdminEmployeeAssignmentController extends Controller
         $this->updateAssignmentForEmployee($request, $employee, $conn);
 
         return redirect()
-            ->route('admin.registrations.show', ['companySlug' => $companySlug, 'publicId' => $publicId])
+            ->back()
             ->with('status', 'Work assignment updated.');
     }
 
@@ -274,6 +311,15 @@ class AdminEmployeeAssignmentController extends Controller
             'vehicle_expiry' => ['nullable', 'string', 'max:32'],
             'vehicle_insurance_uploaded' => ['nullable', 'string', 'max:32'],
             'employee_code' => ['nullable', 'string', 'max:64'],
+            'employment_type' => ['nullable', 'string', 'in:full_time,part_time,casual'],
+            'award_level' => ['nullable', 'string', 'in:level_1,level_2'],
+            'is_non_rotating_shift' => ['nullable', 'boolean'],
+            'payroll_rates' => ['nullable', 'array'],
+            'payroll_rates.*' => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
+            'allowance_name' => ['nullable', 'array'],
+            'allowance_name.*' => ['nullable', 'string', 'max:120'],
+            'allowance_amount' => ['nullable', 'array'],
+            'allowance_amount.*' => ['nullable', 'numeric', 'min:0', 'max:99999'],
             'job_title_id' => ['nullable', 'integer'],
             'department_id' => ['nullable', 'integer'],
             'profile_photo' => ['nullable', 'file', 'max:15360'],
@@ -371,6 +417,7 @@ class AdminEmployeeAssignmentController extends Controller
                 'police_check_expiry', 'police_check_uploaded', 'fit_to_work_expiry', 'fit_to_work_uploaded',
                 'licences_summary', 'insurances_summary',
                 'bank_account_name', 'bank_account_number', 'bank_branch_code', 'bank_name',
+                'employment_type', 'award_level', 'is_non_rotating_shift',
                 'mode_of_transport',
                 'employee_code',
             ])
@@ -406,6 +453,30 @@ class AdminEmployeeAssignmentController extends Controller
         if ($bankNum === '' || preg_match('/^X{10}\d{4}$/i', $bankNum)) {
             unset($fill['bank_account_number']);
         }
+
+        $allowanceNames = $request->input('allowance_name', []);
+        $allowanceAmounts = $request->input('allowance_amount', []);
+        $allowances = [];
+        foreach ($allowanceNames as $i => $name) {
+            $name = trim((string) $name);
+            $amount = (float) ($allowanceAmounts[$i] ?? 0);
+            if ($name !== '' && $amount > 0) {
+                $allowances[] = ['name' => $name, 'amount' => round($amount, 2)];
+            }
+        }
+        $fill['payroll_allowances_json'] = $allowances === [] ? null : $allowances;
+
+        $employee->forceFill([
+            'employment_type' => $fill['employment_type'] ?? null,
+            'award_level' => $fill['award_level'] ?? null,
+        ]);
+        $mergedRates = PayrollEmployeeRates::fromRequest(
+            (array) ($data['payroll_rates'] ?? []),
+            $conn,
+            $employee
+        );
+        $fill['payroll_rates_json'] = PayrollEmployeeRates::toStoredOverrides($mergedRates, $conn, $employee);
+        $fill['is_non_rotating_shift'] = $request->boolean('is_non_rotating_shift');
 
         foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry'] as $dateField) {
             if (array_key_exists($dateField, $fill)) {
@@ -445,8 +516,52 @@ class AdminEmployeeAssignmentController extends Controller
         }
 
         return redirect()
-            ->route('admin.registrations.show', ['companySlug' => $companySlug, 'publicId' => $publicId])
+            ->back()
             ->with('status', 'Employee profile updated.');
+    }
+
+    public function storeLeave(Request $request, string $companySlug, string $publicId): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $sessionCompany = $portalUser->company()->firstOrFail();
+        abort_unless($sessionCompany->slug === $companySlug, 403);
+
+        $conn = $sessionCompany->tenant_connection;
+
+        /** @var Employee $employee */
+        $employee = Employee::on($conn)
+            ->where('public_id', $publicId)
+            ->where('employment_status', 'active')
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'leave_type' => ['required', 'string', 'in:sick,annual'],
+            'leave_date' => ['required', 'date'],
+            'leave_hours' => ['required', 'numeric', 'min:0.25', 'max:24'],
+            'leave_notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $rates = PayrollEmployeeRates::forEmployee($conn, $employee);
+        $ordinary = PayrollEmployeeRates::ordinaryHourlyRate($rates);
+
+        EmployeeLeaveRecord::on($conn)->create([
+            'employee_id' => $employee->id,
+            'leave_type' => $data['leave_type'],
+            'leave_date' => $data['leave_date'],
+            'hours' => round((float) $data['leave_hours'], 2),
+            'hourly_rate' => $ordinary > 0 ? $ordinary : null,
+            'loading_percent' => $data['leave_type'] === EmployeeLeaveRecord::TYPE_ANNUAL
+                ? (float) config('payroll.annual_leave_loading_percent', 17.5)
+                : null,
+            'status' => EmployeeLeaveRecord::STATUS_PENDING,
+            'notes' => $data['leave_notes'] ?? null,
+            'created_by' => $portalUser->name ?: $portalUser->email,
+        ]);
+
+        return redirect()
+            ->back()
+            ->with('status', 'Leave recorded — will be paid in the next finalized pay run for that fortnight.');
     }
 
     public function updateFromList(Request $request, string $publicId): RedirectResponse

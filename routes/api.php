@@ -71,6 +71,7 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::post('/time-clock/clock-in', ClockInEmployeeController::class);
         Route::post('/time-clock/clock-out', ClockOutEmployeeController::class);
         Route::post('/time-clock/auto-clock-out', AutoClockOutEmployeeController::class);
+        Route::get('/payroll', \App\Http\Controllers\Api\V1\EmployeePayrollController::class);
     });
 
     Route::get('/tenant/context', function () {

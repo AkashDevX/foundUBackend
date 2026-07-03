@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PayrollRateTypes;
 use App\Support\RegistrationDisplay;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -52,6 +53,11 @@ use Laravel\Sanctum\HasApiTokens;
     'bank_account_number',
     'bank_branch_code',
     'bank_name',
+    'payroll_allowances_json',
+    'sick_leave_balance_hours',
+    'annual_leave_balance_hours',
+    'sick_leave_balance_amount',
+    'annual_leave_balance_amount',
     'mode_of_transport',
     'vehicle_registration',
     'vehicle_expiry',
@@ -69,6 +75,10 @@ use Laravel\Sanctum\HasApiTokens;
     'assignment_effective_from',
     'assignment_notes',
     'employment_status',
+    'employment_type',
+    'award_level',
+    'payroll_rates_json',
+    'is_non_rotating_shift',
     'hired_at',
     'email_verified_at',
     'last_login_at',
@@ -109,6 +119,16 @@ class Employee extends Model
     public function timesheetApprovals(): HasMany
     {
         return $this->hasMany(TimesheetApproval::class);
+    }
+
+    public function scheduleShifts(): HasMany
+    {
+        return $this->hasMany(EmployeeScheduleShift::class);
+    }
+
+    public function leaveRecords(): HasMany
+    {
+        return $this->hasMany(EmployeeLeaveRecord::class);
     }
 
     public function taskAssignments(): HasMany
@@ -272,6 +292,16 @@ class Employee extends Model
             'assigned_shift_notes' => $assignedShift['notes'] ?? null,
             'assigned_work_location_notes' => $assignedWorkLocation['notes'] ?? null,
             'assignment_notes' => is_array($assignment) ? ($assignment['notes'] ?? null) : null,
+            'payroll' => [
+                'employment_type' => $this->employment_type,
+                'employment_type_label' => PayrollRateTypes::employmentTypeLabel($this->employment_type),
+                'award_level' => $this->award_level,
+                'award_level_label' => PayrollRateTypes::awardLevelLabel($this->award_level),
+                'sick_leave_balance_hours' => (float) ($this->sick_leave_balance_hours ?? 0),
+                'annual_leave_balance_hours' => (float) ($this->annual_leave_balance_hours ?? 0),
+                'sick_leave_balance_amount' => (float) ($this->sick_leave_balance_amount ?? 0),
+                'annual_leave_balance_amount' => (float) ($this->annual_leave_balance_amount ?? 0),
+            ],
         ];
     }
 
@@ -297,6 +327,13 @@ class Employee extends Model
             'id_documents_json' => 'array',
             'licences_json' => 'array',
             'insurances_json' => 'array',
+            'payroll_allowances_json' => 'array',
+            'payroll_rates_json' => 'array',
+            'is_non_rotating_shift' => 'boolean',
+            'sick_leave_balance_hours' => 'decimal:2',
+            'annual_leave_balance_hours' => 'decimal:2',
+            'sick_leave_balance_amount' => 'decimal:2',
+            'annual_leave_balance_amount' => 'decimal:2',
             'profile_metadata' => 'array',
         ];
     }

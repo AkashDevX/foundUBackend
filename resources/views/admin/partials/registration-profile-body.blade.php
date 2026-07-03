@@ -407,8 +407,13 @@
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">Payroll Information</h3>
+        @if ($canEditProfile)
+            <p class="mt-1 text-sm text-brand-text-secondary">Employment type and award level drive pay calculations. <a href="{{ route('admin.payroll.rates') }}" class="font-semibold text-brand-link hover:underline">Edit award rates</a></p>
+        @endif
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
+        @php $connection = $company->tenant_connection; @endphp
+        @include('admin.partials.registration-profile-payroll', ['e' => $e, 'company' => $company, 'connection' => $connection])
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_name" maxlength="160" value="{{ old('bank_account_name', $e->bank_account_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_account_name) }}</span>@endif</dd></div>
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account number</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_number" maxlength="500" class="{{ $editIn }} font-mono tracking-wide" data-reg-bank-account data-bank-masked="{{ $bankHasAccount ? $bankMasked : '' }}" value="{{ old('bank_account_number') ?: ($bankHasAccount ? $bankMasked : '') }}" placeholder="{{ $bankHasAccount ? '' : 'Enter account number' }}" autocomplete="off" /><p class="mt-1 text-xs text-brand-text-secondary">@if ($bankHasAccount)Masked as {{ $bankMasked }}. Click the field to enter a new number (leave empty to keep current).@elseEnter the full account number.@endif</p>@else<span class="font-mono text-brand-text">{{ $bankMasked }}</span>@endif</dd></div>
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Branch code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_branch_code" maxlength="32" value="{{ old('bank_branch_code', $e->bank_branch_code) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_branch_code) }}</span>@endif</dd></div>

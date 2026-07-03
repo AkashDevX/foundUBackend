@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
+use App\Http\Controllers\Admin\AdminPayrollController;
 use App\Http\Controllers\Admin\AdminWeeklyScheduleController;
 use App\Http\Controllers\Admin\AdminRegistrationDecisionController;
 use App\Http\Controllers\Admin\AdminRegistrationFileController;
@@ -56,6 +57,9 @@ Route::middleware('auth:portal')->group(function (): void {
         ->name('admin.registrations.assignment.update');
     Route::post('/admin/registrations/{companySlug}/{publicId}/profile', [AdminEmployeeAssignmentController::class, 'updateProfile'])
         ->name('admin.registrations.profile.update');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/leave', [AdminEmployeeAssignmentController::class, 'storeLeave'])
+        ->name('admin.registrations.leave.store');
+    Route::get('/admin/employees/profiles', [AdminEmployeeAssignmentController::class, 'profiles'])->name('admin.employees.profiles');
     Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'assignments'])->name('admin.employees.assignments');
     Route::get('/admin/employees/weekly-schedule', [AdminWeeklyScheduleController::class, 'index'])->name('admin.employees.weekly-schedule');
     Route::post('/admin/employees/weekly-schedule/shifts', [AdminWeeklyScheduleController::class, 'storeShift'])->name('admin.employees.weekly-schedule.shifts.store');
@@ -69,6 +73,15 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/employees/time-clock', [AdminEmployeeAssignmentController::class, 'timeClock'])->name('admin.employees.time-clock');
     Route::post('/admin/employees/time-clock/timesheets/approve', [AdminEmployeeAssignmentController::class, 'approveTimesheet'])->name('admin.employees.time-clock.timesheets.approve');
     Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
+    Route::get('/admin/payroll', [AdminPayrollController::class, 'index'])->name('admin.payroll');
+    Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
+    Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');
+    Route::post('/admin/payroll/runs/export', [AdminPayrollController::class, 'exportRun'])->name('admin.payroll.runs.export');
+    Route::get('/admin/payroll/rates', [AdminPayrollController::class, 'rates'])->name('admin.payroll.rates');
+    Route::post('/admin/payroll/rates', [AdminPayrollController::class, 'updateRates'])->name('admin.payroll.rates.update');
+    Route::get('/admin/payroll/holidays', [AdminPayrollController::class, 'holidays'])->name('admin.payroll.holidays');
+    Route::post('/admin/payroll/holidays', [AdminPayrollController::class, 'storeHoliday'])->name('admin.payroll.holidays.store');
+    Route::delete('/admin/payroll/holidays/{holiday}', [AdminPayrollController::class, 'destroyHoliday'])->name('admin.payroll.holidays.destroy');
     Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
         ->name('admin.employees.assignment.update');
     Route::post('/admin/registrations/{companySlug}/{publicId}/accept', [AdminRegistrationDecisionController::class, 'accept'])
