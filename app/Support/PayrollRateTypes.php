@@ -34,6 +34,10 @@ final class PayrollRateTypes
 
     public const ANNUAL_LEAVE_TAKEN = 'annual_leave_taken';
 
+    public const LEAVE_TAKEN = 'leave_taken';
+
+    public const UNPAID_LEAVE_TAKEN = 'unpaid_leave_taken';
+
     /**
      * @return list<string>
      */
@@ -71,6 +75,8 @@ final class PayrollRateTypes
             self::ANNUAL_LEAVE_ACCRUAL => 'Annual leave accrued',
             self::SICK_LEAVE_TAKEN => 'Sick leave taken',
             self::ANNUAL_LEAVE_TAKEN => 'Annual leave taken',
+            self::LEAVE_TAKEN => 'Leave taken',
+            self::UNPAID_LEAVE_TAKEN => 'Unpaid leave taken',
             default => ucfirst(str_replace('_', ' ', $rateType)),
         };
     }

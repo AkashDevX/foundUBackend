@@ -12,7 +12,6 @@
         <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
             <header class="border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-4 py-4">
                 <h2 class="text-sm font-bold text-brand-text">Fortnight</h2>
-                <p class="mt-1 text-xs text-brand-text-secondary">Select a pay period (Mon–Sun × 2).</p>
             </header>
             <nav class="divide-y divide-brand-border/80 p-2">
                 @foreach ($recentFortnights as $fn)

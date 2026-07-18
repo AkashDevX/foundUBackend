@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'punch_source',
     'department_id',
     'shift_id',
+    'comment',
 ])]
 class TimeClockEntry extends Model
 {
@@ -74,6 +75,7 @@ class TimeClockEntry extends Model
             'punch_source' => $this->punch_source ?? self::PUNCH_SOURCE_MANUAL,
             'department_id' => $this->department_id,
             'shift_id' => $this->shift_id,
+            'comment' => $this->comment,
         ];
     }
 

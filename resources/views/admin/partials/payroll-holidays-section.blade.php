@@ -6,7 +6,6 @@
     <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
         <header class="border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-5 py-5">
             <h2 class="text-base font-bold text-brand-text">Add public holiday</h2>
-            <p class="mt-1 text-sm text-brand-text-secondary">Dates in this list are paid at public holiday rates when employees work.</p>
         </header>
         <form method="post" action="{{ route('admin.payroll.holidays.store') }}" class="space-y-4 px-5 py-6">
             @csrf

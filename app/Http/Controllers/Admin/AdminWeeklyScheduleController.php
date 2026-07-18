@@ -5,11 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeLeaveEntitlement;
+use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
+use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
 use App\Support\AdminWeeklySchedule;
+use App\Support\PayrollEmployeeRates;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,7 +50,9 @@ class AdminWeeklyScheduleController extends Controller
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
 
-        EmployeeScheduleShift::on($conn)->create($this->scheduleEntryAttributes($data, $employee, $portalUser->name));
+        /** @var EmployeeScheduleShift $entry */
+        $entry = EmployeeScheduleShift::on($conn)->create($this->scheduleEntryAttributes($data, $employee, $portalUser->name));
+        $this->syncTimeOffLeaveRecord($conn, $entry, $data, $employee, $portalUser->name ?: $portalUser->email);
 
         $message = $data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF
             ? 'Day off saved to the weekly schedule.'
@@ -78,6 +84,18 @@ class AdminWeeklyScheduleController extends Controller
         $entry->fill($this->scheduleEntryAttributes($data, $employee));
         $entry->save();
 
+        /** @var OrganizationPortalUser|null $portalUser */
+        $portalUser = $request->user('portal');
+        $createdBy = $portalUser?->name ?: $portalUser?->email;
+        $this->syncTimeOffLeaveRecord($conn, $entry, $data, $employee, $createdBy);
+
+        // Keep the sick-leave record aligned with the shift's hours when a sick-called-out shift is edited.
+        if ($entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT
+            && $entry->status === EmployeeScheduleShift::STATUS_SICK_CALL_OUT) {
+            $this->applySickCallOutLeave($conn, $entry, $createdBy);
+            $entry->save();
+        }
+
         $message = $data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF
             ? 'Day off updated.'
             : 'Shift updated.';
@@ -92,11 +110,57 @@ class AdminWeeklyScheduleController extends Controller
 
         $entry = EmployeeScheduleShift::on($conn)->findOrFail($scheduleShift);
         $wasTimeOff = $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF;
+        $this->deletePendingLeaveRecord($conn, $entry);
         $entry->delete();
 
         return $this->redirectBack($request, $wasTimeOff
             ? 'Day off removed from the schedule.'
             : 'Shift removed from the schedule.');
+    }
+
+    public function markShiftStatus(Request $request, int $scheduleShift): RedirectResponse
+    {
+        $context = $this->scheduleContext($request);
+        $conn = $context['conn'];
+
+        $data = $request->validate([
+            'status' => ['nullable', Rule::in([
+                EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+                EmployeeScheduleShift::STATUS_NO_SHOW,
+            ])],
+        ]);
+
+        /** @var EmployeeScheduleShift $entry */
+        $entry = EmployeeScheduleShift::on($conn)->findOrFail($scheduleShift);
+
+        if ($entry->entry_type !== EmployeeScheduleShift::TYPE_SHIFT) {
+            throw ValidationException::withMessages([
+                'status' => 'Only scheduled shifts can be marked.',
+            ]);
+        }
+
+        $status = $data['status'] ?? null;
+        $entry->status = $status;
+
+        /** @var OrganizationPortalUser|null $portalUser */
+        $portalUser = $request->user('portal');
+        $createdBy = $portalUser?->name ?: $portalUser?->email;
+
+        if ($status === EmployeeScheduleShift::STATUS_SICK_CALL_OUT) {
+            $this->applySickCallOutLeave($conn, $entry, $createdBy);
+        } else {
+            // No show (or cleared) is simply unpaid — drop any sick-leave record we created.
+            $this->deletePendingLeaveRecord($conn, $entry);
+            $entry->leave_record_id = null;
+        }
+
+        $entry->save();
+
+        $message = $status === null
+            ? 'Shift status cleared.'
+            : sprintf('Shift marked as %s.', strtolower((string) EmployeeScheduleShift::statusLabel($status)));
+
+        return $this->redirectBack($request, $message);
     }
 
     public function fillFromAssignments(Request $request): RedirectResponse
@@ -105,7 +169,7 @@ class AdminWeeklyScheduleController extends Controller
         $conn = $context['conn'];
         $weekStart = $context['weekStart'];
 
-        $employees = $this->filteredEmployeesQuery($request, $conn)->with(['assignedShift'])->get();
+        $employees = $this->filteredEmployeesQuery($request, $conn)->with(['assignedShift', 'assignmentShifts.shiftTemplate'])->get();
         $weekEnd = $weekStart->copy()->addDays(6)->toDateString();
 
         $existingEntries = EmployeeScheduleShift::on($conn)
@@ -136,11 +200,11 @@ class AdminWeeklyScheduleController extends Controller
         $weekEnd = $weekStart->copy()->addDays(6);
 
         $employees = $this->filteredEmployeesQuery($request, $conn)
-            ->with(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift'])
+            ->with(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate'])
             ->get();
 
         $scheduleEntries = EmployeeScheduleShift::on($conn)
-            ->with(['shiftTemplate', 'jobTitle', 'department', 'workLocation'])
+            ->with(['shiftTemplate', 'jobTitle', 'department', 'workLocation', 'leaveType', 'leaveRecord'])
             ->whereIn('employee_id', $employees->pluck('id'))
             ->whereBetween('scheduled_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
             ->orderBy('start_time')
@@ -177,6 +241,7 @@ class AdminWeeklyScheduleController extends Controller
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'shiftTemplates' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'leaveBalances' => AdminWeeklySchedule::leaveBalancesForEmployees($conn, $employees),
             'employees' => Employee::on($conn)
                 ->where('employment_status', 'active')
                 ->orderBy('full_legal_name')
@@ -237,13 +302,34 @@ class AdminWeeklyScheduleController extends Controller
             'start_time' => ['nullable', 'date_format:H:i'],
             'end_time' => ['nullable', 'date_format:H:i'],
             'notes' => ['nullable', 'string', 'max:500'],
+            'leave_type_id' => ['nullable', 'integer'],
+            'leave_hours' => ['nullable', 'numeric', 'min:0.25', 'max:24', 'required_with:leave_type_id'],
         ]);
 
-        Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
+        /** @var Employee $employee */
+        $employee = Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
             $this->assertBelongsToTenant($conn, 'shifts', $data['shift_id'] ?? null);
             $this->assertBelongsToTenant($conn, 'work_locations', $data['work_location_id'] ?? null);
+        } elseif (! empty($data['leave_type_id'])) {
+            $leaveTypeId = (int) $data['leave_type_id'];
+
+            $isActiveType = LeaveType::on($conn)
+                ->where('id', $leaveTypeId)
+                ->where('is_active', true)
+                ->exists();
+
+            $isEntitled = EmployeeLeaveEntitlement::on($conn)
+                ->where('employee_id', $employee->id)
+                ->where('leave_type_id', $leaveTypeId)
+                ->exists();
+
+            if (! $isActiveType || ! $isEntitled) {
+                throw ValidationException::withMessages([
+                    'leave_type_id' => 'This employee is not entitled to the selected leave type.',
+                ]);
+            }
         }
 
         return $data;
@@ -272,6 +358,7 @@ class AdminWeeklyScheduleController extends Controller
                 'shift_id' => null,
                 'work_location_id' => null,
                 'notes' => isset($data['notes']) && trim((string) $data['notes']) !== '' ? trim((string) $data['notes']) : null,
+                'leave_type_id' => ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null,
             ];
         } else {
             $attributes = [
@@ -281,6 +368,7 @@ class AdminWeeklyScheduleController extends Controller
                 'shift_id' => $data['shift_id'],
                 'work_location_id' => $data['work_location_id'],
                 'notes' => null,
+                'leave_type_id' => null,
             ];
         }
 
@@ -311,11 +399,176 @@ class AdminWeeklyScheduleController extends Controller
 
     private function clearTimeOffForDay(string $conn, int $employeeId, string $scheduledDate): void
     {
-        EmployeeScheduleShift::on($conn)
+        $entries = EmployeeScheduleShift::on($conn)
             ->where('employee_id', $employeeId)
             ->where('scheduled_date', $scheduledDate)
             ->where('entry_type', EmployeeScheduleShift::TYPE_TIME_OFF)
-            ->delete();
+            ->get();
+
+        foreach ($entries as $entry) {
+            $this->deletePendingLeaveRecord($conn, $entry);
+            $entry->delete();
+        }
+    }
+
+    /**
+     * Create/update/remove the leave record tied to a day-off entry so leave balances stay in sync.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function syncTimeOffLeaveRecord(string $conn, EmployeeScheduleShift $entry, array $data, Employee $employee, ?string $createdBy): void
+    {
+        $isTimeOff = $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF;
+        $leaveTypeId = $isTimeOff && ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null;
+
+        $existingRecord = $entry->leave_record_id !== null
+            ? EmployeeLeaveRecord::on($conn)->find($entry->leave_record_id)
+            : null;
+
+        if ($leaveTypeId === null) {
+            if ($existingRecord !== null && $existingRecord->status === EmployeeLeaveRecord::STATUS_PENDING) {
+                $existingRecord->delete();
+            }
+            if ($entry->leave_record_id !== null) {
+                $entry->leave_record_id = null;
+                $entry->save();
+            }
+
+            return;
+        }
+
+        /** @var LeaveType|null $leaveType */
+        $leaveType = LeaveType::on($conn)->find($leaveTypeId);
+        if ($leaveType === null) {
+            return;
+        }
+
+        $isPaid = (bool) $leaveType->is_paid;
+        $rates = PayrollEmployeeRates::forEmployee($conn, $employee);
+        $ordinary = PayrollEmployeeRates::ordinaryHourlyRate($rates);
+
+        $attributes = [
+            'employee_id' => $employee->id,
+            'leave_type' => $leaveType->code,
+            'is_paid' => $isPaid,
+            'leave_date' => $data['scheduled_date'],
+            'hours' => round((float) ($data['leave_hours'] ?? 0), 2),
+            'hourly_rate' => $isPaid && $ordinary > 0 ? $ordinary : null,
+            'notes' => isset($data['notes']) && trim((string) $data['notes']) !== '' ? trim((string) $data['notes']) : null,
+        ];
+
+        if ($existingRecord !== null && $existingRecord->status === EmployeeLeaveRecord::STATUS_PENDING) {
+            $existingRecord->fill($attributes)->save();
+            $recordId = (int) $existingRecord->id;
+        } else {
+            /** @var EmployeeLeaveRecord $record */
+            $record = EmployeeLeaveRecord::on($conn)->create([
+                ...$attributes,
+                'status' => EmployeeLeaveRecord::STATUS_PENDING,
+                'created_by' => $createdBy,
+            ]);
+            $recordId = (int) $record->id;
+        }
+
+        if ((int) $entry->leave_record_id !== $recordId) {
+            $entry->leave_record_id = $recordId;
+            $entry->save();
+        }
+    }
+
+    private function deletePendingLeaveRecord(string $conn, EmployeeScheduleShift $entry): void
+    {
+        if ($entry->leave_record_id === null) {
+            return;
+        }
+
+        $record = EmployeeLeaveRecord::on($conn)->find($entry->leave_record_id);
+        if ($record !== null && $record->status === EmployeeLeaveRecord::STATUS_PENDING) {
+            $record->delete();
+        }
+    }
+
+    /**
+     * Marking a shift as a sick call out records sick leave for that day so payroll pays it
+     * and the balance is deducted — paid only when the employee is entitled to sick leave,
+     * otherwise it is tracked as unpaid. Hours come from the scheduled shift duration.
+     */
+    private function applySickCallOutLeave(string $conn, EmployeeScheduleShift $entry, ?string $createdBy): void
+    {
+        /** @var Employee|null $employee */
+        $employee = Employee::on($conn)->find($entry->employee_id);
+        $hours = $this->shiftDurationHours($entry);
+
+        /** @var LeaveType|null $sickType */
+        $sickType = LeaveType::on($conn)
+            ->where('code', EmployeeLeaveRecord::TYPE_SICK)
+            ->where('is_active', true)
+            ->first();
+
+        if ($employee === null || $sickType === null || $hours <= 0 || $entry->scheduled_date === null) {
+            $this->deletePendingLeaveRecord($conn, $entry);
+            $entry->leave_record_id = null;
+
+            return;
+        }
+
+        $isEntitled = EmployeeLeaveEntitlement::on($conn)
+            ->where('employee_id', $employee->id)
+            ->where('leave_type_id', $sickType->id)
+            ->exists();
+
+        $isPaid = $isEntitled && (bool) $sickType->is_paid;
+
+        $rates = PayrollEmployeeRates::forEmployee($conn, $employee);
+        $ordinary = PayrollEmployeeRates::ordinaryHourlyRate($rates);
+
+        $attributes = [
+            'employee_id' => $employee->id,
+            'leave_type' => EmployeeLeaveRecord::TYPE_SICK,
+            'is_paid' => $isPaid,
+            'leave_date' => $entry->scheduled_date->toDateString(),
+            'hours' => round($hours, 2),
+            'hourly_rate' => $isPaid && $ordinary > 0 ? $ordinary : null,
+            'notes' => 'Sick call out',
+        ];
+
+        $existing = $entry->leave_record_id !== null
+            ? EmployeeLeaveRecord::on($conn)->find($entry->leave_record_id)
+            : null;
+
+        if ($existing !== null && $existing->status === EmployeeLeaveRecord::STATUS_PENDING) {
+            $existing->fill($attributes)->save();
+            $entry->leave_record_id = (int) $existing->id;
+
+            return;
+        }
+
+        /** @var EmployeeLeaveRecord $record */
+        $record = EmployeeLeaveRecord::on($conn)->create([
+            ...$attributes,
+            'status' => EmployeeLeaveRecord::STATUS_PENDING,
+            'created_by' => $createdBy,
+        ]);
+        $entry->leave_record_id = (int) $record->id;
+    }
+
+    private function shiftDurationHours(EmployeeScheduleShift $entry): float
+    {
+        $start = $entry->start_time;
+        $end = $entry->end_time;
+
+        if (! $start instanceof \Carbon\CarbonInterface || ! $end instanceof \Carbon\CarbonInterface) {
+            return 0.0;
+        }
+
+        $startMinutes = ((int) $start->format('H') * 60) + (int) $start->format('i');
+        $endMinutes = ((int) $end->format('H') * 60) + (int) $end->format('i');
+
+        if ($endMinutes <= $startMinutes) {
+            $endMinutes += 24 * 60;
+        }
+
+        return round(($endMinutes - $startMinutes) / 60, 2);
     }
 
     private function clearShiftsForDay(string $conn, int $employeeId, string $scheduledDate, ?int $exceptId = null): void

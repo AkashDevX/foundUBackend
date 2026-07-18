@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\JobTitle;
+use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use Illuminate\Support\Str;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -79,6 +81,22 @@ class AdminWorkforceController extends Controller
         return $this->renderSection($request, 'shifts');
     }
 
+    public function leaveTypes(Request $request): View
+    {
+        return $this->renderSection($request, 'leave-types');
+    }
+
+    /**
+     * Normalize a free-text leave code into a stable machine key.
+     */
+    private function normalizeLeaveCode(?string $input, string $fallbackName): string
+    {
+        $source = is_string($input) && trim($input) !== '' ? $input : $fallbackName;
+        $code = Str::of($source)->lower()->replaceMatches('/[^a-z0-9]+/', '_')->trim('_')->toString();
+
+        return $code === '' ? 'leave' : Str::limit($code, 32, '');
+    }
+
     private function renderSection(Request $request, string $section): View
     {
         /** @var OrganizationPortalUser $portalUser */
@@ -90,6 +108,7 @@ class AdminWorkforceController extends Controller
         $jobTitles = JobTitle::on($conn)->orderBy('name')->get();
         $locations = WorkLocation::on($conn)->orderBy('name')->get();
         $shifts = Shift::on($conn)->orderBy('name')->get();
+        $leaveTypes = LeaveType::on($conn)->orderBy('sort_order')->orderBy('name')->get();
 
         return view('admin.workforce', [
             'company' => $company,
@@ -97,6 +116,7 @@ class AdminWorkforceController extends Controller
             'jobTitles' => $jobTitles,
             'workLocations' => $locations,
             'shifts' => $shifts,
+            'leaveTypes' => $leaveTypes,
             'mapDefaultLat' => config('workforce.default_map_lat'),
             'mapDefaultLng' => config('workforce.default_map_lng'),
             'mapDefaultZoom' => config('workforce.default_map_zoom'),
@@ -514,5 +534,75 @@ class AdminWorkforceController extends Controller
         ])->save();
 
         return redirect()->back()->with('status', 'Shift updated.');
+    }
+
+    public function storeLeaveType(Request $request): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'leave_type_name' => ['required', 'string', 'max:160'],
+            'leave_type_code' => ['nullable', 'string', 'max:32'],
+            'leave_type_is_paid' => ['nullable', 'boolean'],
+            'leave_type_annual_hours' => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
+            'leave_type_requires_approval' => ['nullable', 'boolean'],
+            'leave_type_notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $code = $this->normalizeLeaveCode($data['leave_type_code'] ?? null, $data['leave_type_name']);
+
+        if (LeaveType::on($conn)->where('code', $code)->exists()) {
+            return redirect()->back()
+                ->withInput()
+                ->withErrors(['leave_type_code' => 'A leave type with this code already exists.']);
+        }
+
+        $nextSort = (int) LeaveType::on($conn)->max('sort_order') + 1;
+
+        LeaveType::on($conn)->create([
+            'name' => $data['leave_type_name'],
+            'code' => $code,
+            'is_paid' => $request->boolean('leave_type_is_paid'),
+            'default_annual_hours' => isset($data['leave_type_annual_hours']) ? (float) $data['leave_type_annual_hours'] : null,
+            'requires_approval' => $request->boolean('leave_type_requires_approval'),
+            'is_active' => true,
+            'sort_order' => $nextSort,
+            'notes' => $data['leave_type_notes'] ?? null,
+            'created_by' => $portalUser->name ?: $portalUser->email,
+        ]);
+
+        return redirect()->back()->with('status', 'Leave type created.');
+    }
+
+    public function updateLeaveType(Request $request, int $leaveType): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'leave_type_name' => ['required', 'string', 'max:160'],
+            'leave_type_is_paid' => ['nullable', 'boolean'],
+            'leave_type_annual_hours' => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
+            'leave_type_requires_approval' => ['nullable', 'boolean'],
+            'leave_type_is_active' => ['nullable', 'boolean'],
+            'leave_type_notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $target = LeaveType::on($conn)->whereKey($leaveType)->firstOrFail();
+        $target->forceFill([
+            'name' => $data['leave_type_name'],
+            'is_paid' => $request->boolean('leave_type_is_paid'),
+            'default_annual_hours' => isset($data['leave_type_annual_hours']) ? (float) $data['leave_type_annual_hours'] : null,
+            'requires_approval' => $request->boolean('leave_type_requires_approval'),
+            'is_active' => $request->boolean('leave_type_is_active'),
+            'notes' => $data['leave_type_notes'] ?? null,
+        ])->save();
+
+        return redirect()->back()->with('status', 'Leave type updated.');
     }
 }

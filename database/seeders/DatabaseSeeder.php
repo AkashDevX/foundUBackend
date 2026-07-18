@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
         $this->call(RegistrationPicklistsSeeder::class);
         $this->call(OrganizationPortalUsersSeeder::class);
         $this->call(CruLynkPlatformUsersSeeder::class);
+        $this->call(LeaveTypesSeeder::class);
 
         // User::factory(10)->create();
 

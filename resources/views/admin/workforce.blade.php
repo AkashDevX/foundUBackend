@@ -17,6 +17,7 @@
         /** @var \Illuminate\Support\Collection<int, \App\Models\JobTitle> $jobTitles */
         /** @var \Illuminate\Support\Collection<int, \App\Models\WorkLocation> $workLocations */
         /** @var \Illuminate\Support\Collection<int, \App\Models\Shift> $shifts */
+        /** @var \Illuminate\Support\Collection<int, \App\Models\LeaveType> $leaveTypes */
         /** @var float $mapDefaultLat */
         /** @var float $mapDefaultLng */
         /** @var int $mapDefaultZoom */
@@ -70,7 +71,6 @@
                         <label for="dept-code" class="{{ $lbl }}">Code</label>
                         <div>
                             <input id="dept-code" name="department_code" maxlength="32" value="{{ old('department_code') }}" class="{{ $in }}" placeholder="Optional short code" />
-                            <p class="mt-1.5 text-xs leading-relaxed text-brand-text-secondary">Optional reference on rosters or exports.</p>
                         </div>
                     </div>
                     <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-3 text-sm font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
@@ -118,7 +118,6 @@
                                         <label for="dept-edit-code-{{ $d->id }}" class="{{ $lbl }} sm:pt-2.5">Code</label>
                                         <div>
                                             <input id="dept-edit-code-{{ $d->id }}" name="department_code" maxlength="32" value="{{ $d->code }}" class="{{ $in }}" placeholder="Optional short code" />
-                                            <p class="mt-2 text-xs leading-relaxed text-brand-text-secondary">Optional reference on rosters or exports.</p>
                                         </div>
                                     </div>
                                     <div class="flex flex-wrap items-center justify-end gap-2 border-t border-brand-border pt-4">
@@ -136,7 +135,6 @@
                             <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008H17.25v-.008z" /></svg>
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No departments yet</p>
-                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Add your first department using the form above.</p>
                     </div>
                 @endforelse
             </div>
@@ -214,7 +212,6 @@
                             <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No job titles yet</p>
-                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Add your first job title using the form above.</p>
                     </div>
                 @endforelse
             </div>
@@ -252,9 +249,6 @@
                         data-default-lng="{{ $mapDefaultLng }}"
                         data-default-zoom="{{ $mapDefaultZoom }}"
                     >
-                        <p class="text-xs leading-relaxed text-brand-text-secondary">
-                            Search for an address to place the pin, or click and drag the map below. Moving the pin updates the address  you can edit the text anytime.
-                        </p>
                         <div class="mt-4 space-y-3">
                             <div class="{{ $wfGrid }}">
                                 <label for="loc-address" class="{{ $lbl }} sm:pt-2.5">Address</label>
@@ -422,9 +416,6 @@
                                         data-default-lng="{{ $hasCoords ? $loc->longitude : $mapDefaultLng }}"
                                         data-default-zoom="{{ $hasCoords ? '16' : $mapDefaultZoom }}"
                                     >
-                                        <p class="text-xs leading-relaxed text-brand-text-secondary">
-                                            Search for an address or move the pin on the map. Dragging the pin refreshes the address — edit the text if it is not quite right.
-                                        </p>
                                         <div class="mt-4 space-y-3">
                                             <div class="{{ $wfGrid }}">
                                                 <label for="loc-edit-address-{{ $loc->id }}" class="{{ $lbl }} sm:pt-2.5">Address</label>
@@ -522,7 +513,6 @@
                             <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" /></svg>
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No work locations yet</p>
-                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Search for an address or drop a pin on the map in the form above to add your first site.</p>
                     </div>
                 @endforelse
             </div>
@@ -693,7 +683,156 @@
                             <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         </span>
                         <p class="mt-4 text-sm font-semibold text-brand-text">No shifts yet</p>
-                        <p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-text-secondary">Create your first shift block with the form above.</p>
+                    </div>
+                @endforelse
+            </div>
+        </section>
+        @endif
+
+        @if ($section === 'leave-types')
+        {{-- Leave types --}}
+        @php
+            $leaveIcon = '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />';
+            $toggleLabel = 'flex cursor-pointer items-center gap-2.5 rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition hover:border-brand-primary/40 [&:has(input:checked)]:border-brand-primary [&:has(input:checked)]:bg-brand-primary/[0.06]';
+            $chip = 'inline-flex items-center gap-1 rounded-lg border border-brand-border/80 bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-brand-text-secondary shadow-sm';
+        @endphp
+        <section class="flex min-h-[32rem] flex-col overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
+            <header class="shrink-0 border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-6 py-5 sm:px-7">
+                <div class="flex items-start gap-3">
+                    <span class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
+                        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">{!! $leaveIcon !!}</svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 class="text-base font-bold tracking-tight text-brand-text">Leave types</h2>
+                    </div>
+                </div>
+            </header>
+            <div class="shrink-0 border-b border-brand-border px-6 py-6 sm:px-7">
+                <form method="post" action="{{ route('admin.workforce.leave-types.store') }}" class="space-y-4">
+                    @csrf
+                    <div class="{{ $row }}">
+                        <label for="leave-type-name" class="{{ $lbl }}">Name</label>
+                        <input id="leave-type-name" name="leave_type_name" required maxlength="160" value="{{ old('leave_type_name') }}" class="{{ $in }}" placeholder="e.g. Annual leave" autocomplete="off" />
+                    </div>
+                    <div class="{{ $row }}">
+                        <label for="leave-type-code" class="{{ $lbl }}">Code</label>
+                        <div>
+                            <input id="leave-type-code" name="leave_type_code" maxlength="32" value="{{ old('leave_type_code') }}" class="{{ $in }} font-mono" placeholder="Optional — auto-generated from name" />
+                        </div>
+                        @error('leave_type_code')
+                            <p class="text-sm font-medium text-red-700">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <label class="{{ $toggleLabel }}">
+                            <input type="checkbox" name="leave_type_is_paid" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked(old('leave_type_is_paid', '1')) />
+                            <span>Paid leave</span>
+                        </label>
+                        <label class="{{ $toggleLabel }}">
+                            <input type="checkbox" name="leave_type_requires_approval" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked(old('leave_type_requires_approval', '1')) />
+                            <span>Requires approval</span>
+                        </label>
+                    </div>
+                    <div class="{{ $row }}">
+                        <label for="leave-type-annual-hours" class="{{ $lbl }}">Annual entitlement (hours)</label>
+                        <input id="leave-type-annual-hours" name="leave_type_annual_hours" type="number" step="0.01" min="0" max="9999.99" value="{{ old('leave_type_annual_hours') }}" class="{{ $in }}" placeholder="Optional, e.g. 152" />
+                    </div>
+                    <div class="{{ $row }}">
+                        <label for="leave-type-notes" class="{{ $lbl }}">Notes</label>
+                        <textarea id="leave-type-notes" name="leave_type_notes" rows="2" maxlength="500" class="{{ $in }} min-h-[4.5rem] resize-y" placeholder="Optional eligibility or policy notes">{{ old('leave_type_notes') }}</textarea>
+                    </div>
+                    <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-3 text-sm font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                        Add leave type
+                    </button>
+                </form>
+            </div>
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+                @if ($leaveTypes->isNotEmpty())
+                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved leave types</h3>
+                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $leaveTypes->count() }}</span>
+                    </div>
+                @endif
+                @forelse ($leaveTypes as $lt)
+                    <article class="{{ $savedCard }} mb-4 last:mb-0 {{ $lt->is_active ? '' : 'opacity-70' }}">
+                        <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
+                        <div class="relative flex gap-4 pl-2">
+                            <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
+                                <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true">{!! $leaveIcon !!}</svg>
+                            </div>
+                            <div class="min-w-0 flex-1 text-sm">
+                                <div class="flex flex-wrap items-center gap-2 gap-y-1">
+                                    <h3 class="text-base font-bold leading-snug text-brand-text">{{ $lt->name }}</h3>
+                                    <span class="inline-flex items-center rounded-lg border border-brand-border/80 bg-white/80 px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-brand-text-secondary shadow-sm">{{ $lt->code }}</span>
+                                    @unless ($lt->is_active)
+                                        <span class="inline-flex items-center rounded-lg bg-brand-text-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-text-secondary">Inactive</span>
+                                    @endunless
+                                </div>
+                                <div class="mt-2 flex flex-wrap items-center gap-2 gap-y-1">
+                                    <span class="{{ $chip }} {{ $lt->is_paid ? 'text-emerald-700' : 'text-brand-text-secondary' }}">{{ $lt->is_paid ? 'Paid' : 'Unpaid' }}</span>
+                                    @if ($lt->default_annual_hours !== null)
+                                        <span class="{{ $chip }} tabular-nums">{{ rtrim(rtrim(number_format((float) $lt->default_annual_hours, 2), '0'), '.') }} h / yr</span>
+                                    @endif
+                                    <span class="{{ $chip }}">{{ $lt->requires_approval ? 'Approval required' : 'No approval' }}</span>
+                                </div>
+                                <p class="mt-1 text-[11px] font-medium text-brand-text-secondary">Leave type · ID {{ $lt->id }}</p>
+                                @if ($lt->notes)
+                                    <p class="mt-2 text-xs italic leading-relaxed text-brand-text-secondary">{{ $lt->notes }}</p>
+                                @endif
+                            </div>
+                        </div>
+                        <details class="group/leave-edit relative mt-4 overflow-hidden rounded-xl border border-brand-border/90 bg-white/85 shadow-sm ring-1 ring-black/[0.03] open:shadow-md">
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-brand-primary transition hover:bg-white/60 [&::-webkit-details-marker]:hidden">
+                                <span>Edit leave type</span>
+                                <svg class="size-4 shrink-0 text-brand-primary/70 transition group-open/leave-edit:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                            </summary>
+                            <div class="border-t border-brand-border bg-white/90 px-4 py-5 sm:px-6">
+                                <form method="post" action="{{ route('admin.workforce.leave-types.update', ['leaveType' => $lt->id]) }}" class="space-y-4">
+                                    @csrf
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="lt-edit-name-{{ $lt->id }}" class="{{ $lbl }} sm:pt-2.5">Name</label>
+                                        <input id="lt-edit-name-{{ $lt->id }}" name="leave_type_name" required maxlength="160" value="{{ $lt->name }}" class="{{ $in }}" autocomplete="off" />
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <span class="{{ $lbl }} sm:pt-2.5">Options</span>
+                                        <div class="grid gap-3 sm:grid-cols-3">
+                                            <label class="{{ $toggleLabel }}">
+                                                <input type="checkbox" name="leave_type_is_paid" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked($lt->is_paid) />
+                                                <span>Paid</span>
+                                            </label>
+                                            <label class="{{ $toggleLabel }}">
+                                                <input type="checkbox" name="leave_type_requires_approval" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked($lt->requires_approval) />
+                                                <span>Approval</span>
+                                            </label>
+                                            <label class="{{ $toggleLabel }}">
+                                                <input type="checkbox" name="leave_type_is_active" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked($lt->is_active) />
+                                                <span>Active</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="lt-edit-hours-{{ $lt->id }}" class="{{ $lbl }} sm:pt-2.5">Entitlement (h/yr)</label>
+                                        <input id="lt-edit-hours-{{ $lt->id }}" name="leave_type_annual_hours" type="number" step="0.01" min="0" max="9999.99" value="{{ $lt->default_annual_hours !== null ? rtrim(rtrim(number_format((float) $lt->default_annual_hours, 2, '.', ''), '0'), '.') : '' }}" class="{{ $in }}" placeholder="Hours / year" />
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="lt-edit-notes-{{ $lt->id }}" class="{{ $lbl }} sm:pt-2.5">Notes</label>
+                                        <textarea id="lt-edit-notes-{{ $lt->id }}" name="leave_type_notes" rows="2" maxlength="500" class="{{ $in }} min-h-[4.5rem] resize-y" placeholder="Optional policy notes">{{ $lt->notes }}</textarea>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-end gap-2 border-t border-brand-border pt-4">
+                                        <button type="submit" class="rounded-xl bg-brand-primary px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                                            Save changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </details>
+                    </article>
+                @empty
+                    <div class="rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-12 text-center">
+                        <span class="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-surface text-brand-text-secondary/80" aria-hidden="true">
+                            <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25">{!! $leaveIcon !!}</svg>
+                        </span>
+                        <p class="mt-4 text-sm font-semibold text-brand-text">No leave types yet</p>
                     </div>
                 @endforelse
             </div>

@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\JobTitle;
+use App\Models\LeaveType;
 use App\Models\RegistrationPicklistItem;
 use App\Models\Shift;
 use App\Models\WorkLocation;
@@ -21,6 +22,7 @@ final class AdminEmployeeProfileView
      *     jobTitles: \Illuminate\Support\Collection,
      *     workLocations: \Illuminate\Support\Collection,
      *     shifts: \Illuminate\Support\Collection,
+     *     leaveTypes: \Illuminate\Support\Collection<int, LeaveType>,
      *     registrationPicklists: \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, RegistrationPicklistItem>>,
      *     weeklyGrid: array<string, array{morning: bool, evening: bool}>,
      *     registrationDateInputs: array<string, string>,
@@ -34,7 +36,7 @@ final class AdminEmployeeProfileView
 
         RegistrationDisplay::resetDatabaseRowCache();
 
-        $employee->load(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'leaveRecords']);
+        $employee->load(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate', 'leaveRecords', 'leaveEntitlements.leaveType']);
 
         $registrationPicklists = RegistrationPicklistItem::query()
             ->where('is_active', true)
@@ -66,6 +68,7 @@ final class AdminEmployeeProfileView
             'jobTitles' => JobTitle::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'shifts' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'leaveTypes' => LeaveType::on($conn)->where('is_active', true)->orderBy('sort_order')->orderBy('name')->get(),
             'registrationPicklists' => $registrationPicklists,
             'weeklyGrid' => $weeklyGrid,
             'registrationDateInputs' => $registrationDateInputs,

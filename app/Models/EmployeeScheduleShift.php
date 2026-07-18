@@ -17,6 +17,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'department_id',
     'work_location_id',
     'notes',
+    'status',
+    'leave_type_id',
+    'leave_record_id',
     'created_by',
 ])]
 class EmployeeScheduleShift extends Model
@@ -24,6 +27,26 @@ class EmployeeScheduleShift extends Model
     public const TYPE_SHIFT = 'shift';
 
     public const TYPE_TIME_OFF = 'time_off';
+
+    public const STATUS_SICK_CALL_OUT = 'sick_call_out';
+
+    public const STATUS_NO_SHOW = 'no_show';
+
+    /**
+     * @return array<string, string>
+     */
+    public static function statusLabels(): array
+    {
+        return [
+            self::STATUS_SICK_CALL_OUT => 'Sick call out',
+            self::STATUS_NO_SHOW => 'No show',
+        ];
+    }
+
+    public static function statusLabel(?string $status): ?string
+    {
+        return $status !== null ? (self::statusLabels()[$status] ?? null) : null;
+    }
 
     public function employee(): BelongsTo
     {
@@ -48,6 +71,16 @@ class EmployeeScheduleShift extends Model
     public function workLocation(): BelongsTo
     {
         return $this->belongsTo(WorkLocation::class);
+    }
+
+    public function leaveType(): BelongsTo
+    {
+        return $this->belongsTo(LeaveType::class);
+    }
+
+    public function leaveRecord(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeLeaveRecord::class, 'leave_record_id');
     }
 
     protected function casts(): array

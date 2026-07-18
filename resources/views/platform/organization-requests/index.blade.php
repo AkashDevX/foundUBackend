@@ -4,10 +4,6 @@
 
 @section('heading', 'Organisation access requests')
 
-@section('subheading')
-    New organisation enquiries from the mobile app — CruLynk platform only.
-@endsection
-
 @section('content')
     @php
         /** @var \Illuminate\Contracts\Pagination\LengthAwarePaginator<int, \App\Models\OrganizationRequest> $requests */

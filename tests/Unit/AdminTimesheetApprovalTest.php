@@ -12,8 +12,10 @@ use Tests\TestCase;
 
 class AdminTimesheetApprovalTest extends TestCase
 {
-    public function test_build_rows_marks_weeks_without_approval_as_pending(): void
+    public function test_build_rows_marks_days_without_approval_as_pending(): void
     {
+        config(['app.display_timezone' => 'UTC']);
+
         $employee = new Employee([
             'public_id' => 'emp-1',
             'full_legal_name' => 'Alex Rivera',
@@ -21,17 +23,20 @@ class AdminTimesheetApprovalTest extends TestCase
         ]);
         $employee->id = 1;
 
-        $weekStart = Carbon::now('Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $workDate = Carbon::parse('2026-06-29', 'UTC');
         $clockIn = new TimeClockEntry([
             'employee_id' => 1,
             'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
-            'clocked_at' => $weekStart->copy()->setTime(9, 0)->utc(),
+            'clocked_at' => $workDate->copy()->setTime(9, 0),
         ]);
         $clockOut = new TimeClockEntry([
             'employee_id' => 1,
             'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
-            'clocked_at' => $weekStart->copy()->setTime(11, 0)->utc(),
+            'clocked_at' => $workDate->copy()->setTime(11, 0),
         ]);
+
+        $clockIn->id = 7;
+        $clockOut->id = 8;
 
         $employee->setRelation('timeClockEntries', new Collection([$clockOut, $clockIn]));
 
@@ -43,34 +48,39 @@ class AdminTimesheetApprovalTest extends TestCase
 
         $this->assertCount(1, $rows);
         $this->assertSame(TimesheetApproval::STATUS_PENDING, $rows[0]['status']);
+        $this->assertSame('2026-06-29', $rows[0]['work_date']);
         $this->assertSame('2h 00m', $rows[0]['total_hours_label']);
         $this->assertSame(1, $rows[0]['completed_sessions']);
     }
 
     public function test_build_rows_respects_approved_status_filter(): void
     {
+        config(['app.display_timezone' => 'UTC']);
+
         $employee = new Employee(['email' => 'b@example.com']);
         $employee->id = 2;
-        $weekStart = Carbon::now('Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $workDate = Carbon::parse('2026-06-29', 'UTC');
 
-        $entries = new Collection([
-            new TimeClockEntry([
-                'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
-                'clocked_at' => $weekStart->copy()->setTime(8, 0)->utc(),
-            ]),
-            new TimeClockEntry([
-                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
-                'clocked_at' => $weekStart->copy()->setTime(9, 0)->utc(),
-            ]),
+        $clockIn = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => $workDate->copy()->setTime(8, 0),
         ]);
+        $clockOut = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => $workDate->copy()->setTime(9, 0),
+        ]);
+        $clockIn->id = 7;
+        $clockOut->id = 8;
+
+        $entries = new Collection([$clockIn, $clockOut]);
 
         $employee->setRelation('timeClockEntries', $entries);
-        $weekKey = array_key_first(AdminTimesheetApproval::groupEntriesByWeek($entries));
+        $dayKey = array_key_first(AdminTimesheetApproval::groupEntriesByDay($entries));
 
         $approval = new TimesheetApproval([
             'employee_id' => 2,
-            'week_start' => $weekKey,
-            'week_end' => AdminTimesheetApproval::weekEndForStart($weekKey),
+            'clock_in_entry_id' => 7,
+            'work_date' => $dayKey,
             'status' => TimesheetApproval::STATUS_APPROVED,
         ]);
         $approval->id = 10;

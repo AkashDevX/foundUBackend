@@ -20,14 +20,9 @@
 <div class="space-y-5">
     <div class="rounded-xl border border-brand-border bg-gradient-to-br from-white to-brand-surface/70 p-4 shadow-sm sm:p-5">
         <p class="text-sm font-semibold text-brand-text">HR timesheet approval</p>
-        <p class="mt-1 text-xs leading-relaxed text-brand-text-secondary">
-            Weekly totals are calculated from mobile clock in/out punches (Monday–Sunday, {{ DisplayTimezone::label() }}).
-            @if ($selectedEmployee)
-                Showing timesheets for <strong>{{ $selectedEmployee->full_legal_name ?: $selectedEmployee->email }}</strong> only.
-            @else
-                Showing all active employees. Select an employee above to filter.
-            @endif
-        </p>
+        @if ($selectedEmployee)
+            <p class="mt-1 text-xs leading-relaxed text-brand-text-secondary">Showing timesheets for <strong>{{ $selectedEmployee->full_legal_name ?: $selectedEmployee->email }}</strong> only.</p>
+        @endif
     </div>
 
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-border bg-white px-4 py-3 shadow-sm">
@@ -49,7 +44,7 @@
             <p class="text-sm font-semibold text-brand-text">No timesheets match this filter</p>
             <p class="mt-2 text-xs text-brand-text-secondary">
                 @if ($timesheetStatusFilter === 'pending')
-                    There are no weekly timesheets waiting for approval right now.
+                    There are no daily timesheets waiting for approval right now.
                 @else
                     Try another status filter or check that employees have clock in/out activity in the last 12 weeks.
                 @endif
@@ -64,7 +59,7 @@
                             @if (! $selectedEmployee)
                                 <th class="whitespace-nowrap px-4 py-3 sm:px-5">Employee</th>
                             @endif
-                            <th class="whitespace-nowrap px-4 py-3 sm:px-5">Pay week</th>
+                            <th class="whitespace-nowrap px-4 py-3 sm:px-5">Work day</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Total hours</th>
                             <th class="hidden whitespace-nowrap px-4 py-3 md:table-cell sm:px-5">Sessions</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Status</th>
@@ -87,7 +82,7 @@
                                     </td>
                                 @endif
                                 <td class="whitespace-nowrap px-4 py-3.5 text-brand-text sm:px-5">
-                                    <span class="font-semibold">{{ $row['week_label'] }}</span>
+                                    <span class="font-semibold">{{ $row['day_label'] }}</span>
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3.5 tabular-nums font-bold text-brand-text sm:px-5">
                                     {{ $row['total_hours_label'] }}
@@ -118,7 +113,7 @@
                                                 method="post"
                                                 action="{{ route('admin.employees.time-clock.timesheets.approve') }}"
                                                 class="inline"
-                                                data-confirm="This weekly timesheet will be marked as approved."
+                                                data-confirm="This day's timesheet will be marked as approved."
                                                 data-confirm-title="Approve timesheet?"
                                                 data-confirm-confirm="Approve"
                                                 data-confirm-cancel="Not yet"
@@ -126,7 +121,7 @@
                                             >
                                                 @csrf
                                                 <input type="hidden" name="employee" value="{{ $rowEmployee->public_id }}" />
-                                                <input type="hidden" name="week_start" value="{{ $row['week_start'] }}" />
+                                                <input type="hidden" name="work_date" value="{{ $row['work_date'] }}" />
                                                 <input type="hidden" name="timesheet_status" value="{{ $timesheetStatusFilter }}" />
                                                 <button type="submit" class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700">
                                                     Approve
@@ -140,7 +135,7 @@
                                                     method="post"
                                                     action="{{ route('admin.employees.time-clock.timesheets.reject') }}"
                                                     class="mt-2 min-w-[16rem] rounded-xl border border-brand-border bg-white p-3 shadow-lg"
-                                                    data-confirm="This weekly timesheet will be marked as rejected."
+                                                    data-confirm="This day's timesheet will be marked as rejected."
                                                     data-confirm-title="Reject timesheet?"
                                                     data-confirm-confirm="Reject"
                                                     data-confirm-cancel="Go back"
@@ -148,7 +143,7 @@
                                                 >
                                                     @csrf
                                                     <input type="hidden" name="employee" value="{{ $rowEmployee->public_id }}" />
-                                                    <input type="hidden" name="week_start" value="{{ $row['week_start'] }}" />
+                                                    <input type="hidden" name="work_date" value="{{ $row['work_date'] }}" />
                                                     <input type="hidden" name="timesheet_status" value="{{ $timesheetStatusFilter }}" />
                                                     <label class="block text-[10px] font-semibold uppercase tracking-wide text-brand-label">Notes (optional)</label>
                                                     <textarea name="review_notes" rows="2" maxlength="2000" class="mt-1 w-full rounded-lg border border-brand-border px-2 py-1.5 text-xs" placeholder="Reason for rejection"></textarea>

@@ -16,9 +16,8 @@ final class AdminTimesheetApproval
      * @param  Collection<int, TimesheetApproval>  $approvals
      * @return list<array{
      *     employee: Employee,
-     *     week_start: string,
-     *     week_end: string,
-     *     week_label: string,
+     *     work_date: string,
+     *     day_label: string,
      *     total_seconds: int,
      *     total_hours_label: string,
      *     completed_sessions: int,
@@ -32,11 +31,7 @@ final class AdminTimesheetApproval
      */
     public static function buildRows(Collection $employees, Collection $approvals, ?string $statusFilter = null): array
     {
-        $approvalKey = static function (int $employeeId, string $weekStart): string {
-            return $employeeId.'|'.$weekStart;
-        };
-
-        $approvalsByKey = $approvals->keyBy(static fn (TimesheetApproval $row): string => self::approvalLookupKey($row));
+        $approvalsBySession = $approvals->keyBy(static fn (TimesheetApproval $row): string => self::approvalSessionLookupKeyFor($row));
 
         $rows = [];
 
@@ -46,20 +41,32 @@ final class AdminTimesheetApproval
                 continue;
             }
 
-            $weeks = self::groupEntriesByWeek($entries);
+            $days = self::groupEntriesByDay($entries);
 
-            foreach ($weeks as $weekStart => $weekEntries) {
-                $summary = AdminTimeClockDisplay::summarizeWorkSessions($weekEntries);
+            foreach ($days as $workDate => $dayEntries) {
+                $summary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
                 if ($summary['total_seconds'] <= 0 && $summary['completed_sessions'] === 0) {
                     continue;
                 }
 
-                $weekStartDate = Carbon::parse($weekStart, DisplayTimezone::name())->startOfDay();
-                $weekEndDate = $weekStartDate->copy()->endOfWeek(Carbon::SUNDAY)->startOfDay();
+                $sessionStatuses = [];
+                foreach ($summary['hours_by_entry_id'] as $session) {
+                    $clockInId = (int) ($session['clock_in_id'] ?? 0);
+                    if ($clockInId <= 0) {
+                        continue;
+                    }
 
-                /** @var TimesheetApproval|null $approval */
-                $approval = $approvalsByKey->get($approvalKey((int) $employee->id, $weekStart));
-                $status = $approval?->status ?? TimesheetApproval::STATUS_PENDING;
+                    $approval = $approvalsBySession->get(self::approvalSessionLookupKey((int) $employee->id, $clockInId));
+                    $sessionStatuses[] = $approval?->status ?? TimesheetApproval::STATUS_PENDING;
+                }
+
+                if ($sessionStatuses === []) {
+                    continue;
+                }
+
+                $status = self::aggregateSessionStatuses($sessionStatuses);
+
+                $workDateValue = Carbon::parse($workDate, DisplayTimezone::name())->startOfDay();
 
                 if ($statusFilter !== null && $statusFilter !== 'all' && $status !== $statusFilter) {
                     continue;
@@ -67,26 +74,25 @@ final class AdminTimesheetApproval
 
                 $rows[] = [
                     'employee' => $employee,
-                    'week_start' => $weekStart,
-                    'week_end' => $weekEndDate->toDateString(),
-                    'week_label' => self::formatWeekLabel($weekStartDate, $weekEndDate),
+                    'work_date' => $workDate,
+                    'day_label' => self::formatDayLabel($workDateValue),
                     'total_seconds' => (int) $summary['total_seconds'],
                     'total_hours_label' => AdminTimeClockDisplay::formatDuration((int) $summary['total_seconds']),
                     'completed_sessions' => (int) $summary['completed_sessions'],
                     'status' => $status,
                     'status_label' => self::statusLabel($status),
-                    'reviewed_by' => $approval?->reviewed_by,
-                    'reviewed_at' => $approval?->reviewed_at,
-                    'review_notes' => $approval?->review_notes,
-                    'approval_id' => $approval?->id,
+                    'reviewed_by' => null,
+                    'reviewed_at' => null,
+                    'review_notes' => null,
+                    'approval_id' => null,
                 ];
             }
         }
 
         usort($rows, static function (array $a, array $b): int {
-            $weekCmp = strcmp($b['week_start'], $a['week_start']);
-            if ($weekCmp !== 0) {
-                return $weekCmp;
+            $dateCmp = strcmp($b['work_date'], $a['work_date']);
+            if ($dateCmp !== 0) {
+                return $dateCmp;
             }
 
             return strcasecmp(
@@ -120,63 +126,161 @@ final class AdminTimesheetApproval
      * @param  Collection<int, TimeClockEntry>  $entries
      * @return array<string, Collection<int, TimeClockEntry>>
      */
-    public static function groupEntriesByWeek(Collection $entries): array
+    public static function groupEntriesByDay(Collection $entries): array
     {
-        $weeks = [];
+        $days = [];
+        $tz = DisplayTimezone::name();
 
         foreach ($entries as $entry) {
             if ($entry->clocked_at === null) {
                 continue;
             }
 
-            $weekStart = $entry->clocked_at
+            $workDate = $entry->clocked_at
                 ->copy()
-                ->timezone(DisplayTimezone::name())
-                ->startOfWeek(Carbon::MONDAY)
+                ->timezone($tz)
                 ->toDateString();
 
-            if (! isset($weeks[$weekStart])) {
-                $weeks[$weekStart] = collect();
+            if (! isset($days[$workDate])) {
+                $days[$workDate] = collect();
             }
 
-            $weeks[$weekStart]->push($entry);
+            $days[$workDate]->push($entry);
         }
 
-        return $weeks;
+        return $days;
     }
 
-    public static function normalizeWeekStart(string $weekStart): string
+    public static function normalizeWorkDate(string $workDate): string
     {
-        $date = Carbon::parse($weekStart, DisplayTimezone::name())->startOfDay();
-
-        return $date->startOfWeek(Carbon::MONDAY)->toDateString();
+        return Carbon::parse($workDate, DisplayTimezone::name())->startOfDay()->toDateString();
     }
 
-    public static function weekEndForStart(string $weekStart): string
+    public static function formatDayLabel(CarbonInterface $workDate): string
     {
-        return Carbon::parse($weekStart, DisplayTimezone::name())
-            ->startOfWeek(Carbon::MONDAY)
-            ->endOfWeek(Carbon::SUNDAY)
-            ->toDateString();
-    }
-
-    public static function formatWeekLabel(CarbonInterface $weekStart, CarbonInterface $weekEnd): string
-    {
-        return sprintf(
-            '%s – %s',
-            DisplayTimezone::format($weekStart, 'M j, Y'),
-            DisplayTimezone::format($weekEnd, 'M j, Y')
-        );
+        return DisplayTimezone::format($workDate, 'D, M j, Y');
     }
 
     public static function approvalLookupKey(TimesheetApproval $row): string
     {
         $employeeId = (int) ($row->getAttributes()['employee_id'] ?? $row->employee_id ?? 0);
-        $weekStartRaw = $row->getAttributes()['week_start'] ?? $row->week_start;
-        if ($weekStartRaw instanceof CarbonInterface) {
-            $weekStartRaw = $weekStartRaw->toDateString();
+        $workDateRaw = $row->getAttributes()['work_date'] ?? $row->work_date;
+        if ($workDateRaw instanceof CarbonInterface) {
+            $workDateRaw = $workDateRaw->toDateString();
         }
 
-        return $employeeId.'|'.self::normalizeWeekStart((string) $weekStartRaw);
+        return $employeeId.'|'.self::normalizeWorkDate((string) $workDateRaw);
+    }
+
+    public static function approvalLookupKeyFor(int $employeeId, string $workDate): string
+    {
+        return $employeeId.'|'.self::normalizeWorkDate($workDate);
+    }
+
+    public static function approvalSessionLookupKey(int $employeeId, int $clockInEntryId): string
+    {
+        return $employeeId.'|ci|'.$clockInEntryId;
+    }
+
+    public static function approvalSessionLookupKeyFor(TimesheetApproval $row): string
+    {
+        return self::approvalSessionLookupKey(
+            (int) ($row->getAttributes()['employee_id'] ?? $row->employee_id ?? 0),
+            (int) ($row->getAttributes()['clock_in_entry_id'] ?? $row->clock_in_entry_id ?? 0),
+        );
+    }
+
+    /**
+     * @param  Collection<int, TimeClockEntry>  $dayEntries
+     */
+    public static function resolveSessionClockInId(Collection $dayEntries, TimeClockEntry $entry): ?int
+    {
+        $summary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
+
+        foreach ($summary['hours_by_entry_id'] as $entryId => $session) {
+            $clockInId = (int) ($session['clock_in_id'] ?? 0);
+            $clockOutId = isset($session['clock_out_id']) ? (int) $session['clock_out_id'] : null;
+
+            if ($entry->id === $entryId || $entry->id === $clockInId || ($clockOutId !== null && $entry->id === $clockOutId)) {
+                return $clockInId > 0 ? $clockInId : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  Collection<int, TimesheetApproval>  $approvals
+     * @return Collection<int, string>
+     */
+    public static function approvedSessionKeys(Collection $approvals): Collection
+    {
+        return $approvals
+            ->where('status', TimesheetApproval::STATUS_APPROVED)
+            ->map(static fn (TimesheetApproval $approval): string => self::approvalSessionLookupKeyFor($approval))
+            ->values();
+    }
+
+    public static function sessionSummaryForClockIn(array $summary, int $clockInEntryId): ?array
+    {
+        foreach ($summary['hours_by_entry_id'] as $session) {
+            if ((int) ($session['clock_in_id'] ?? 0) === $clockInEntryId) {
+                return $session;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  Collection<int, TimeClockEntry>  $dayEntries
+     * @return Collection<int, TimeClockEntry>
+     */
+    public static function sessionEntriesForClockIn(Collection $dayEntries, int $clockInEntryId): Collection
+    {
+        $clockIn = $dayEntries->first(static fn (TimeClockEntry $entry): bool => (int) $entry->id === $clockInEntryId
+            && $entry->event_type === TimeClockEntry::EVENT_CLOCK_IN);
+
+        if (! $clockIn instanceof TimeClockEntry) {
+            return collect();
+        }
+
+        $summary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
+        $session = self::sessionSummaryForClockIn($summary, $clockInEntryId);
+
+        if (! is_array($session)) {
+            return collect([$clockIn]);
+        }
+
+        $entries = collect([$clockIn]);
+        $clockOutId = $session['clock_out_id'] ?? null;
+        if ($clockOutId !== null) {
+            $clockOut = $dayEntries->first(static fn (TimeClockEntry $entry): bool => (int) $entry->id === (int) $clockOutId);
+            if ($clockOut instanceof TimeClockEntry) {
+                $entries->push($clockOut);
+            }
+        }
+
+        return $entries->values();
+    }
+
+    /**
+     * @param  list<string>  $statuses
+     */
+    public static function aggregateSessionStatuses(array $statuses): string
+    {
+        if ($statuses === []) {
+            return TimesheetApproval::STATUS_PENDING;
+        }
+
+        if (in_array(TimesheetApproval::STATUS_PENDING, $statuses, true)) {
+            return TimesheetApproval::STATUS_PENDING;
+        }
+
+        if (in_array(TimesheetApproval::STATUS_REJECTED, $statuses, true)) {
+            return TimesheetApproval::STATUS_REJECTED;
+        }
+
+        return TimesheetApproval::STATUS_APPROVED;
     }
 }

@@ -16,7 +16,6 @@ return [
     */
     'sick_leave_hours_per_worked' => (float) env('PAYROLL_SICK_LEAVE_HOURS_PER_WORKED', 35),
     'annual_leave_hours_per_worked' => (float) env('PAYROLL_ANNUAL_LEAVE_HOURS_PER_WORKED', 35),
-    'annual_leave_loading_percent' => (float) env('PAYROLL_ANNUAL_LEAVE_LOADING_PERCENT', 17.5),
 
     /*
     |--------------------------------------------------------------------------

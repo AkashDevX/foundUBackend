@@ -54,14 +54,21 @@ export async function postClockOut(
   cfg: FoundUApiConfig,
   bearerToken: string,
   coords: DeviceCoordinates,
+  comment?: string | null,
 ): Promise<
   | { ok: true; data: TimeClockPunchBody }
   | { ok: false; status: number; body: TimeClockErrorBody | Record<string, unknown> }
 > {
+  const payload: Record<string, unknown> = { ...coords };
+  const trimmed = comment?.trim();
+  if (trimmed) {
+    payload.comment = trimmed;
+  }
+
   const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/time-clock/clock-out`, {
     method: 'POST',
     headers: authHeaders(cfg, bearerToken),
-    body: JSON.stringify(coords),
+    body: JSON.stringify(payload),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {

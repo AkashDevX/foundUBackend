@@ -64,6 +64,104 @@ final class AdminTimeClockDisplay
         return sprintf('%.2f km', $meters / 1000);
     }
 
+    public static function resolveDistanceMeters(?TimeClockEntry $entry): ?float
+    {
+        if (! $entry instanceof TimeClockEntry) {
+            return null;
+        }
+
+        if ($entry->distance_from_site_meters !== null) {
+            return (float) $entry->distance_from_site_meters;
+        }
+
+        if ($entry->device_latitude === null
+            || $entry->device_longitude === null
+            || $entry->expected_latitude === null
+            || $entry->expected_longitude === null) {
+            return null;
+        }
+
+        return round(GeoDistance::metersBetween(
+            (float) $entry->device_latitude,
+            (float) $entry->device_longitude,
+            (float) $entry->expected_latitude,
+            (float) $entry->expected_longitude,
+        ), 2);
+    }
+
+    public static function formatDistanceMetersInteger(?TimeClockEntry $entry): string
+    {
+        $meters = self::resolveDistanceMeters($entry);
+
+        if ($meters === null) {
+            return '—';
+        }
+
+        return number_format($meters, 0, '.', '');
+    }
+
+    public static function toDatetimeLocalValue(?\Carbon\CarbonInterface $at): string
+    {
+        if ($at === null) {
+            return '';
+        }
+
+        return DisplayTimezone::format($at, 'Y-m-d\TH:i');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function punchMapPayload(?TimeClockEntry $entry): ?array
+    {
+        if (! $entry instanceof TimeClockEntry) {
+            return null;
+        }
+
+        if ($entry->device_latitude === null || $entry->device_longitude === null) {
+            return null;
+        }
+
+        $within = (bool) $entry->within_geofence;
+        $resolvedDistance = self::resolveDistanceMeters($entry);
+        $distanceLabel = $resolvedDistance !== null
+            ? self::formatDistance($resolvedDistance)
+            : '—';
+        $allowedRadius = $entry->allowed_radius_meters
+            ?? (int) config('time_clock.geofence_radius_meters', 100);
+        $eventLabel = self::eventLabel($entry->event_type);
+
+        return [
+            'event' => $entry->event_type,
+            'event_label' => $eventLabel,
+            'time_label' => $entry->clocked_at !== null
+                ? DisplayTimezone::format($entry->clocked_at, 'g:i A')
+                : '—',
+            'date_label' => $entry->clocked_at !== null
+                ? DisplayTimezone::format($entry->clocked_at, 'M j, Y')
+                : '—',
+            'within_geofence' => $within,
+            'geofence_label' => $within ? 'Within designated radius' : 'Outside designated radius',
+            'device_latitude' => (float) $entry->device_latitude,
+            'device_longitude' => (float) $entry->device_longitude,
+            'expected_latitude' => $entry->expected_latitude !== null ? (float) $entry->expected_latitude : null,
+            'expected_longitude' => $entry->expected_longitude !== null ? (float) $entry->expected_longitude : null,
+            'distance_label' => $distanceLabel,
+            'allowed_radius_meters' => $allowedRadius,
+            'device_coords_label' => self::formatCoords($entry->device_latitude, $entry->device_longitude),
+            'expected_coords_label' => self::formatCoords($entry->expected_latitude, $entry->expected_longitude),
+            'icon_tone' => $within ? 'within' : 'outside',
+            'icon_title' => sprintf(
+                '%s at %s — %s (%s from site, allowed %d m)',
+                $eventLabel,
+                $entry->clocked_at !== null ? DisplayTimezone::format($entry->clocked_at, 'g:i A') : '—',
+                $within ? 'within radius' : 'outside radius',
+                $distanceLabel,
+                $allowedRadius,
+            ),
+        ];
+    }
+
     public static function formatDuration(int $seconds): string
     {
         $seconds = max(0, $seconds);

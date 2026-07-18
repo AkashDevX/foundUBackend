@@ -32,16 +32,7 @@
     $insuranceRows = \App\Support\RegistrationDisplay::insuranceRows($e->insurances_json);
 
     $fileUrl = static function (string $slot, ?string $itemKey = null) use ($company, $e): string {
-        $p = [
-            'companySlug' => $company->slug,
-            'publicId' => $e->public_id,
-            'slot' => $slot,
-        ];
-        if ($itemKey !== null && $itemKey !== '') {
-            $p['itemKey'] = $itemKey;
-        }
-
-        return route('admin.registration.file', $p);
+        return \App\Support\RegistrationDisplay::registrationFileUrl($e, $company->slug, $slot, $itemKey);
     };
 
     $canEditProfile = ($e->employment_status ?? '') === 'active';
@@ -235,11 +226,29 @@
                     <p class="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-brand-text-secondary">{{ $line($e->workLocation->address) }}</p>
                 @endif
             </div>
-            <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">
-                <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Shift</p>
-                <p class="mt-2 text-sm font-semibold text-brand-text">{{ $line($e->assignedShift?->name) }}</p>
-                <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($e->assignedShift) }}</p>
-                <p class="mt-1 text-xs text-brand-text-secondary">Days: {{ $shiftDays($e->assignedShift) }}</p>
+            <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-2">
+                <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Shifts</p>
+                @php
+                    $e->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+                @endphp
+                @if ($e->assignmentShifts->isNotEmpty())
+                    <ul class="mt-3 space-y-3">
+                        @foreach ($e->assignmentShifts as $assignmentShift)
+                            @php $shift = $assignmentShift->shiftTemplate; @endphp
+                            <li class="rounded-lg border border-brand-border/80 bg-white px-3 py-2.5">
+                                <p class="text-sm font-semibold text-brand-text">{{ $line($shift?->name) }}</p>
+                                <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($shift) }} · Days: {{ $shiftDays($shift) }}</p>
+                                <p class="mt-1 text-xs text-brand-text-secondary">Unpaid break: {{ $assignmentShift->unpaid_break_minutes }} min</p>
+                            </li>
+                        @endforeach
+                    </ul>
+                @elseif ($e->assignedShift)
+                    <p class="mt-2 text-sm font-semibold text-brand-text">{{ $line($e->assignedShift->name) }}</p>
+                    <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($e->assignedShift) }}</p>
+                    <p class="mt-1 text-xs text-brand-text-secondary">Days: {{ $shiftDays($e->assignedShift) }}</p>
+                @else
+                    <p class="mt-2 text-sm font-semibold text-brand-text">—</p>
+                @endif
             </div>
             <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">
                 <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Effective / notes</p>
@@ -251,10 +260,9 @@
         @if (($e->employment_status ?? '') === 'active')
             <div class="border-t border-brand-border pt-8">
                 <p class="text-base font-bold text-brand-text">Update assignment</p>
-                <p class="mt-1 text-sm text-brand-text-secondary">Choose catalogs from Organization setup. Leave as “None” to clear a field.</p>
-                <form method="post" action="{{ route('admin.registrations.assignment.update', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" class="mt-6 grid gap-5 lg:grid-cols-2">
+                <form method="post" action="{{ route('admin.registrations.assignment.update', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" class="mt-6 grid gap-5">
                     @csrf
-                    <div class="lg:col-span-2 grid gap-5 sm:grid-cols-3">
+                    <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                         <div>
                             <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Department</label>
                             <select name="department_id" class="mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25">
@@ -274,24 +282,26 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Shift</label>
-                            <select name="shift_id" class="mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25">
-                                <option value="">— None —</option>
-                                @foreach ($shifts as $sh)
-                                    <option value="{{ $sh->id }}" @selected((string) old('shift_id', $e->shift_id) === (string) $sh->id)>{{ $sh->name }} ({{ $shiftTimes($sh) }}, {{ $shiftDays($sh) }})</option>
-                                @endforeach
-                            </select>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Effective from</label>
+                            <input type="date" name="assignment_effective_from" value="{{ $registrationDateInputs['assignment_effective_from'] ?? '' }}" class="mt-2 {{ $nativeDateIn }}" />
                         </div>
                     </div>
+
+                    @include('admin.partials.employee-assignment-shifts-fields', [
+                        'employee' => $e,
+                        'shifts' => $shifts,
+                        'shiftTimes' => $shiftTimes,
+                        'shiftDays' => $shiftDays,
+                        'selectClass' => 'mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25',
+                        'inputClass' => 'mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25',
+                        'wrapperClass' => '',
+                    ])
+
                     <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Effective from</label>
-                        <input type="date" name="assignment_effective_from" value="{{ $registrationDateInputs['assignment_effective_from'] ?? '' }}" class="mt-2 {{ $nativeDateIn }}" />
-                    </div>
-                    <div class="lg:col-span-2">
                         <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Assignment notes</label>
                         <textarea name="assignment_notes" rows="3" maxlength="5000" class="mt-2 w-full rounded-xl border border-brand-border px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25" placeholder="Parking bay, supervisor, uniform, etc.">{{ old('assignment_notes', $e->assignment_notes) }}</textarea>
                     </div>
-                    <div class="lg:col-span-2 flex flex-wrap items-center gap-3">
+                    <div class="flex flex-wrap items-center gap-3">
                         <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-brand-primary px-6 py-3 text-sm font-bold text-white shadow-lg shadow-brand-primary/25 transition hover:bg-brand-primary-dark">
                             Save assignment
                         </button>
@@ -305,6 +315,35 @@
 </section>
 
 @if ($canEditProfile)
+    {{-- Leave entitlement forms must stay outside the profile form (HTML forbids nested forms). --}}
+    <form
+        id="employee-leave-entitlement-form"
+        method="post"
+        action="{{ route('admin.registrations.leave-entitlements.store', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}"
+        class="hidden"
+        aria-hidden="true"
+    >
+        @csrf
+    </form>
+    @foreach (($e->leaveEntitlements ?? collect()) as $ent)
+        <form
+            id="leave-entitlement-delete-{{ $ent->id }}"
+            method="post"
+            action="{{ route('admin.registrations.leave-entitlements.destroy', ['companySlug' => $company->slug, 'publicId' => $e->public_id, 'entitlement' => $ent->id]) }}"
+            class="hidden"
+            aria-hidden="true"
+            data-skip-form-busy="1"
+            data-confirm="Remove {{ $ent->leaveType?->name ?? 'this leave type' }} from this employee? Their balance for it will be cleared."
+            data-confirm-title="Remove leave entitlement?"
+            data-confirm-confirm="Remove"
+            data-confirm-cancel="Cancel"
+            data-confirm-danger="1"
+        >
+            @csrf
+            @method('DELETE')
+        </form>
+    @endforeach
+
     <form method="post" action="{{ route('admin.registrations.profile.update', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" enctype="multipart/form-data" class="block">
         @csrf
 @endif

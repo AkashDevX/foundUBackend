@@ -101,9 +101,6 @@
     @if ($allEntries->isEmpty())
         <div class="rounded-2xl border border-dashed border-brand-border bg-brand-surface/50 px-6 py-10 text-center">
             <p class="text-sm font-semibold text-brand-text">No clock in/out records yet</p>
-            <p class="mt-2 text-xs leading-relaxed text-brand-text-secondary">
-                When this employee uses the mobile app time clock at their assigned work site, punches will appear here.
-            </p>
         </div>
     @elseif ($entries->isEmpty())
         <div class="rounded-2xl border border-dashed border-amber-200 bg-amber-50/50 px-6 py-10 text-center">
@@ -126,6 +123,7 @@
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Distance</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Geofence</th>
                             <th class="whitespace-nowrap px-4 py-3 sm:px-5">Source</th>
+                            <th class="hidden whitespace-nowrap px-4 py-3 xl:table-cell sm:px-5">Comment</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-brand-border/80">
@@ -184,6 +182,13 @@
                                     <span class="inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold ring-1 {{ AdminTimeClockDisplay::punchSourceBadgeClasses($entry->punch_source) }}">
                                         {{ AdminTimeClockDisplay::punchSourceLabel($entry->punch_source) }}
                                     </span>
+                                </td>
+                                <td class="hidden max-w-[16rem] px-4 py-3.5 text-sm text-brand-text-secondary xl:table-cell sm:px-5">
+                                    @if ($entry->event_type === TimeClockEntry::EVENT_CLOCK_OUT && filled($entry->comment))
+                                        <span class="block whitespace-pre-wrap text-brand-text">{{ $entry->comment }}</span>
+                                    @else
+                                        <span class="text-brand-text-secondary">—</span>
+                                    @endif
                                 </td>
                             </tr>
                         @endforeach

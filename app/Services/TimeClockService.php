@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Exceptions\TimeClockException;
 use App\Models\Employee;
+use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
 use App\Models\WorkLocation;
+use App\Support\TimeClockScheduledShift;
 use App\Support\GeoDistance;
 use Illuminate\Support\Facades\DB;
 
@@ -29,10 +31,12 @@ class TimeClockService
         $isClockedIn = $lastEntry !== null && $lastEntry->event_type === TimeClockEntry::EVENT_CLOCK_IN;
         $location = $employee->workLocation;
         $hasCoordinates = $this->workLocationHasCoordinates($location);
+        $shiftIssue = $isClockedIn ? null : TimeClockScheduledShift::shiftIssue($employee);
+        $assignmentReady = $employee->work_location_id !== null && $hasCoordinates;
 
         return [
             'is_clocked_in' => $isClockedIn,
-            'can_clock_in' => ! $isClockedIn && $employee->work_location_id !== null && $hasCoordinates,
+            'can_clock_in' => ! $isClockedIn && $assignmentReady && $shiftIssue === null,
             'can_clock_out' => $isClockedIn,
             'geofence_radius_meters' => $this->geofenceRadiusMeters(),
             'open_session' => $isClockedIn && $lastEntry !== null
@@ -44,8 +48,9 @@ class TimeClockService
                 ]
                 : null,
             'last_event' => $lastEntry instanceof TimeClockEntry ? $lastEntry->toMobilePayload() : null,
-            'assignment_ready' => $employee->work_location_id !== null && $hasCoordinates,
+            'assignment_ready' => $assignmentReady,
             'assignment_issue' => $this->assignmentIssue($employee, $hasCoordinates),
+            'shift_issue' => $shiftIssue,
             'work_assignment' => $employee->workAssignmentForApi(),
         ];
     }
@@ -62,7 +67,9 @@ class TimeClockService
 
             $this->assertCanClockIn($employee);
 
-            $location = $employee->workLocation;
+            $scheduledShift = $this->assertScheduledShiftForClockIn($employee);
+
+            $location = $this->resolveClockInWorkLocation($employee, $scheduledShift);
             if (! $location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
@@ -77,6 +84,7 @@ class TimeClockService
                 $location,
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
+                $scheduledShift->shift_id,
             );
 
             return [
@@ -87,7 +95,7 @@ class TimeClockService
     }
 
     /**
-     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null}  $device
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null, comment?: string|null}  $device
      * @return array{entry: TimeClockEntry, time_clock: array<string, mixed>}
      */
     public function clockOut(Employee $employee, array $device): array
@@ -192,6 +200,40 @@ class TimeClockService
                 'You are already clocked in. Clock out before starting another shift.',
             );
         }
+    }
+
+    private function assertScheduledShiftForClockIn(Employee $employee): EmployeeScheduleShift
+    {
+        $issue = TimeClockScheduledShift::shiftIssue($employee);
+        if ($issue === TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY) {
+            throw new TimeClockException(
+                TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY,
+                "You don't have any shifts today.",
+            );
+        }
+
+        $shift = TimeClockScheduledShift::findShiftForClockIn($employee);
+        if (! $shift instanceof EmployeeScheduleShift) {
+            throw new TimeClockException(
+                TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY,
+                "You don't have any shifts today.",
+            );
+        }
+
+        return $shift;
+    }
+
+    private function resolveClockInWorkLocation(Employee $employee, EmployeeScheduleShift $scheduledShift): ?WorkLocation
+    {
+        $scheduledShift->loadMissing('workLocation');
+        $fromShift = $scheduledShift->workLocation;
+        if ($fromShift instanceof WorkLocation && $this->workLocationHasCoordinates($fromShift)) {
+            return $fromShift;
+        }
+
+        $assigned = $employee->workLocation;
+
+        return $assigned instanceof WorkLocation ? $assigned : null;
     }
 
     private function assertCanClockOut(Employee $employee): void
@@ -314,7 +356,7 @@ class TimeClockService
     }
 
     /**
-     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null}  $device
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null, comment?: string|null}  $device
      * @param  array{
      *     distance_meters: float,
      *     allowed_radius_meters: int,
@@ -330,8 +372,9 @@ class TimeClockService
         WorkLocation $location,
         array $geofence,
         string $punchSource = TimeClockEntry::PUNCH_SOURCE_MANUAL,
+        ?int $shiftIdOverride = null,
     ): TimeClockEntry {
-        return TimeClockEntry::query()->create([
+        $attributes = [
             'employee_id' => $employee->id,
             'event_type' => $eventType,
             'clocked_at' => now('UTC'),
@@ -346,8 +389,17 @@ class TimeClockService
             'within_geofence' => $geofence['within_geofence'],
             'punch_source' => $punchSource,
             'department_id' => $employee->department_id,
-            'shift_id' => $employee->shift_id,
-        ]);
+            'shift_id' => $shiftIdOverride ?? $employee->shift_id,
+        ];
+
+        if ($eventType === TimeClockEntry::EVENT_CLOCK_OUT) {
+            $comment = isset($device['comment']) ? trim((string) $device['comment']) : '';
+            if ($comment !== '') {
+                $attributes['comment'] = mb_substr($comment, 0, 2000);
+            }
+        }
+
+        return TimeClockEntry::query()->create($attributes);
     }
 
     private function workLocationHasCoordinates(?WorkLocation $location): bool

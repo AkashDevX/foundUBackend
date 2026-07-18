@@ -51,8 +51,19 @@ export type WorkAssignment = {
     start_time: string | null;
     end_time: string | null;
     breaks_summary: string | null;
+    unpaid_break_minutes?: number | null;
     notes: string | null;
   } | null;
+  shifts?: Array<{
+    id: number;
+    name: string;
+    days: string[] | null;
+    start_time: string | null;
+    end_time: string | null;
+    breaks_summary: string | null;
+    unpaid_break_minutes: number;
+    notes: string | null;
+  }>;
 };
 
 export type LoginSuccessBody = {

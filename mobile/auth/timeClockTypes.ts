@@ -16,6 +16,7 @@ export type TimeClockEntryPayload = {
   punch_source?: 'manual' | 'auto_geofence_exit';
   department_id: number | null;
   shift_id: number | null;
+  comment?: string | null;
 };
 
 export type TimeClockStatus = {
@@ -35,6 +36,7 @@ export type TimeClockStatus = {
     | 'no_work_location_assigned'
     | 'work_location_missing_coordinates'
     | null;
+  shift_issue?: 'no_scheduled_shift_today' | null;
   work_assignment: WorkAssignment | null;
 };
 
@@ -57,6 +59,7 @@ export type TimeClockErrorBody = {
     | 'not_clocked_in'
     | 'outside_geofence'
     | 'still_within_geofence'
+    | 'no_scheduled_shift_today'
     | 'work_location_not_found';
   details: Record<string, unknown>;
 };

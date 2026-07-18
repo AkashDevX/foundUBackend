@@ -162,10 +162,9 @@ final class PayrollCalculator
         }
 
         if ($annualAccrued > 0) {
-            $loadingPct = (float) config('payroll.annual_leave_loading_percent', 17.5);
             $lines[] = [
                 'rate_type' => PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL,
-                'label' => PayrollRateTypes::label(PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL).' (+ '.$loadingPct.'% loading when taken)',
+                'label' => PayrollRateTypes::label(PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL),
                 'hours' => $annualAccrued,
                 'rate' => $ordinaryRate,
                 'amount' => $annualAccruedAmount,

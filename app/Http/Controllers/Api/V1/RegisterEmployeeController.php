@@ -109,6 +109,12 @@ class RegisterEmployeeController extends Controller
             ) ?? ($payload['insurances_summary'] ?? null);
         }
 
+        if (! $this->transportIsOwnVehicle($payload['mode_of_transport'] ?? null)) {
+            $payload['vehicle_registration'] = null;
+            $payload['vehicle_expiry'] = null;
+            $payload['vehicle_insurance_uploaded'] = null;
+        }
+
         $employee = null;
 
         DB::connection()->transaction(function () use (
@@ -128,6 +134,29 @@ class RegisterEmployeeController extends Controller
             ]);
 
             app(RegistrationDocumentStorage::class)->attach($request, $employee, $company->slug);
+
+            $uploadFlags = [];
+            if ($request->hasFile('police_check')) {
+                $uploadFlags['police_check_uploaded'] = 'Yes';
+            }
+            if ($request->hasFile('fit_to_work')) {
+                $uploadFlags['fit_to_work_uploaded'] = 'Yes';
+            }
+            if ($request->hasFile('vehicle_insurance')) {
+                $uploadFlags['vehicle_insurance_uploaded'] = 'Yes';
+            }
+            if ($uploadFlags !== []) {
+                $employee->forceFill($uploadFlags)->save();
+            }
+
+            if (! $this->transportIsOwnVehicle($employee->mode_of_transport)) {
+                $employee->forceFill([
+                    'vehicle_registration' => null,
+                    'vehicle_expiry' => null,
+                    'vehicle_insurance_uploaded' => null,
+                    'vehicle_insurance_path' => null,
+                ])->save();
+            }
         });
 
         abort_unless($employee instanceof Employee, 500, 'Registration failed.');
@@ -156,5 +185,14 @@ class RegisterEmployeeController extends Controller
                 'requires_email_password_login_after_approval' => true,
             ],
         ], 201);
+    }
+
+    private function transportIsOwnVehicle(?string $mode): bool
+    {
+        if ($mode === null || trim($mode) === '') {
+            return false;
+        }
+
+        return strcasecmp(trim($mode), 'Own vehicle') === 0;
     }
 }

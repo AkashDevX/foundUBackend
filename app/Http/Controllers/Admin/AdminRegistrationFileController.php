@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Support\RegistrationDisplay;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -15,16 +16,6 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 class AdminRegistrationFileController extends Controller
 {
     private const DISK = 'employee_registration';
-
-    /**
-     * @var array<string, string>
-     */
-    private const SLOT_TO_ATTRIBUTE = [
-        'profile-photo' => 'profile_photo_path',
-        'police-check' => 'police_check_path',
-        'fit-to-work' => 'fit_to_work_path',
-        'vehicle-insurance' => 'vehicle_insurance_path',
-    ];
 
     public function show(Request $request, string $companySlug, string $publicId, string $slot, ?string $itemKey = null): BinaryFileResponse
     {
@@ -39,7 +30,7 @@ class AdminRegistrationFileController extends Controller
             ->where('public_id', $publicId)
             ->firstOrFail();
 
-        $relativePath = $this->resolvePath($employee, $slot, $itemKey);
+        $relativePath = RegistrationDisplay::registrationStoragePath($employee, $slot, $itemKey);
         if ($relativePath === null || $relativePath === '') {
             abort(404);
         }
@@ -49,55 +40,18 @@ class AdminRegistrationFileController extends Controller
             abort(404);
         }
 
-        return response()->file($disk->path($relativePath), [
+        $headers = [
             'Content-Disposition' => 'inline; filename="'.addslashes(basename($relativePath)).'"',
-        ]);
-    }
+            'Cache-Control' => 'private, no-cache, must-revalidate',
+            'Pragma' => 'no-cache',
+        ];
 
-    private function resolvePath(Employee $employee, string $slot, ?string $itemKey): ?string
-    {
-        if (isset(self::SLOT_TO_ATTRIBUTE[$slot])) {
-            $attr = self::SLOT_TO_ATTRIBUTE[$slot];
-            $path = $employee->{$attr};
-
-            return is_string($path) && $path !== '' ? $path : null;
+        $lastModified = $disk->lastModified($relativePath);
+        if (is_int($lastModified) && $lastModified > 0) {
+            $headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $lastModified).' GMT';
+            $headers['ETag'] = '"'.sha1($relativePath.'|'.$lastModified).'"';
         }
 
-        $decodedKey = $itemKey !== null && $itemKey !== '' ? rawurldecode($itemKey) : null;
-
-        return match ($slot) {
-            'id-document' => $this->pathFromJsonRows($employee->id_documents_json, $decodedKey, 'documentKey'),
-            'licence' => $this->pathFromJsonRows($employee->licences_json, $decodedKey, 'id'),
-            'insurance' => $this->pathFromJsonRows($employee->insurances_json, $decodedKey, 'id'),
-            default => null,
-        };
-    }
-
-    /**
-     * @param  array<int, mixed>|null  $rows
-     */
-    private function pathFromJsonRows(?array $rows, ?string $itemKey, string $matchField): ?string
-    {
-        if ($rows === null || $rows === [] || $itemKey === null || $itemKey === '') {
-            return null;
-        }
-
-        foreach ($rows as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $match = $row[$matchField] ?? null;
-            if (! is_scalar($match)) {
-                continue;
-            }
-            if ((string) $match !== (string) $itemKey) {
-                continue;
-            }
-            $path = $row['storage_path'] ?? null;
-
-            return is_string($path) && $path !== '' ? $path : null;
-        }
-
-        return null;
+        return response()->file($disk->path($relativePath), $headers);
     }
 }

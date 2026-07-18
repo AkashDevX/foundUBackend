@@ -4,10 +4,6 @@
 
 @section('heading', $summary['company']->name)
 
-@section('subheading')
-    Summary view for this organization.
-@endsection
-
 @section('content')
     @php
         /** @var array $summary */

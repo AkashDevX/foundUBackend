@@ -11,7 +11,6 @@ use App\Models\PublicHoliday;
 use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
 use Carbon\Carbon;
-use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 final class AdminPayroll
@@ -109,7 +108,7 @@ final class AdminPayroll
 
         $approvalKeys = $timesheetApprovals
             ->where('status', TimesheetApproval::STATUS_APPROVED)
-            ->keyBy(static fn (TimesheetApproval $a) => AdminTimesheetApproval::approvalLookupKey($a));
+            ->keyBy(static fn (TimesheetApproval $a) => AdminTimesheetApproval::approvalSessionLookupKeyFor($a));
 
         $results = [];
 
@@ -163,14 +162,17 @@ final class AdminPayroll
                 ->values();
 
             $entries = $allEntriesInFortnight
-                ->filter(static function (TimeClockEntry $entry) use ($requireApproved, $approvalKeys, $employee): bool {
+                ->filter(static function (TimeClockEntry $entry) use ($requireApproved, $approvalKeys, $employee, $allEntriesInFortnight): bool {
                     if (! $requireApproved) {
                         return true;
                     }
 
-                    $at = $entry->clocked_at->copy()->timezone(DisplayTimezone::name());
-                    $weekStart = $at->copy()->startOfWeek(Carbon::MONDAY)->toDateString();
-                    $key = (int) $employee->id.'|'.AdminTimesheetApproval::normalizeWeekStart($weekStart);
+                    $clockInId = AdminTimesheetApproval::resolveSessionClockInId($allEntriesInFortnight, $entry);
+                    if ($clockInId === null) {
+                        return false;
+                    }
+
+                    $key = AdminTimesheetApproval::approvalSessionLookupKey((int) $employee->id, $clockInId);
 
                     return $approvalKeys->has($key);
                 })
@@ -385,66 +387,31 @@ final class AdminPayroll
             return 'No clock time in fortnight';
         }
 
-        $weeksInFortnight = self::weekStartsInFortnight($fortnightStart, $fortnightEnd);
-        $weeksWithPunches = [];
-        foreach ($entriesInFortnight as $entry) {
-            if ($entry->clocked_at === null) {
-                continue;
-            }
-            $weekStart = $entry->clocked_at
-                ->copy()
-                ->timezone(DisplayTimezone::name())
-                ->startOfWeek(Carbon::MONDAY)
-                ->toDateString();
-            $weeksWithPunches[$weekStart] = true;
-        }
+        $unapprovedSessions = [];
+        $summaryByDay = AdminTimesheetApproval::groupEntriesByDay($entriesInFortnight);
 
-        $unapprovedWeeks = [];
-        foreach (array_keys($weeksWithPunches) as $weekStart) {
-            $key = $employeeId.'|'.AdminTimesheetApproval::normalizeWeekStart($weekStart);
-            if (! $approvalKeys->has($key)) {
-                $weekEnd = AdminTimesheetApproval::weekEndForStart($weekStart);
-                $unapprovedWeeks[] = AdminTimesheetApproval::formatWeekLabel(
-                    Carbon::parse($weekStart, DisplayTimezone::name()),
-                    Carbon::parse($weekEnd, DisplayTimezone::name()),
-                );
+        foreach ($summaryByDay as $workDate => $dayEntries) {
+            $sessionSummary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
+            foreach ($sessionSummary['hours_by_entry_id'] as $session) {
+                $clockInId = (int) ($session['clock_in_id'] ?? 0);
+                if ($clockInId <= 0) {
+                    continue;
+                }
+
+                $key = AdminTimesheetApproval::approvalSessionLookupKey($employeeId, $clockInId);
+                if (! $approvalKeys->has($key)) {
+                    $unapprovedSessions[] = AdminTimesheetApproval::formatDayLabel(
+                        Carbon::parse($workDate, DisplayTimezone::name())
+                    );
+                }
             }
         }
 
-        if ($unapprovedWeeks !== []) {
-            return 'Weekly timesheet(s) not approved: '.implode('; ', $unapprovedWeeks);
+        if ($unapprovedSessions !== []) {
+            return 'Timesheet shift(s) not approved: '.implode('; ', array_values(array_unique($unapprovedSessions)));
         }
 
-        $missingWeeks = [];
-        foreach ($weeksInFortnight as $weekStart) {
-            if (! isset($weeksWithPunches[$weekStart])) {
-                continue;
-            }
-            $key = $employeeId.'|'.AdminTimesheetApproval::normalizeWeekStart($weekStart);
-            if (! $approvalKeys->has($key)) {
-                $missingWeeks[] = $weekStart;
-            }
-        }
-
-        return 'No approved clock time in fortnight — approve each Mon–Sun week under Time clock records';
-    }
-
-    /**
-     * @return list<string> Monday dates for each week overlapping the fortnight
-     */
-    private static function weekStartsInFortnight(string $fortnightStart, string $fortnightEnd): array
-    {
-        $tz = DisplayTimezone::name();
-        $cursor = Carbon::parse($fortnightStart, $tz)->startOfWeek(Carbon::MONDAY);
-        $end = Carbon::parse($fortnightEnd, $tz)->endOfDay();
-        $weeks = [];
-
-        while ($cursor->lte($end)) {
-            $weeks[] = $cursor->toDateString();
-            $cursor = $cursor->copy()->addWeek();
-        }
-
-        return $weeks;
+        return 'No approved clock time in fortnight — approve each shift under Time clock records';
     }
 
     /**

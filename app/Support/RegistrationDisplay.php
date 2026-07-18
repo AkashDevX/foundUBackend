@@ -1003,6 +1003,85 @@ final class RegistrationDisplay
     }
 
     /**
+     * @var array<string, string>
+     */
+    private const REGISTRATION_FILE_SLOT_TO_ATTRIBUTE = [
+        'profile-photo' => 'profile_photo_path',
+        'police-check' => 'police_check_path',
+        'fit-to-work' => 'fit_to_work_path',
+        'vehicle-insurance' => 'vehicle_insurance_path',
+    ];
+
+    public static function registrationStoragePath(Employee $employee, string $slot, ?string $itemKey = null): ?string
+    {
+        if (isset(self::REGISTRATION_FILE_SLOT_TO_ATTRIBUTE[$slot])) {
+            $path = $employee->{self::REGISTRATION_FILE_SLOT_TO_ATTRIBUTE[$slot]};
+
+            return is_string($path) && $path !== '' ? $path : null;
+        }
+
+        $decodedKey = $itemKey !== null && $itemKey !== '' ? rawurldecode($itemKey) : null;
+
+        return match ($slot) {
+            'id-document' => self::registrationStoragePathFromJsonRows($employee->id_documents_json, $decodedKey, 'documentKey'),
+            'licence' => self::registrationStoragePathFromJsonRows($employee->licences_json, $decodedKey, 'id'),
+            'insurance' => self::registrationStoragePathFromJsonRows($employee->insurances_json, $decodedKey, 'id'),
+            default => null,
+        };
+    }
+
+    public static function registrationFileUrl(Employee $employee, string $companySlug, string $slot, ?string $itemKey = null): string
+    {
+        $params = [
+            'companySlug' => $companySlug,
+            'publicId' => $employee->public_id,
+            'slot' => $slot,
+        ];
+        if ($itemKey !== null && $itemKey !== '') {
+            $params['itemKey'] = $itemKey;
+        }
+
+        $url = route('admin.registration.file', $params);
+        $path = self::registrationStoragePath($employee, $slot, $itemKey);
+        if ($path === null) {
+            return $url;
+        }
+
+        $updatedAt = $employee->updated_at;
+        $version = substr(sha1($path.'|'.($updatedAt?->getTimestamp() ?? 0)), 0, 12);
+
+        return $url.'?v='.$version;
+    }
+
+    /**
+     * @param  array<int, mixed>|null  $rows
+     */
+    private static function registrationStoragePathFromJsonRows(?array $rows, ?string $itemKey, string $matchField): ?string
+    {
+        if ($rows === null || $rows === [] || $itemKey === null || $itemKey === '') {
+            return null;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $match = $row[$matchField] ?? null;
+            if (! is_scalar($match)) {
+                continue;
+            }
+            if ((string) $match !== (string) $itemKey) {
+                continue;
+            }
+            $path = $row['storage_path'] ?? null;
+
+            return is_string($path) && $path !== '' ? $path : null;
+        }
+
+        return null;
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>|null  $rows
      */
     private static function mapDocumentRows(?array $rows, string $keyField): array

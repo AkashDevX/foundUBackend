@@ -50,7 +50,7 @@ setApiConfig({
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`
 - `GET /api/v1/time-clock/status` — current clock state + assignment geofence info
 - `POST /api/v1/time-clock/clock-in` — body `{ latitude, longitude, accuracy_meters? }` (must be within radius of assigned work site)
-- `POST /api/v1/time-clock/clock-out` — same body; must be clocked in first
+- `POST /api/v1/time-clock/clock-out` — body `{ latitude, longitude, accuracy_meters?, comment? }`; must be clocked in first (`comment` is optional, max 2000 chars)
 
 Organization portal (admin approve/decline): web UI at `/` → `/admin` after signing in.
 

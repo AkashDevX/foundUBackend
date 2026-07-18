@@ -126,9 +126,19 @@ class Employee extends Model
         return $this->hasMany(EmployeeScheduleShift::class);
     }
 
+    public function assignmentShifts(): HasMany
+    {
+        return $this->hasMany(EmployeeAssignmentShift::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     public function leaveRecords(): HasMany
     {
         return $this->hasMany(EmployeeLeaveRecord::class);
+    }
+
+    public function leaveEntitlements(): HasMany
+    {
+        return $this->hasMany(EmployeeLeaveEntitlement::class);
     }
 
     public function taskAssignments(): HasMany
@@ -146,32 +156,24 @@ class Employee extends Model
         $notes = $this->assignment_notes;
         $notesNonEmpty = is_string($notes) && trim($notes) !== '';
 
+        $this->loadMissing(['assignedDepartment', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate']);
+
+        $shiftPayloads = $this->assignmentShiftPayloads();
+        $hasShifts = $shiftPayloads !== [];
+
         if (
             $this->department_id === null
             && $this->work_location_id === null
-            && $this->shift_id === null
+            && ! $hasShifts
             && ! $notesNonEmpty
             && $this->assignment_effective_from === null
         ) {
             return null;
         }
 
-        $this->loadMissing(['assignedDepartment', 'workLocation', 'assignedShift']);
-
-        $shift = $this->assignedShift;
         $dept = $this->assignedDepartment;
         $loc = $this->workLocation;
-
-        $fmtTime = static function ($value): ?string {
-            if ($value === null) {
-                return null;
-            }
-            if ($value instanceof CarbonInterface) {
-                return $value->format('H:i');
-            }
-
-            return null;
-        };
+        $primaryShift = $shiftPayloads[0] ?? null;
 
         return [
             'effective_from' => $this->assignment_effective_from?->toDateString(),
@@ -189,16 +191,62 @@ class Employee extends Model
                 'latitude' => $loc->latitude,
                 'longitude' => $loc->longitude,
             ] : null,
-            'shift' => $shift instanceof Shift ? [
+            'shifts' => $shiftPayloads,
+            'shift' => $primaryShift,
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function assignmentShiftPayloads(): array
+    {
+        $this->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+
+        $fmtTime = static function ($value): ?string {
+            if ($value === null) {
+                return null;
+            }
+            if ($value instanceof CarbonInterface) {
+                return $value->format('H:i');
+            }
+
+            return null;
+        };
+
+        $payloadFromShift = static function (Shift $shift, int $unpaidBreakMinutes) use ($fmtTime): array {
+            return [
                 'id' => $shift->id,
                 'name' => $shift->name,
                 'start_time' => $fmtTime($shift->start_time),
                 'end_time' => $fmtTime($shift->end_time),
                 'breaks_summary' => $shift->breaks_summary,
+                'unpaid_break_minutes' => $unpaidBreakMinutes,
                 'notes' => $shift->notes,
                 'shift_days' => is_array($shift->shift_days) ? $shift->shift_days : [],
-            ] : null,
-        ];
+                'days' => is_array($shift->shift_days) ? $shift->shift_days : [],
+            ];
+        };
+
+        if ($this->assignmentShifts->isNotEmpty()) {
+            $payloads = [];
+            foreach ($this->assignmentShifts as $assignmentShift) {
+                $shift = $assignmentShift->shiftTemplate;
+                if (! $shift instanceof Shift) {
+                    continue;
+                }
+
+                $payloads[] = $payloadFromShift($shift, (int) $assignmentShift->unpaid_break_minutes);
+            }
+
+            return $payloads;
+        }
+
+        if ($this->assignedShift instanceof Shift) {
+            return [$payloadFromShift($this->assignedShift, 0)];
+        }
+
+        return [];
     }
 
     /**
@@ -276,6 +324,7 @@ class Employee extends Model
                 'employee_code' => $this->employee_code,
             ],
             'work_assignment' => $assignment,
+            'assigned_shifts' => is_array($assignment) ? ($assignment['shifts'] ?? []) : [],
             // Flat aliases for mobile clients that map assignment fields at the profile root.
             'assigned_department' => $assignedDepartment['name'] ?? $this->department,
             'assigned_shift_name' => $assignedShift['name'] ?? null,

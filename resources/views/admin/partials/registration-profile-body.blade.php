@@ -134,14 +134,20 @@
                             <img src="" alt="New profile photo preview" class="hidden size-28 object-cover sm:size-32" width="128" height="128" data-reg-photo-preview />
                         </div>
                         <div class="min-w-0 flex-1 space-y-2">
-                            <p class="text-sm text-brand-text-secondary">The current photo stays until you choose a replacement.</p>
+                            <input type="hidden" name="remove_profile_photo" value="0" data-reg-photo-remove-flag />
                             <input type="file" name="profile_photo" id="{{ $profilePhotoInputId }}" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" data-reg-photo-input />
-                            <label for="{{ $profilePhotoInputId }}" class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-brand-border bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface" data-reg-photo-replace>
-                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 12l-4-4m0 0L8 12m4-4v12" /></svg>
-                                Replace photo
-                            </label>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <label for="{{ $profilePhotoInputId }}" class="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-brand-border bg-white px-4 py-2 text-sm font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface" data-reg-photo-replace>
+                                    <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 12l-4-4m0 0L8 12m4-4v12" /></svg>
+                                    <span data-reg-photo-replace-text>{{ $e->profile_photo_path ? 'Replace photo' : 'Upload photo' }}</span>
+                                </label>
+                                @if ($e->profile_photo_path)
+                                    <button type="button" class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-50" data-reg-photo-remove>
+                                        Remove photo
+                                    </button>
+                                @endif
+                            </div>
                             <p class="text-xs text-brand-text-secondary" data-reg-photo-filename hidden></p>
-                            <p class="text-xs text-brand-text-secondary">Optional â€” JPEG, PNG, WebP or GIF up to 15&nbsp;MB.</p>
                         </div>
                     </div>
                 </dd>
@@ -404,19 +410,17 @@
     </div>
 </section>
 
+@include('admin.partials.registration-profile-leaves', ['e' => $e, 'company' => $company, 'leaveTypes' => $leaveTypes ?? collect()])
+
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
-        <h3 class="text-lg font-bold text-brand-text">Payroll Information</h3>
+        <h3 class="text-lg font-bold text-brand-text">Payroll information</h3>
         @if ($canEditProfile)
-            <p class="mt-1 text-sm text-brand-text-secondary">Employment type and award level drive pay calculations. <a href="{{ route('admin.payroll.rates') }}" class="font-semibold text-brand-link hover:underline">Edit award rates</a></p>
+            <p class="mt-1 text-sm"><a href="{{ route('admin.payroll.rates') }}" class="font-semibold text-brand-link hover:underline">Edit award rates</a></p>
         @endif
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
         @php $connection = $company->tenant_connection; @endphp
-        @include('admin.partials.registration-profile-payroll', ['e' => $e, 'company' => $company, 'connection' => $connection])
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_name" maxlength="160" value="{{ old('bank_account_name', $e->bank_account_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_account_name) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Account number</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_account_number" maxlength="500" class="{{ $editIn }} font-mono tracking-wide" data-reg-bank-account data-bank-masked="{{ $bankHasAccount ? $bankMasked : '' }}" value="{{ old('bank_account_number') ?: ($bankHasAccount ? $bankMasked : '') }}" placeholder="{{ $bankHasAccount ? '' : 'Enter account number' }}" autocomplete="off" /><p class="mt-1 text-xs text-brand-text-secondary">@if ($bankHasAccount)Masked as {{ $bankMasked }}. Click the field to enter a new number (leave empty to keep current).@elseEnter the full account number.@endif</p>@else<span class="font-mono text-brand-text">{{ $bankMasked }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Branch code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_branch_code" maxlength="32" value="{{ old('bank_branch_code', $e->bank_branch_code) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_branch_code) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Bank name</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="bank_name" maxlength="160" value="{{ old('bank_name', $e->bank_name) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->bank_name) }}</span>@endif</dd></div>
+        @include('admin.partials.registration-profile-payroll', ['e' => $e, 'company' => $company, 'connection' => $connection, 'leaveTypes' => $leaveTypes ?? collect()])
     </div>
 </section>

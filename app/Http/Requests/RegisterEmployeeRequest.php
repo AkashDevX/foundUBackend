@@ -35,6 +35,22 @@ class RegisterEmployeeRequest extends FormRequest
             }
         }
 
+        foreach ([
+            'police_check_expiry',
+            'police_check_uploaded',
+            'fit_to_work_expiry',
+            'fit_to_work_uploaded',
+            'vehicle_insurance_uploaded',
+        ] as $optionalField) {
+            $value = $merge[$optionalField] ?? ($this->has($optionalField) ? $this->input($optionalField) : null);
+            if ($value === null) {
+                continue;
+            }
+            if (is_string($value) && trim($value) === '') {
+                $merge[$optionalField] = null;
+            }
+        }
+
         $this->merge($merge);
     }
 

@@ -49,6 +49,27 @@
     margin: 3px auto 0;
 }
 
+.tc-punch-pin-outer,
+.tc-site-pin-outer {
+    background: transparent !important;
+    border: none !important;
+}
+
+.tc-punch-pin-inner,
+.tc-site-pin-inner {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    margin: 3px auto 0;
+}
+
+.tc-site-pin-inner {
+    background: var(--color-brand-primary);
+}
+
 /* Workforce location tabs */
 [data-wf-tab].wf-tab-active {
     background: #fff;

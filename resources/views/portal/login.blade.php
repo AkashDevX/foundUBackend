@@ -1,5 +1,5 @@
-{{--
-  Organization portal login — split layout inspired by modern auth UIs (ELBOD2i-style reference).
+﻿{{--
+  Organization portal login - split layout inspired by modern auth UIs (ELBOD2i-style reference).
   Colors from app mobile / web brand: --color-brand-primary (#003d7a), primary-dark (#002855),
   primary-light (#0052a2); body text/links align with admin theme.
 --}}
@@ -16,14 +16,16 @@
     @if (isset($errors) && $errors->any())
         <meta name="portal-has-validation-errors" content="1">
     @endif
-    <title>Login — {{ config('app.name') }}</title>
+    <title>Login - {{ config('app.name') }}</title>
+    <link rel="icon" href="{{ asset('images/crulynk-logo.png') }}?v=9" type="image/png">
+    <link rel="apple-touch-icon" href="{{ asset('images/crulynk-logo.png') }}?v=9">
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         /*
-          Hero: deep navy brand gradient + “wet glass” noise + warm amber bokeh (reference mood).
-          No external bitmap required — fast and works offline.
+          Hero: deep navy brand gradient + "wet glass" noise + warm amber bokeh (reference mood).
+          No external bitmap required - fast and works offline.
         */
         .login-hero {
             --brand-deep: #002855;
@@ -61,25 +63,28 @@
 </head>
 <body class="min-h-full bg-white font-sans antialiased [color-scheme:light]">
     <div class="flex min-h-full flex-col lg:min-h-screen lg:flex-row">
-        {{-- Left: brand panel — centered lockup, no menu / social chrome --}}
+        {{-- Left: brand panel - centered lockup, no menu / social chrome --}}
         <aside class="login-hero relative isolate flex min-h-[min(52vh,440px)] w-full flex-col overflow-hidden text-white lg:min-h-screen lg:w-[56%] lg:max-w-[760px] lg:shrink-0">
             <div class="login-hero__bokeh" aria-hidden="true"></div>
             <div class="login-hero__glass" aria-hidden="true"></div>
             <div class="login-hero__vignette" aria-hidden="true"></div>
 
-            <div class="relative z-10 flex flex-1 flex-col items-center justify-center px-10 py-16 text-center sm:px-14 lg:px-16 lg:py-12">
-                <div class="flex w-full max-w-xl flex-col items-center gap-8">
-                    <div class="flex flex-col items-center gap-6 sm:flex-row sm:justify-center sm:gap-6">
-                        <div class="flex size-[4.25rem] shrink-0 items-center justify-center rounded-2xl bg-white shadow-xl shadow-black/35 ring-2 ring-white/35">
-                            <svg class="size-10 text-brand-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.65" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
-                            </svg>
-                        </div>
-                        <span class="text-4xl font-bold tracking-tight text-white sm:text-5xl">{{ config('app.name', 'CruLynk') }}</span>
+            <div class="relative z-10 flex flex-1 flex-col items-center justify-center px-8 py-14 text-center sm:px-12 lg:px-14 lg:py-12">
+                <div class="flex w-full max-w-2xl flex-col items-center gap-6 sm:gap-7">
+                    <img
+                        src="{{ asset('images/crulynk-logo.png') }}?v=9"
+                        alt="{{ config('app.name', 'CruLynk') }}"
+                        width="220"
+                        height="188"
+                        style="width: 220px; max-width: 70%; height: auto;"
+                        class="mx-auto object-contain drop-shadow-xl"
+                    >
+                    <div class="mt-2 inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 shadow-[0_8px_30px_rgba(0,0,0,0.18)] backdrop-blur-md">
+                        <span class="size-1.5 shrink-0 rounded-full bg-[#99d31a] shadow-[0_0_10px_rgba(153,211,26,0.65)]" aria-hidden="true"></span>
+                        <span class="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/85">
+                            Built for your team.
+                        </span>
                     </div>
-                    <p class="max-w-lg text-[15px] leading-relaxed text-white/75 sm:text-base">
-                        {{ config('app.name', 'CruLynk') }} registration portal — sign in to review applications for your organization.
-                    </p>
                 </div>
             </div>
         </aside>
@@ -88,7 +93,6 @@
         <main class="relative flex flex-1 flex-col justify-center bg-white px-5 py-12 sm:px-10 lg:px-14 xl:px-20">
             <div class="relative mx-auto w-full max-w-md">
                 <h1 class="text-3xl font-bold tracking-tight text-brand-text sm:text-[2rem]">Login</h1>
-                <p class="mt-2 text-[15px] leading-relaxed text-brand-text-secondary">Please fill your information below.</p>
 
                 <form method="post" action="{{ route('portal.login.store') }}" class="mt-10 space-y-6" data-portal-login>
                     @csrf
@@ -113,7 +117,7 @@
                                 @if ($platformCompany)
                                     <option value="{{ $platformCompany->id }}" @selected(old('company_id') == $platformCompany->id)>{{ $platformCompany->name }} (Platform)</option>
                                     @if ($companies->isNotEmpty())
-                                        <option disabled>──────────</option>
+                                        <option disabled>----------</option>
                                     @endif
                                 @endif
                                 @foreach ($companies as $org)
@@ -151,10 +155,7 @@
                     </div>
 
                     <div>
-                        <div class="mb-2 flex items-center justify-between gap-3">
-                            <label for="password" class="block text-sm font-medium text-brand-text-secondary">Password</label>
-                            <span class="text-xs font-semibold text-brand-primary-light">Forgot password?</span>
-                        </div>
+                        <label for="password" class="mb-2 block text-sm font-medium text-brand-text-secondary">Password</label>
                         <div class="relative">
                             <span class="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-brand-icon">
                                 <svg class="size-[1.15rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
@@ -172,7 +173,6 @@
                                 ])
                             />
                         </div>
-                        <p class="mt-1.5 text-xs text-brand-text-secondary">Password resets are handled by your organization. Contact an administrator if you are locked out.</p>
                     </div>
 
                     <label class="flex cursor-pointer items-center gap-3">
@@ -190,13 +190,6 @@
                         </button>
                     </div>
                 </form>
-
-                <div class="mt-12 border-t border-brand-border pt-8">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                        <p class="text-sm text-brand-text-secondary">Need access for your team?</p>
-                        <p class="text-sm font-semibold text-brand-link">Contact your organization administrator.</p>
-                    </div>
-                </div>
             </div>
             @include('partials.cru-lynk-flash', ['validationErrorTitle' => 'Sign in failed'])
         </main>

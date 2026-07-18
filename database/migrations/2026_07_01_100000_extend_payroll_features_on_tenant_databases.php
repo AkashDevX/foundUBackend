@@ -35,7 +35,6 @@ return new class extends Migration
                     $table->date('leave_date')->index();
                     $table->decimal('hours', 8, 2);
                     $table->decimal('hourly_rate', 10, 2)->nullable();
-                    $table->decimal('loading_percent', 5, 2)->nullable();
                     $table->decimal('paid_amount', 12, 2)->default(0);
                     $table->string('status', 32)->default('pending')->index();
                     $table->foreignId('payroll_run_id')->nullable()->constrained('payroll_runs')->nullOnDelete();

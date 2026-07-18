@@ -62,4 +62,56 @@ class AdminTimeClockDisplayTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_punch_map_payload_returns_null_without_gps(): void
+    {
+        $entry = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC'),
+        ]);
+
+        $this->assertNull(AdminTimeClockDisplay::punchMapPayload($entry));
+    }
+
+    public function test_punch_map_payload_marks_outside_geofence(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+
+        $entry = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 17:00:00', 'UTC'),
+            'device_latitude' => -27.48,
+            'device_longitude' => 153.03,
+            'expected_latitude' => -27.4698,
+            'expected_longitude' => 153.0251,
+            'distance_from_site_meters' => 180,
+            'allowed_radius_meters' => 100,
+            'within_geofence' => false,
+        ]);
+
+        $payload = AdminTimeClockDisplay::punchMapPayload($entry);
+
+        $this->assertIsArray($payload);
+        $this->assertFalse($payload['within_geofence']);
+        $this->assertSame('outside', $payload['icon_tone']);
+        $this->assertSame('Outside designated radius', $payload['geofence_label']);
+        $this->assertSame('Clock out', $payload['event_label']);
+    }
+
+    public function test_resolve_distance_meters_computes_from_coordinates_when_column_null(): void
+    {
+        $entry = new TimeClockEntry([
+            'device_latitude' => -27.47,
+            'device_longitude' => 153.02,
+            'expected_latitude' => -27.4698,
+            'expected_longitude' => 153.0251,
+            'distance_from_site_meters' => null,
+        ]);
+
+        $meters = AdminTimeClockDisplay::resolveDistanceMeters($entry);
+
+        $this->assertNotNull($meters);
+        $this->assertGreaterThan(0, $meters);
+        $this->assertSame((string) (int) round($meters), AdminTimeClockDisplay::formatDistanceMetersInteger($entry));
+    }
 }

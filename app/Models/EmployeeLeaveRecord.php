@@ -9,10 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'employee_id',
     'leave_type',
+    'is_paid',
     'leave_date',
     'hours',
     'hourly_rate',
-    'loading_percent',
     'paid_amount',
     'status',
     'payroll_run_id',
@@ -29,6 +29,8 @@ class EmployeeLeaveRecord extends Model
 
     public const STATUS_PAID = 'paid';
 
+    public const STATUS_RECORDED = 'recorded';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public function employee(): BelongsTo
@@ -44,10 +46,10 @@ class EmployeeLeaveRecord extends Model
     protected function casts(): array
     {
         return [
+            'is_paid' => 'boolean',
             'leave_date' => 'date',
             'hours' => 'decimal:2',
             'hourly_rate' => 'decimal:2',
-            'loading_percent' => 'decimal:2',
             'paid_amount' => 'decimal:2',
         ];
     }

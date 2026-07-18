@@ -5,7 +5,7 @@
 @section('heading', 'Employee tasks')
 
 @section('subheading')
-    {{ $company->name }} — personal task assignments for {{ \App\Support\DisplayTimezone::label() }}.
+    {{ $company->name }}
 @endsection
 
 
@@ -169,7 +169,6 @@
 
             <div class="p-5 sm:p-6">
                 <h3 class="text-sm font-bold text-brand-text">Tasks</h3>
-                <p class="mt-1 text-xs text-brand-text-secondary">Assigned to this employee.</p>
 
                 @if ($assignedTasks === [])
                     <p class="mt-5 rounded-xl border border-dashed border-brand-border bg-brand-surface/40 px-4 py-6 text-center text-sm text-brand-text-secondary">No tasks for this date.</p>
@@ -256,13 +255,11 @@
     @elseif ($taskRows === [])
         <div class="rounded-2xl border border-dashed border-brand-border bg-brand-surface/50 px-6 py-12 text-center">
             <p class="text-sm font-semibold text-brand-text">No employees match these filters</p>
-            <p class="mt-2 text-xs text-brand-text-secondary">Try clearing filters or pick a different site.</p>
         </div>
     @else
         <div class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
             <header class="border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-5 py-4 sm:px-6">
                 <h2 class="text-sm font-bold text-brand-text">Employees</h2>
-                <p class="mt-1 text-xs text-brand-text-secondary">Open an employee to view tasks and assign new ones.</p>
             </header>
             <div class="overflow-x-auto">
                 <table class="min-w-full text-left text-sm">

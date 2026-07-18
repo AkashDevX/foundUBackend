@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
 <head>
     <meta charset="utf-8">
@@ -11,7 +11,9 @@
     @if (session('error'))
         <meta name="flash-error" content="{{ e(session('error')) }}">
     @endif
-    <title>@yield('title', 'Platform') — {{ config('app.name', 'CruLynk') }}</title>
+    <title>@yield('title', 'Platform') - {{ config('app.name', 'CruLynk') }}</title>
+    <link rel="icon" href="{{ asset('images/crulynk-logo.png') }}?v=9" type="image/png">
+    <link rel="apple-touch-icon" href="{{ asset('images/crulynk-logo.png') }}?v=9">
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -25,19 +27,19 @@
         >
             <div class="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-brand-primary-light/25 to-transparent" aria-hidden="true"></div>
             <div class="relative flex h-full flex-col">
-                <div class="flex items-center gap-3 border-b border-white/10 px-5 py-6">
-                    <div class="flex size-11 items-center justify-center rounded-xl bg-white shadow-lg shadow-black/25 ring-2 ring-white/25">
-                        <svg class="size-6 text-brand-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-sm font-bold tracking-tight text-white">{{ config('app.name', 'CruLynk') }}</p>
-                        <p class="text-xs text-white/65">Platform controller</p>
-                    </div>
+                <div class="border-b border-white/10 px-5 py-5">
+                    <img
+                        src="{{ asset('images/crulynk-logo.png') }}?v=9"
+                        alt="{{ config('app.name', 'CruLynk') }}"
+                        width="80"
+                        height="68"
+                        style="height: 80px; width: auto;"
+                        class="mx-auto object-contain drop-shadow-md"
+                    >
+                    <p class="mt-3 text-center text-xs text-white/65">Platform controller</p>
                 </div>
 
-                <nav class="flex-1 space-y-1 px-3 py-5 text-sm font-medium">
+                <nav class="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-5 text-sm font-medium">
                     @php
                         $navActive = 'group relative flex items-center gap-3 rounded-xl bg-white/[0.12] px-3 py-3 text-brand-white shadow-inner shadow-black/10 ring-1 ring-white/15';
                         $navInactive = 'group flex items-center gap-3 rounded-xl px-3 py-3 text-white/70 transition hover:bg-white/[0.07] hover:text-white';
@@ -61,36 +63,6 @@
                         <span>Access requests</span>
                     </a>
                 </nav>
-
-                <div class="border-t border-white/10 p-4">
-                    @auth('portal')
-                        @php
-                            /** @var \App\Models\OrganizationPortalUser $pu */
-                            $pu = auth('portal')->user();
-                        @endphp
-                        <div class="rounded-xl bg-black/25 px-4 py-4 ring-1 ring-white/10 backdrop-blur-sm">
-                            <p class="truncate text-[11px] font-semibold uppercase tracking-wider text-white/55">Platform admin</p>
-                            <p class="mt-2 truncate text-sm font-semibold text-white">{{ $pu->name }}</p>
-                            <p class="truncate text-xs text-white/60">{{ $pu->email }}</p>
-                            <form
-                                method="post"
-                                action="{{ route('portal.logout') }}"
-                                class="mt-4"
-                                data-skip-form-busy
-                                data-confirm="You will be signed out of the platform console."
-                                data-confirm-title="Sign out?"
-                                data-confirm-confirm="Sign out"
-                                data-confirm-cancel="Stay signed in"
-                                data-confirm-icon="question"
-                            >
-                                @csrf
-                                <button type="submit" class="w-full rounded-lg bg-white/12 px-3 py-2.5 text-xs font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/20">
-                                    Sign out
-                                </button>
-                            </form>
-                        </div>
-                    @endauth
-                </div>
             </div>
         </aside>
 
@@ -115,8 +87,17 @@
                     </button>
                     <div class="min-w-0 flex-1">
                         <h1 class="truncate text-lg font-bold tracking-tight text-brand-text sm:text-xl">@yield('heading', 'Organizations')</h1>
-                        <p class="mt-0.5 hidden text-sm leading-snug text-brand-text-secondary sm:block">@yield('subheading', 'Manage tenant organizations')</p>
+                        @hasSection('subheading')
+                            <p class="mt-0.5 hidden text-sm leading-snug text-brand-text-secondary sm:block">@yield('subheading')</p>
+                        @endif
                     </div>
+                    @auth('portal')
+                        @include('admin.partials.account-menu', [
+                            'user' => auth('portal')->user(),
+                            'orgLabel' => 'Platform admin',
+                            'confirmText' => 'You will be signed out of the platform console.',
+                        ])
+                    @endauth
                 </div>
             </header>
 

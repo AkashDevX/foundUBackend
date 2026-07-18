@@ -207,6 +207,67 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertSame(0, $schedule['stats']['shifts']);
     }
 
+    public function test_build_schedule_shows_multiple_assignment_shift_suggestions_when_day_empty(): void
+    {
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+
+        $morning = new Shift([
+            'name' => 'Morning',
+            'start_time' => Carbon::parse('08:00'),
+            'end_time' => Carbon::parse('12:00'),
+            'shift_days' => ['mon', 'tue', 'wed', 'thu', 'fri'],
+        ]);
+        $morning->id = 1;
+
+        $afternoon = new Shift([
+            'name' => 'Afternoon',
+            'start_time' => Carbon::parse('13:00'),
+            'end_time' => Carbon::parse('17:00'),
+            'shift_days' => ['mon', 'tue', 'wed', 'thu', 'fri'],
+        ]);
+        $afternoon->id = 2;
+
+        $employee = new Employee([
+            'full_legal_name' => 'Alex Rivera',
+            'email' => 'alex@example.com',
+        ]);
+        $employee->id = 12;
+        $employee->setRelation('assignedShift', null);
+        $employee->setRelation('assignedDepartment', null);
+        $employee->setRelation('workLocation', null);
+        $employee->setRelation('assignedJobTitle', null);
+        $employee->setRelation('assignmentShifts', new Collection([
+            tap(new \App\Models\EmployeeAssignmentShift([
+                'shift_id' => 1,
+                'unpaid_break_minutes' => 30,
+                'sort_order' => 0,
+            ]), static function ($row) use ($morning): void {
+                $row->setRelation('shiftTemplate', $morning);
+            }),
+            tap(new \App\Models\EmployeeAssignmentShift([
+                'shift_id' => 2,
+                'unpaid_break_minutes' => 0,
+                'sort_order' => 1,
+            ]), static function ($row) use ($afternoon): void {
+                $row->setRelation('shiftTemplate', $afternoon);
+            }),
+        ]));
+
+        $schedule = AdminWeeklySchedule::buildSchedule(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection()
+        );
+
+        $mondayBlocks = $schedule['rows'][0]['cells']['mon']['blocks'];
+        $this->assertCount(2, $mondayBlocks);
+        $this->assertTrue($mondayBlocks[0]['is_suggestion']);
+        $this->assertTrue($mondayBlocks[1]['is_suggestion']);
+        $this->assertSame('Morning', $mondayBlocks[0]['subtitle']);
+        $this->assertSame('Afternoon', $mondayBlocks[1]['subtitle']);
+        $this->assertStringContainsString('30m unpaid break', $mondayBlocks[0]['meta']);
+    }
+
     public function test_resolve_week_start_normalizes_to_monday(): void
     {
         $weekStart = AdminWeeklySchedule::resolveWeekStart('2026-06-18');

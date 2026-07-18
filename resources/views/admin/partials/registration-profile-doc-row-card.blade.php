@@ -32,6 +32,7 @@
             'storagePath' => $doc['storage_path'],
             'fileUrl' => $hasFile ? $fileUrl($fileUrlKind, $doc['row_key']) : null,
             'inputName' => $uploadFieldName.'['.$doc['row_key'].']',
+            'removeInputName' => 'remove_'.$uploadFieldName.'['.$doc['row_key'].']',
             'uploadInputId' => $uploadInputId,
             'canEditProfile' => $canEditProfile,
         ])

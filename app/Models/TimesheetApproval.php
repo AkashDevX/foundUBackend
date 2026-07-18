@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'employee_id',
-    'week_start',
-    'week_end',
+    'clock_in_entry_id',
+    'work_date',
     'total_seconds',
     'completed_sessions',
     'status',
@@ -30,11 +30,15 @@ class TimesheetApproval extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function clockInEntry(): BelongsTo
+    {
+        return $this->belongsTo(TimeClockEntry::class, 'clock_in_entry_id');
+    }
+
     protected function casts(): array
     {
         return [
-            'week_start' => 'date',
-            'week_end' => 'date',
+            'work_date' => 'date',
             'total_seconds' => 'integer',
             'completed_sessions' => 'integer',
             'reviewed_at' => 'datetime',

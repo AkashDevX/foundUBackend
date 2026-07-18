@@ -4,10 +4,6 @@
 
 @section('heading', $organizationRequest->company_name)
 
-@section('subheading')
-    Organisation access request — submitted from the mobile app.
-@endsection
-
 @section('content')
     @php
         /** @var \App\Models\OrganizationRequest $organizationRequest */

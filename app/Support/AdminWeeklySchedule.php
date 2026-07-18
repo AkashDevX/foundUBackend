@@ -3,7 +3,11 @@
 namespace App\Support;
 
 use App\Models\Employee;
+use App\Models\EmployeeAssignmentShift;
+use App\Models\EmployeeLeaveEntitlement;
+use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
+use App\Models\LeaveType;
 use App\Models\Shift;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -136,8 +140,7 @@ final class AdminWeeklySchedule
                     }
 
                     if ($blocks === []) {
-                        $suggestion = self::suggestedBlockFromAssignment($employee, $day['key']);
-                        if ($suggestion !== null) {
+                        foreach (self::suggestedBlocksFromAssignment($employee, $day['key']) as $suggestion) {
                             $blocks[] = $suggestion;
                         }
                     }
@@ -172,6 +175,81 @@ final class AdminWeeklySchedule
                 'scheduled_seconds' => $totalScheduledSeconds,
             ],
         ];
+    }
+
+    /**
+     * Per-employee leave balances keyed by employee public_id.
+     * Each item: { id, code, name, is_paid, allocated, used, remaining }.
+     *
+     * @param  Collection<int, Employee>  $employees
+     * @return array<string, list<array<string, mixed>>>
+     */
+    public static function leaveBalancesForEmployees(string $connection, Collection $employees): array
+    {
+        if ($employees->isEmpty()) {
+            return [];
+        }
+
+        $employeeIds = $employees->pluck('id')->all();
+
+        $leaveTypes = LeaveType::on($connection)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+        $typesById = $leaveTypes->keyBy('id');
+
+        $entitlements = EmployeeLeaveEntitlement::on($connection)
+            ->whereIn('employee_id', $employeeIds)
+            ->get()
+            ->groupBy('employee_id');
+
+        $usedByEmployeeCode = [];
+        $usedRows = EmployeeLeaveRecord::on($connection)
+            ->whereIn('employee_id', $employeeIds)
+            ->where('status', '!=', EmployeeLeaveRecord::STATUS_CANCELLED)
+            ->get(['employee_id', 'leave_type', 'hours']);
+
+        foreach ($usedRows as $row) {
+            $key = (int) $row->employee_id;
+            $code = (string) $row->leave_type;
+            $usedByEmployeeCode[$key][$code] = ($usedByEmployeeCode[$key][$code] ?? 0.0) + (float) $row->hours;
+        }
+
+        $balances = [];
+
+        foreach ($employees as $employee) {
+            $employeeId = (int) $employee->id;
+            $publicId = (string) $employee->public_id;
+            $employeeEntitlements = $entitlements->get($employeeId, collect());
+
+            // Only surface leave types this employee is actually entitled to.
+            $rows = $employeeEntitlements
+                ->map(static fn ($ent): array => [$typesById->get($ent->leave_type_id), $ent->entitlement_hours])
+                ->filter(static fn (array $pair): bool => $pair[0] instanceof LeaveType);
+
+            $list = [];
+            foreach ($rows as [$type, $entitlementHours]) {
+                /** @var LeaveType $type */
+                $allocated = $entitlementHours ?? $type->default_annual_hours;
+                $allocatedVal = $allocated !== null ? (float) $allocated : null;
+                $used = (float) ($usedByEmployeeCode[$employeeId][$type->code] ?? 0.0);
+
+                $list[] = [
+                    'id' => (int) $type->id,
+                    'code' => (string) $type->code,
+                    'name' => (string) $type->name,
+                    'is_paid' => (bool) $type->is_paid,
+                    'allocated' => $allocatedVal,
+                    'used' => round($used, 2),
+                    'remaining' => $allocatedVal !== null ? round($allocatedVal - $used, 2) : null,
+                ];
+            }
+
+            $balances[$publicId] = array_values($list);
+        }
+
+        return $balances;
     }
 
     /**
@@ -214,6 +292,9 @@ final class AdminWeeklySchedule
                 'department_id' => $entry->department_id,
                 'work_location_id' => $entry->work_location_id,
                 'notes' => $entry->notes,
+                'leave_type_id' => $entry->leave_type_id,
+                'leave_type_name' => $entry->leaveType?->name,
+                'leave_hours' => $entry->leaveRecord?->hours !== null ? (float) $entry->leaveRecord->hours : null,
             ];
         }
 
@@ -254,46 +335,103 @@ final class AdminWeeklySchedule
             'department_id' => $entry->department_id,
             'work_location_id' => $entry->work_location_id,
             'notes' => $entry->notes,
+            'status' => $entry->status,
+            'status_label' => EmployeeScheduleShift::statusLabel($entry->status),
         ];
     }
 
     /**
-     * @return array<string, mixed>|null
+     * @return list<array<string, mixed>>
      */
-    private static function suggestedBlockFromAssignment(Employee $employee, string $dayKey): ?array
+    private static function suggestedBlocksFromAssignment(Employee $employee, string $dayKey): array
     {
-        $shift = $employee->assignedShift;
-        if (! $shift instanceof Shift || ! self::shiftRunsOnDay($shift, $dayKey)) {
-            return null;
+        $blocks = [];
+
+        foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
+            $shift = $assignmentShift->shiftTemplate;
+            if (! $shift instanceof Shift || ! self::shiftRunsOnDay($shift, $dayKey)) {
+                continue;
+            }
+
+            $durationSeconds = self::shiftDurationSeconds($shift);
+            $unpaidBreakMinutes = (int) ($assignmentShift->unpaid_break_minutes ?? 0);
+            $breakLabel = $unpaidBreakMinutes > 0
+                ? AdminTimeClockDisplay::formatDuration(max(0, $durationSeconds - ($unpaidBreakMinutes * 60))).' paid'
+                : AdminTimeClockDisplay::formatDuration($durationSeconds);
+
+            $blocks[] = [
+                'id' => null,
+                'editable' => false,
+                'is_suggestion' => true,
+                'type' => 'suggestion',
+                'time_range' => self::shiftTimeRangeLabel($shift),
+                'duration_label' => $breakLabel,
+                'duration_seconds' => $durationSeconds,
+                'title' => self::employeeJobTitle($employee),
+                'subtitle' => $shift->name ?: 'From assignment',
+                'meta' => trim(collect([
+                    $employee->assignedDepartment?->name,
+                    $employee->workLocation?->name,
+                    $unpaidBreakMinutes > 0 ? $unpaidBreakMinutes.'m unpaid break' : null,
+                ])->filter()->join(' · ')),
+                'palette' => self::paletteForSeed((int) ($employee->work_location_id ?? $employee->department_id ?? $employee->id ?? 0)),
+                'scheduled_date' => null,
+                'employee_public_id' => $employee->public_id,
+                'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
+                'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
+                'shift_id' => $shift->id,
+                'job_title_id' => $employee->job_title_id,
+                'department_id' => $employee->department_id,
+                'work_location_id' => $employee->work_location_id,
+                'notes' => null,
+            ];
         }
 
-        $durationSeconds = self::shiftDurationSeconds($shift);
+        return $blocks;
+    }
 
-        return [
-            'id' => null,
-            'editable' => false,
-            'is_suggestion' => true,
-            'type' => 'suggestion',
-            'time_range' => self::shiftTimeRangeLabel($shift),
-            'duration_label' => AdminTimeClockDisplay::formatDuration($durationSeconds),
-            'duration_seconds' => $durationSeconds,
-            'title' => self::employeeJobTitle($employee),
-            'subtitle' => $shift->name ?: 'From assignment',
-            'meta' => trim(collect([
-                $employee->assignedDepartment?->name,
-                $employee->workLocation?->name,
-            ])->filter()->join(' · ')),
-            'palette' => self::paletteForSeed((int) ($employee->work_location_id ?? $employee->department_id ?? $employee->id ?? 0)),
-            'scheduled_date' => null,
-            'employee_public_id' => $employee->public_id,
-            'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
-            'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
+    /**
+     * @return Collection<int, EmployeeAssignmentShift>
+     */
+    private static function assignmentShiftsForEmployee(Employee $employee): Collection
+    {
+        if ($employee->relationLoaded('assignmentShifts')) {
+            return $employee->assignmentShifts->isNotEmpty()
+                ? $employee->assignmentShifts
+                : collect();
+        }
+
+        if ($employee->relationLoaded('assignedShift')) {
+            if ($employee->assignedShift instanceof Shift) {
+                return collect([self::legacyAssignmentShift($employee->assignedShift)]);
+            }
+
+            return collect();
+        }
+
+        $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+
+        if ($employee->assignmentShifts->isNotEmpty()) {
+            return $employee->assignmentShifts;
+        }
+
+        if ($employee->assignedShift instanceof Shift) {
+            return collect([self::legacyAssignmentShift($employee->assignedShift)]);
+        }
+
+        return collect();
+    }
+
+    private static function legacyAssignmentShift(Shift $shift): EmployeeAssignmentShift
+    {
+        $legacy = new EmployeeAssignmentShift([
             'shift_id' => $shift->id,
-            'job_title_id' => $employee->job_title_id,
-            'department_id' => $employee->department_id,
-            'work_location_id' => $employee->work_location_id,
-            'notes' => null,
-        ];
+            'unpaid_break_minutes' => 0,
+            'sort_order' => 0,
+        ]);
+        $legacy->setRelation('shiftTemplate', $shift);
+
+        return $legacy;
     }
 
     /**
@@ -310,8 +448,8 @@ final class AdminWeeklySchedule
         $days = self::weekDays($weekStart);
 
         foreach ($employees as $employee) {
-            $shift = $employee->assignedShift;
-            if (! $shift instanceof Shift) {
+            $assignmentShifts = self::assignmentShiftsForEmployee($employee);
+            if ($assignmentShifts->isEmpty()) {
                 continue;
             }
 
@@ -321,25 +459,34 @@ final class AdminWeeklySchedule
                     continue;
                 }
 
-                if (! self::shiftRunsOnDay($shift, $day['key'])) {
-                    continue;
+                $createdForDay = 0;
+
+                foreach ($assignmentShifts as $assignmentShift) {
+                    $shift = $assignmentShift->shiftTemplate;
+                    if (! $shift instanceof Shift || ! self::shiftRunsOnDay($shift, $day['key'])) {
+                        continue;
+                    }
+
+                    EmployeeScheduleShift::on($connection)->create([
+                        'employee_id' => $employee->id,
+                        'scheduled_date' => $day['date_string'],
+                        'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+                        'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
+                        'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
+                        'shift_id' => $shift->id,
+                        'job_title_id' => $employee->job_title_id,
+                        'department_id' => $employee->department_id,
+                        'work_location_id' => $employee->work_location_id,
+                        'notes' => null,
+                    ]);
+
+                    $createdForDay++;
+                    $created++;
                 }
 
-                EmployeeScheduleShift::on($connection)->create([
-                    'employee_id' => $employee->id,
-                    'scheduled_date' => $day['date_string'],
-                    'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
-                    'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
-                    'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
-                    'shift_id' => $shift->id,
-                    'job_title_id' => $employee->job_title_id,
-                    'department_id' => $employee->department_id,
-                    'work_location_id' => $employee->work_location_id,
-                    'notes' => null,
-                ]);
-
-                $existingKeys->put($lookupKey, true);
-                $created++;
+                if ($createdForDay > 0) {
+                    $existingKeys->put($lookupKey, true);
+                }
             }
         }
 
@@ -356,7 +503,7 @@ final class AdminWeeklySchedule
         $weekStart = self::resolveWeekStart($weekParam);
         $weekEnd = $weekStart->copy()->addDays(6);
 
-        $employee->loadMissing(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift']);
+        $employee->loadMissing(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate']);
 
         $entries = EmployeeScheduleShift::query()
             ->where('employee_id', $employee->id)

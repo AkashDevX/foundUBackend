@@ -20,6 +20,7 @@ class ClockOutEmployeeController extends Controller
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy_meters' => ['nullable', 'numeric', 'min:0', 'max:10000'],
+            'comment' => ['nullable', 'string', 'max:2000'],
         ]);
 
         /** @var Employee $employee */
@@ -32,6 +33,7 @@ class ClockOutEmployeeController extends Controller
                 'accuracy_meters' => isset($validated['accuracy_meters'])
                     ? (float) $validated['accuracy_meters']
                     : null,
+                'comment' => isset($validated['comment']) ? trim((string) $validated['comment']) : null,
             ]);
         } catch (TimeClockException $e) {
             return $this->timeClockErrorResponse($e);

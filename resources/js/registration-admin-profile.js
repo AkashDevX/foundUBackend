@@ -190,12 +190,58 @@ function initRegAddressRoot(root) {
     syncClearVisibility();
 }
 
+function initRegPhotoRemovals() {
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const removeBtn = target.closest('[data-reg-photo-remove]');
+        if (!(removeBtn instanceof HTMLButtonElement)) {
+            return;
+        }
+        event.preventDefault();
+        const root = removeBtn.closest('[data-reg-photo-root]');
+        if (!(root instanceof HTMLElement)) {
+            return;
+        }
+        const fileInput = root.querySelector('[data-reg-photo-input]');
+        const preview = root.querySelector('[data-reg-photo-preview]');
+        const current = root.querySelector('[data-reg-photo-current]');
+        const empty = root.querySelector('[data-reg-photo-empty]');
+        const filenameEl = root.querySelector('[data-reg-photo-filename]');
+        const removeFlag = root.querySelector('[data-reg-photo-remove-flag]');
+        const replaceLabelText = root.querySelector('[data-reg-photo-replace-text]');
+
+        if (removeFlag instanceof HTMLInputElement) {
+            removeFlag.value = '1';
+        }
+        if (fileInput instanceof HTMLInputElement) {
+            fileInput.value = '';
+        }
+        if (filenameEl instanceof HTMLElement) {
+            filenameEl.textContent = 'Marked for removal — save the form to apply.';
+            filenameEl.hidden = false;
+        }
+        preview?.classList.add('hidden');
+        preview?.removeAttribute('src');
+        current?.classList.add('hidden');
+        empty?.classList.remove('hidden');
+        removeBtn.classList.add('hidden');
+        if (replaceLabelText instanceof HTMLElement) {
+            replaceLabelText.textContent = 'Upload photo';
+        }
+    });
+}
+
 function initRegPhotoRoot(root) {
     const fileInput = root.querySelector('[data-reg-photo-input]');
     const preview = root.querySelector('[data-reg-photo-preview]');
     const current = root.querySelector('[data-reg-photo-current]');
     const empty = root.querySelector('[data-reg-photo-empty]');
     const filenameEl = root.querySelector('[data-reg-photo-filename]');
+    const removeFlag = root.querySelector('[data-reg-photo-remove-flag]');
+    const replaceLabelText = root.querySelector('[data-reg-photo-replace-text]');
     if (!fileInput) {
         return;
     }
@@ -204,6 +250,9 @@ function initRegPhotoRoot(root) {
         const file = fileInput.files?.[0];
         if (!file) {
             return;
+        }
+        if (removeFlag instanceof HTMLInputElement) {
+            removeFlag.value = '0';
         }
         if (filenameEl) {
             filenameEl.textContent = `Selected: ${file.name}`;
@@ -220,6 +269,138 @@ function initRegPhotoRoot(root) {
             empty?.classList.add('hidden');
         };
         reader.readAsDataURL(file);
+    });
+}
+
+function setDocStatus(root, uploaded) {
+    const status = root?.querySelector('[data-reg-doc-status]');
+    if (!(status instanceof HTMLElement)) {
+        return;
+    }
+    if (uploaded) {
+        status.className =
+            'inline-flex items-center gap-1.5 rounded-full bg-emerald-600/15 px-2.5 py-1 text-xs font-bold text-emerald-800';
+        status.innerHTML =
+            '<svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg> Uploaded';
+    } else {
+        status.className = 'text-xs font-medium text-brand-text-secondary';
+        status.textContent = 'No file yet';
+    }
+}
+
+function setDocCardRemoved(root, removed) {
+    const card = root?.closest('[data-reg-id-doc-card]');
+    if (!(card instanceof HTMLElement)) {
+        return;
+    }
+    card.classList.toggle('border-emerald-200/90', !removed);
+    card.classList.toggle('bg-emerald-50/40', !removed);
+    card.classList.toggle('border-brand-border', removed);
+    card.classList.toggle('bg-brand-surface/40', removed);
+}
+
+function clearDocPreview(root) {
+    const wrap = root?.querySelector('[data-reg-doc-preview-wrap]');
+    if (!(wrap instanceof HTMLElement)) {
+        return;
+    }
+    wrap.innerHTML =
+        '<p class="px-3 py-6 text-center text-xs text-brand-text-secondary" data-reg-doc-preview-empty>No file — save the form to apply removal.</p>';
+}
+
+function handleDocRemove(root) {
+    const input = root.querySelector('[data-reg-doc-input]');
+    const removeBtn = root.querySelector('[data-reg-doc-remove]');
+    const removeFlag = root.querySelector('[data-reg-doc-remove-flag]');
+    const filenameEl = root.querySelector('[data-reg-doc-filename]');
+    const replaceLabel = root.querySelector('[data-reg-doc-replace]');
+
+    if (removeFlag instanceof HTMLInputElement) {
+        removeFlag.value = '1';
+    }
+    if (input instanceof HTMLInputElement) {
+        input.value = '';
+    }
+    if (filenameEl instanceof HTMLElement) {
+        filenameEl.textContent = 'Marked for removal — save the form to apply.';
+        filenameEl.hidden = false;
+    }
+    clearDocPreview(root);
+    setDocStatus(root, false);
+    setDocCardRemoved(root, true);
+    removeBtn?.classList.add('hidden');
+    if (replaceLabel instanceof HTMLElement) {
+        replaceLabel.textContent = 'Upload file';
+    }
+}
+
+function initRegDocRoot(root) {
+    const input = root.querySelector('[data-reg-doc-input]');
+    if (!(input instanceof HTMLInputElement)) {
+        return;
+    }
+
+    input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) {
+            return;
+        }
+        const removeFlag = root.querySelector('[data-reg-doc-remove-flag]');
+        const filenameEl = root.querySelector('[data-reg-doc-filename]');
+        const removeBtn = root.querySelector('[data-reg-doc-remove]');
+        const replaceLabel = root.querySelector('[data-reg-doc-replace]');
+
+        if (removeFlag instanceof HTMLInputElement) {
+            removeFlag.value = '0';
+        }
+        setDocCardRemoved(root, false);
+        removeBtn?.classList.remove('hidden');
+        if (replaceLabel instanceof HTMLElement) {
+            replaceLabel.textContent = 'Replace file';
+        }
+        if (filenameEl instanceof HTMLElement) {
+            filenameEl.textContent = `Selected: ${file.name}`;
+            filenameEl.hidden = false;
+        }
+        if (!file.type.startsWith('image/')) {
+            return;
+        }
+        const wrap = root.querySelector('[data-reg-doc-preview-wrap]');
+        if (!(wrap instanceof HTMLElement)) {
+            return;
+        }
+        wrap.innerHTML = '<img src="" alt="Selected file preview" class="max-h-72 w-full object-contain" data-reg-doc-preview />';
+        const preview = root.querySelector('[data-reg-doc-preview]');
+        if (!(preview instanceof HTMLImageElement)) {
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                preview.src = reader.result;
+                preview.classList.remove('hidden');
+            }
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function initRegDocRemovals() {
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const removeBtn = target.closest('[data-reg-doc-remove]');
+        if (!(removeBtn instanceof HTMLButtonElement)) {
+            return;
+        }
+        event.preventDefault();
+        const root = removeBtn.closest('[data-reg-doc-root]');
+        if (!(root instanceof HTMLElement)) {
+            return;
+        }
+        handleDocRemove(root);
     });
 }
 
@@ -246,36 +427,6 @@ function initRegBankAccount(input) {
         if (input.value === masked) {
             input.value = '';
         }
-    });
-}
-
-function initRegDocInput(input) {
-    input.addEventListener('change', () => {
-        const file = input.files?.[0];
-        if (!file) {
-            return;
-        }
-        const card = input.closest('[data-reg-id-doc-card]');
-        const filenameEl = card?.querySelector('[data-reg-doc-filename]');
-        if (filenameEl) {
-            filenameEl.textContent = `Selected: ${file.name}`;
-            filenameEl.hidden = false;
-        }
-        if (!file.type.startsWith('image/')) {
-            return;
-        }
-        const preview = card?.querySelector('[data-reg-doc-preview]');
-        if (!(preview instanceof HTMLImageElement)) {
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result === 'string') {
-                preview.src = reader.result;
-                preview.classList.remove('hidden');
-            }
-        };
-        reader.readAsDataURL(file);
     });
 }
 
@@ -411,6 +562,8 @@ function initTransportVehicle(select) {
 }
 
 function bootRegistrationAdminProfile() {
+    initRegDocRemovals();
+    initRegPhotoRemovals();
     document.querySelectorAll('[data-reg-addr-root]').forEach((root) => {
         if (root instanceof HTMLElement) {
             initRegAddressRoot(root);
@@ -426,9 +579,9 @@ function bootRegistrationAdminProfile() {
             initRegBankAccount(el);
         }
     });
-    document.querySelectorAll('[data-reg-doc-input]').forEach((el) => {
-        if (el instanceof HTMLInputElement) {
-            initRegDocInput(el);
+    document.querySelectorAll('[data-reg-doc-root]').forEach((root) => {
+        if (root instanceof HTMLElement) {
+            initRegDocRoot(root);
         }
     });
     const unrestrictedSelect = document.querySelector('[data-reg-unrestricted-work-rights]');

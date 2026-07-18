@@ -4,10 +4,6 @@
 
 @section('heading', 'Tenant organizations')
 
-@section('subheading')
-    High-level overview of registered organizations.
-@endsection
-
 @section('content')
     @php
         /** @var \Illuminate\Support\Collection<int, array> $organizations */
