@@ -24,32 +24,28 @@
     $existingRows = collect(old('assignment_shifts'))
         ->map(static fn (array $row): array => [
             'shift_id' => (string) ($row['shift_id'] ?? ''),
-            'unpaid_break_minutes' => (string) ($row['unpaid_break_minutes'] ?? ''),
         ])
-        ->filter(static fn (array $row): bool => $row['shift_id'] !== '' || $row['unpaid_break_minutes'] !== '')
+        ->filter(static fn (array $row): bool => $row['shift_id'] !== '')
         ->values();
 
     if ($existingRows->isEmpty()) {
         if ($employee->assignmentShifts->isNotEmpty()) {
             $existingRows = $employee->assignmentShifts->map(static fn ($row): array => [
                 'shift_id' => (string) $row->shift_id,
-                'unpaid_break_minutes' => (string) $row->unpaid_break_minutes,
             ]);
         } elseif ($employee->shift_id) {
             $existingRows = collect([[
                 'shift_id' => (string) $employee->shift_id,
-                'unpaid_break_minutes' => '0',
             ]]);
         }
     }
 
     if ($existingRows->isEmpty()) {
-        $existingRows = collect([['shift_id' => '', 'unpaid_break_minutes' => '']]);
+        $existingRows = collect([['shift_id' => '']]);
     }
 
     $selectClass = $selectClass ?? 'mt-1.5 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25';
-    $inputClass = $inputClass ?? $selectClass;
-    $rowGridClass = $rowGridClass ?? 'grid gap-3 sm:grid-cols-[minmax(0,1fr)_140px_auto] sm:items-end';
+    $rowGridClass = $rowGridClass ?? 'grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end';
 @endphp
 
 <div class="{{ $wrapperClass ?? 'lg:col-span-4' }}" data-assignment-shifts-root>
@@ -68,19 +64,6 @@
                             <option value="{{ $sh->id }}" @selected((string) $row['shift_id'] === (string) $sh->id)>{{ $sh->name }} ({{ $shiftTimes($sh) }}, {{ $shiftDays($sh) }})</option>
                         @endforeach
                     </select>
-                </div>
-                <div>
-                    <label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Unpaid break (min, optional)</label>
-                    <input
-                        type="number"
-                        name="assignment_shifts[{{ $index }}][unpaid_break_minutes]"
-                        min="0"
-                        max="480"
-                        step="1"
-                        value="{{ $row['unpaid_break_minutes'] }}"
-                        class="{{ $inputClass }}"
-                        placeholder="e.g. 30"
-                    />
                 </div>
                 <div class="flex justify-end sm:pb-0.5">
                     <button type="button" data-assignment-shift-remove class="rounded-lg border border-brand-border bg-white px-3 py-2 text-xs font-semibold text-brand-text-secondary shadow-sm hover:bg-red-50 hover:text-red-700">
@@ -106,18 +89,6 @@
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Unpaid break (min, optional)</label>
-                <input
-                    type="number"
-                    data-field="unpaid_break_minutes"
-                    min="0"
-                    max="480"
-                    step="1"
-                    class="{{ $inputClass }}"
-                    placeholder="e.g. 30"
-                />
-            </div>
             <div class="flex justify-end sm:pb-0.5">
                 <button type="button" data-assignment-shift-remove class="rounded-lg border border-brand-border bg-white px-3 py-2 text-xs font-semibold text-brand-text-secondary shadow-sm hover:bg-red-50 hover:text-red-700">
                     Remove
@@ -134,14 +105,9 @@
                 function reindexRows(list) {
                     list.querySelectorAll('[data-assignment-shift-row]').forEach((row, index) => {
                         const shiftSelect = row.querySelector('[name*="[shift_id]"], [data-field="shift_id"]');
-                        const breakInput = row.querySelector('[name*="[unpaid_break_minutes]"], [data-field="unpaid_break_minutes"]');
                         if (shiftSelect) {
                             shiftSelect.name = 'assignment_shifts[' + index + '][shift_id]';
                             shiftSelect.removeAttribute('data-field');
-                        }
-                        if (breakInput) {
-                            breakInput.name = 'assignment_shifts[' + index + '][unpaid_break_minutes]';
-                            breakInput.removeAttribute('data-field');
                         }
                     });
                 }

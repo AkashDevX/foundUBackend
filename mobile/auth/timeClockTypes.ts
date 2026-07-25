@@ -2,7 +2,7 @@ import type { WorkAssignment } from './types';
 
 export type TimeClockEntryPayload = {
   id: number;
-  event_type: 'clock_in' | 'clock_out';
+  event_type: 'clock_in' | 'break_start' | 'break_end' | 'clock_out';
   clocked_at: string | null;
   device_latitude: number | null;
   device_longitude: number | null;
@@ -19,16 +19,32 @@ export type TimeClockEntryPayload = {
   comment?: string | null;
 };
 
+export type TimeClockBreakPayload = {
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  is_open: boolean;
+};
+
 export type TimeClockStatus = {
   is_clocked_in: boolean;
+  is_on_break: boolean;
   can_clock_in: boolean;
   can_clock_out: boolean;
+  can_break_in: boolean;
+  can_break_out: boolean;
   geofence_radius_meters: number;
   open_session: {
     entry_id: number;
     clocked_in_at: string | null;
     work_location_id: number | null;
     within_geofence: boolean;
+    geofence_latitude?: number | null;
+    geofence_longitude?: number | null;
+    allowed_radius_meters?: number | null;
+    break_started_at?: string | null;
+    breaks?: TimeClockBreakPayload[];
+    total_break_seconds?: number;
   } | null;
   last_event: TimeClockEntryPayload | null;
   assignment_ready: boolean;
@@ -37,6 +53,12 @@ export type TimeClockStatus = {
     | 'work_location_missing_coordinates'
     | null;
   shift_issue?: 'no_scheduled_shift_today' | null;
+  scheduled_shift: {
+    start_time: string;
+    end_time: string;
+    start_label: string;
+    end_label: string;
+  } | null;
   work_assignment: WorkAssignment | null;
 };
 
@@ -57,6 +79,8 @@ export type TimeClockErrorBody = {
     | 'work_location_missing_coordinates'
     | 'already_clocked_in'
     | 'not_clocked_in'
+    | 'already_on_break'
+    | 'not_on_break'
     | 'outside_geofence'
     | 'still_within_geofence'
     | 'no_scheduled_shift_today'

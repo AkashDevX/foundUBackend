@@ -153,4 +153,280 @@ class PayrollCalculatorTest extends TestCase
         $this->assertNotNull($phLine);
         $this->assertSame(2.0, $phLine['hours']);
     }
+
+    public function test_paid_breaks_are_kept_and_excess_is_unpaid_in_payrun(): void
+    {
+        $employee = new Employee([
+            'employment_type' => 'casual',
+            'award_level' => 'level_1',
+        ]);
+
+        $tz = 'Australia/Sydney';
+        $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Day',
+            'breaks' => [
+                ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]);
+        $shift->id = 3;
+
+        $clockIn = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => $monday->copy()->timezone('UTC'),
+            'shift_id' => 3,
+        ]);
+        $clockIn->setRelation('shift', $shift);
+
+        $entries = new Collection([
+            $clockIn,
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $monday->copy()->addHours(2)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                // 60m break: 15 paid kept, 30 unpaid + 15 excess deducted
+                'clocked_at' => $monday->copy()->addHours(3)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+                'clocked_at' => $monday->copy()->addHours(8)->timezone('UTC'),
+            ]),
+        ]);
+
+        $rates = [
+            PayrollRateTypes::WEEKDAY_ORDINARY => 26.70,
+            PayrollRateTypes::WEEKDAY_PENALTY => 30.71,
+            PayrollRateTypes::SATURDAY => 40.05,
+            PayrollRateTypes::SUNDAY => 53.40,
+            PayrollRateTypes::PUBLIC_HOLIDAY => 66.75,
+            PayrollRateTypes::OVERTIME_MON_SAT_FIRST_2H => 40.05,
+            PayrollRateTypes::OVERTIME_MON_SAT_AFTER_2H => 53.40,
+            PayrollRateTypes::OVERTIME_SUNDAY => 53.40,
+            PayrollRateTypes::OVERTIME_PUBLIC_HOLIDAY => 66.75,
+            PayrollRateTypes::WEEKDAY_MIDNIGHT_SHIFT => 34.71,
+        ];
+
+        $result = PayrollCalculator::calculateForEmployee(
+            $employee,
+            $entries,
+            new Collection(),
+            $rates,
+            Carbon::parse('2025-07-07', $tz),
+            Carbon::parse('2025-07-20', $tz),
+        );
+
+        // 8h wall - 45m unpaid/excess = 7.25h payable
+        $this->assertSame(7.25, $result['total_hours']);
+    }
+
+    public function test_one_minute_paid_break_deducts_one_minute_excess_in_payrun(): void
+    {
+        $employee = new Employee([
+            'employment_type' => 'casual',
+            'award_level' => 'level_1',
+        ]);
+
+        $tz = 'Australia/Sydney';
+        // Same pattern as the timesheet case: 3m on site, two 1m breaks, 1m paid allocation
+        $start = Carbon::parse('2025-07-07 03:38:00', $tz);
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Short',
+            'breaks' => [
+                ['label' => 'Paid break', 'minutes' => 1, 'paid' => true],
+            ],
+        ]);
+        $shift->id = 9;
+
+        $clockIn = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => $start->copy()->timezone('UTC'),
+            'shift_id' => 9,
+        ]);
+        $clockIn->setRelation('shift', $shift);
+
+        $entries = new Collection([
+            $clockIn,
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $start->copy()->addMinute()->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'clocked_at' => $start->copy()->addMinutes(2)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $start->copy()->addMinutes(2)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'clocked_at' => $start->copy()->addMinutes(3)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+                'clocked_at' => $start->copy()->addMinutes(3)->timezone('UTC'),
+            ]),
+        ]);
+
+        $rates = [
+            PayrollRateTypes::WEEKDAY_ORDINARY => 26.70,
+            PayrollRateTypes::WEEKDAY_PENALTY => 30.71,
+            PayrollRateTypes::WEEKDAY_MIDNIGHT_SHIFT => 34.71,
+            PayrollRateTypes::SATURDAY => 40.05,
+            PayrollRateTypes::SUNDAY => 53.40,
+            PayrollRateTypes::PUBLIC_HOLIDAY => 66.75,
+            PayrollRateTypes::OVERTIME_MON_SAT_FIRST_2H => 40.05,
+            PayrollRateTypes::OVERTIME_MON_SAT_AFTER_2H => 53.40,
+            PayrollRateTypes::OVERTIME_SUNDAY => 53.40,
+            PayrollRateTypes::OVERTIME_PUBLIC_HOLIDAY => 66.75,
+        ];
+
+        $result = PayrollCalculator::calculateForEmployee(
+            $employee,
+            $entries,
+            new Collection(),
+            $rates,
+            Carbon::parse('2025-07-07', $tz),
+            Carbon::parse('2025-07-20', $tz),
+        );
+
+        // 3m wall − 1m excess unpaid = 2m = 0.03h (not 0.05h)
+        $this->assertSame(0.03, $result['total_hours']);
+    }
+
+    public function test_exact_paid_and_unpaid_allocation_matches_timesheet_payrun_hours(): void
+    {
+        $employee = new Employee([
+            'employment_type' => 'casual',
+            'award_level' => 'level_1',
+        ]);
+
+        $tz = 'Australia/Sydney';
+        $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Day',
+            'breaks' => [
+                ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]);
+        $shift->id = 4;
+
+        $clockIn = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => $monday->copy()->timezone('UTC'),
+            'shift_id' => 4,
+        ]);
+        $clockIn->setRelation('shift', $shift);
+
+        $entries = new Collection([
+            $clockIn,
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $monday->copy()->addHours(2)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'clocked_at' => $monday->copy()->addHours(2)->addMinutes(15)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $monday->copy()->addHours(4)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'clocked_at' => $monday->copy()->addHours(4)->addMinutes(30)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+                'clocked_at' => $monday->copy()->addHours(8)->timezone('UTC'),
+            ]),
+        ]);
+
+        $rates = [
+            PayrollRateTypes::WEEKDAY_ORDINARY => 26.70,
+            PayrollRateTypes::WEEKDAY_PENALTY => 30.71,
+            PayrollRateTypes::WEEKDAY_MIDNIGHT_SHIFT => 34.71,
+            PayrollRateTypes::SATURDAY => 40.05,
+            PayrollRateTypes::SUNDAY => 53.40,
+            PayrollRateTypes::PUBLIC_HOLIDAY => 66.75,
+            PayrollRateTypes::OVERTIME_MON_SAT_FIRST_2H => 40.05,
+            PayrollRateTypes::OVERTIME_MON_SAT_AFTER_2H => 53.40,
+            PayrollRateTypes::OVERTIME_SUNDAY => 53.40,
+            PayrollRateTypes::OVERTIME_PUBLIC_HOLIDAY => 66.75,
+        ];
+
+        $result = PayrollCalculator::calculateForEmployee(
+            $employee,
+            $entries,
+            new Collection(),
+            $rates,
+            Carbon::parse('2025-07-07', $tz),
+            Carbon::parse('2025-07-20', $tz),
+        );
+
+        // 8h wall − 30m unpaid (15m paid kept) = 7.50h
+        $this->assertSame(7.5, $result['total_hours']);
+    }
+
+    public function test_breaks_without_shift_allocation_are_fully_unpaid_in_payrun(): void
+    {
+        $employee = new Employee([
+            'employment_type' => 'casual',
+            'award_level' => 'level_1',
+        ]);
+
+        $tz = 'Australia/Sydney';
+        $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
+
+        $entries = new Collection([
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+                'clocked_at' => $monday->copy()->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_START,
+                'clocked_at' => $monday->copy()->addHours(2)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'clocked_at' => $monday->copy()->addHours(2)->addMinutes(30)->timezone('UTC'),
+            ]),
+            new TimeClockEntry([
+                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+                'clocked_at' => $monday->copy()->addHours(8)->timezone('UTC'),
+            ]),
+        ]);
+
+        $rates = [
+            PayrollRateTypes::WEEKDAY_ORDINARY => 26.70,
+            PayrollRateTypes::WEEKDAY_PENALTY => 30.71,
+            PayrollRateTypes::WEEKDAY_MIDNIGHT_SHIFT => 34.71,
+            PayrollRateTypes::SATURDAY => 40.05,
+            PayrollRateTypes::SUNDAY => 53.40,
+            PayrollRateTypes::PUBLIC_HOLIDAY => 66.75,
+            PayrollRateTypes::OVERTIME_MON_SAT_FIRST_2H => 40.05,
+            PayrollRateTypes::OVERTIME_MON_SAT_AFTER_2H => 53.40,
+            PayrollRateTypes::OVERTIME_SUNDAY => 53.40,
+            PayrollRateTypes::OVERTIME_PUBLIC_HOLIDAY => 66.75,
+        ];
+
+        $result = PayrollCalculator::calculateForEmployee(
+            $employee,
+            $entries,
+            new Collection(),
+            $rates,
+            Carbon::parse('2025-07-07', $tz),
+            Carbon::parse('2025-07-20', $tz),
+        );
+
+        // No paid allocation → full 30m break deducted → 7.50h
+        $this->assertSame(7.5, $result['total_hours']);
+    }
 }

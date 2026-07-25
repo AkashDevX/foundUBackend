@@ -564,9 +564,13 @@
                         </div>
                     </div>
                     <div class="{{ $row }}">
-                        <label for="shift-breaks" class="{{ $lbl }}">Breaks</label>
-                        <div>
-                            <input id="shift-breaks" name="shift_breaks_summary" maxlength="255" value="{{ old('shift_breaks_summary') }}" class="{{ $in }}" placeholder="Optional, e.g. 30m unpaid lunch" />
+                        <div class="sm:col-span-1">
+                            @include('admin.partials.shift-breaks-fields', [
+                                'breaks' => old('shift_breaks', [['label' => '', 'minutes' => '', 'paid' => false]]),
+                                'lbl' => $lbl,
+                                'in' => $in,
+                                'fieldId' => 'shift-breaks-create',
+                            ])
                         </div>
                     </div>
                     <div class="{{ $row }}">
@@ -616,7 +620,23 @@
                                         <p class="mt-1.5 text-[11px] font-medium text-brand-text-secondary">Applies every day</p>
                                     @endif
                                 </div>
-                                @if ($sh->breaks_summary)
+                                @php
+                                    $structuredBreaks = \App\Support\ShiftBreaks::normalize($sh->breaks ?? null);
+                                @endphp
+                                @if ($structuredBreaks !== [])
+                                    <div class="mt-3">
+                                        <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Breaks</p>
+                                        <div class="flex flex-wrap gap-1.5">
+                                            @foreach ($structuredBreaks as $break)
+                                                <span class="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-semibold ring-1 {{ ! empty($break['paid']) ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-amber-50 text-amber-900 ring-amber-200' }}">
+                                                    <span class="tabular-nums">{{ $break['minutes'] }}m</span>
+                                                    <span class="opacity-70">{{ ! empty($break['paid']) ? 'Paid' : 'Unpaid' }}</span>
+                                                    <span>{{ $break['label'] }}</span>
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @elseif ($sh->breaks_summary)
                                     <p class="mt-3 flex items-start gap-2 rounded-lg bg-white/60 px-2.5 py-2 text-xs leading-relaxed text-brand-text-secondary ring-1 ring-brand-border/50">
                                         <span class="mt-0.5 shrink-0 text-brand-primary" aria-hidden="true">
                                             <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -662,11 +682,12 @@
                                         @endforeach
                                     </div>
                                 </div>
-                                <div class="grid gap-3 sm:grid-cols-2">
-                                    <div>
-                                        <label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Breaks</label>
-                                        <input name="shift_breaks_summary" maxlength="255" value="{{ old('shift_breaks_summary', $sh->breaks_summary) }}" class="{{ $in }}" />
-                                    </div>
+                                <div class="space-y-3">
+                                    @include('admin.partials.shift-breaks-fields', [
+                                        'breaks' => old('shift_breaks', \App\Support\ShiftBreaks::normalize($sh->breaks ?? null)),
+                                        'in' => $in,
+                                        'fieldId' => 'shift-breaks-'.$sh->id,
+                                    ])
                                     <div>
                                         <label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Notes</label>
                                         <input name="shift_notes" maxlength="2000" value="{{ old('shift_notes', $sh->notes) }}" class="{{ $in }}" />

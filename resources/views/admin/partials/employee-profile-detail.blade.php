@@ -180,10 +180,55 @@
     </div>
 @endif
 
+@if (($e->employment_status ?? '') === 'inactive')
+    <div class="mb-6 rounded-2xl border border-slate-300/80 bg-gradient-to-br from-slate-50 to-white p-5 shadow-sm ring-1 ring-slate-200/60">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-base font-bold text-brand-text">This employee is inactive</h2>
+                <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-text-secondary">
+                    They cannot sign in to the mobile app and are hidden from payroll, weekly schedules, shift assignments, tasks, and time clock lists.
+                </p>
+            </div>
+            <form
+                method="post"
+                action="{{ route('admin.registrations.reactivate', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}"
+                class="inline shrink-0"
+                data-confirm="This person will appear in payroll, schedules, and assignments again, and can sign in to the mobile app."
+                data-confirm-title="Reactivate employee?"
+                data-confirm-confirm="Reactivate"
+                data-confirm-cancel="Keep inactive"
+                data-confirm-icon="question"
+            >
+                @csrf
+                <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/25 transition hover:bg-emerald-700">
+                    Reactivate
+                </button>
+            </form>
+        </div>
+    </div>
+@endif
+
 <div class="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Employment status</p>
         <p class="mt-2 text-lg font-semibold text-brand-text">{{ $line($e->employment_status) }}</p>
+        @if (($e->employment_status ?? '') === 'active')
+            <form
+                method="post"
+                action="{{ route('admin.registrations.mark-inactive', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}"
+                class="mt-4"
+                data-confirm="They will lose mobile app access and will be hidden from payroll, schedules, assignments, and related org lists. You can reactivate them later from this profile."
+                data-confirm-title="Mark employee inactive?"
+                data-confirm-confirm="Mark inactive"
+                data-confirm-cancel="Cancel"
+                data-confirm-icon="warning"
+            >
+                @csrf
+                <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-700 transition hover:border-slate-400 hover:bg-slate-100">
+                    Mark inactive
+                </button>
+            </form>
+        @endif
     </div>
     <div class="rounded-xl border border-brand-border bg-white p-5 shadow-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Email</p>

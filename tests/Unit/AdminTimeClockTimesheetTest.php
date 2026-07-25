@@ -82,7 +82,9 @@ class AdminTimeClockTimesheetTest extends TestCase
         $this->assertSame('No', $row['auto_clock_out']);
         $this->assertSame(TimesheetApproval::STATUS_PENDING, $row['status']);
         $this->assertSame('2026-06-29', $row['work_date']);
+        // 8h05m worked vs 8h scheduled → +0.083h (≈5 minutes)
         $this->assertTrue($row['difference_is_alert']);
+        $this->assertSame('0.083', $row['difference_hours']);
         $this->assertTrue($row['can_review']);
         $this->assertFalse($row['can_reset']);
         $this->assertIsArray($row['clock_in_map']);
@@ -477,9 +479,417 @@ class AdminTimeClockTimesheetTest extends TestCase
         $this->assertSame(TimesheetApproval::STATUS_PENDING, $rows[1]['status']);
     }
 
+    public function test_build_groups_shows_multiple_breaks_and_total_duration(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-break',
+            'full_legal_name' => 'Break Tester',
+            'email' => 'break@example.com',
+            'employment_type' => 'full_time',
+        ]);
+        $employee->id = 9;
+
+        $clockIn = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC'),
+        ]);
+        $clockIn->id = 91;
+
+        $break1Start = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 10:00:00', 'UTC'),
+        ]);
+        $break1Start->id = 92;
+
+        $break1End = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 10:15:00', 'UTC'),
+        ]);
+        $break1End->id = 93;
+
+        $break2Start = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 12:00:00', 'UTC'),
+        ]);
+        $break2Start->id = 94;
+
+        $break2End = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 12:30:00', 'UTC'),
+        ]);
+        $break2End->id = 95;
+
+        $clockOut = new TimeClockEntry([
+            'employee_id' => 9,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 17:00:00', 'UTC'),
+            'punch_source' => TimeClockEntry::PUNCH_SOURCE_MANUAL,
+        ]);
+        $clockOut->id = 96;
+
+        $employee->setRelation('timeClockEntries', new Collection([
+            $clockIn,
+            $break1Start,
+            $break1End,
+            $break2Start,
+            $break2End,
+            $clockOut,
+        ]));
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection(),
+            new Collection(),
+            null
+        );
+
+        $row = $result['groups'][0]['rows'][0];
+        $this->assertSame("10:00 AM\n12:00 PM", $row['break_start']);
+        $this->assertSame("10:15 AM\n12:30 PM", $row['break_end']);
+        // 15m + 30m = 0.75 hours
+        $this->assertSame('0.75', $row['break_duration_hours']);
+        // 8h wall - 0.75h break = 7.25h worked (no paid allowance without shift template)
+        $this->assertSame('7.25', $row['worked_duration_hours']);
+        $this->assertSame('0.75', $result['groups'][0]['summary']['break_duration_hours']);
+        $this->assertIsArray($row['worked_duration_breakdown']);
+        $this->assertNotEmpty($row['worked_duration_breakdown']['lines']);
+        $this->assertCount(2, $row['break_items']);
+        $this->assertSame('Break 1', $row['break_items'][0]['label']);
+        $this->assertSame('10:00 AM', $row['break_items'][0]['start']);
+        $this->assertSame('10:15 AM', $row['break_items'][0]['end']);
+        $this->assertSame('0.25', $row['break_items'][0]['duration_hours']);
+        $this->assertSame('Break 2', $row['break_items'][1]['label']);
+        $this->assertSame('12:00 PM', $row['break_items'][1]['start']);
+        $this->assertSame('12:30 PM', $row['break_items'][1]['end']);
+        $this->assertSame('0.50', $row['break_items'][1]['duration_hours']);
+        $this->assertSame('2 breaks', $row['break_type']);
+    }
+
+    public function test_build_groups_keeps_paid_break_in_shift_duration(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-paid-break',
+            'full_legal_name' => 'Paid Break Tester',
+            'email' => 'paid-break@example.com',
+            'employment_type' => 'full_time',
+        ]);
+        $employee->id = 11;
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Day',
+            'breaks' => [
+                ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]);
+        $shift->id = 7;
+
+        $scheduleShift = new EmployeeScheduleShift([
+            'employee_id' => 11,
+            'scheduled_date' => '2026-06-29',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+            'shift_id' => 7,
+        ]);
+        $scheduleShift->id = 70;
+        $scheduleShift->setRelation('shiftTemplate', $shift);
+
+        $clockIn = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC'),
+            'shift_id' => 7,
+        ]);
+        $clockIn->id = 110;
+        $clockIn->setRelation('shift', $shift);
+
+        $break1Start = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 10:00:00', 'UTC'),
+        ]);
+        $break1Start->id = 111;
+        $break1End = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 10:15:00', 'UTC'),
+        ]);
+        $break1End->id = 112;
+
+        $break2Start = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 12:00:00', 'UTC'),
+        ]);
+        $break2Start->id = 113;
+        $break2End = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 12:45:00', 'UTC'),
+        ]);
+        $break2End->id = 114;
+
+        $clockOut = new TimeClockEntry([
+            'employee_id' => 11,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 17:00:00', 'UTC'),
+            'punch_source' => TimeClockEntry::PUNCH_SOURCE_MANUAL,
+        ]);
+        $clockOut->id = 115;
+
+        $employee->setRelation('timeClockEntries', new Collection([
+            $clockIn,
+            $break1Start,
+            $break1End,
+            $break2Start,
+            $break2End,
+            $clockOut,
+        ]));
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection([$scheduleShift]),
+            new Collection(),
+            null
+        );
+
+        $row = $result['groups'][0]['rows'][0];
+        // 8h wall, 60m breaks taken; keep 15m paid, deduct 30m unpaid + 15m excess = 7.25h
+        // Scheduled payable = 8h − 30m unpaid allocation = 7.50h
+        $this->assertSame('1.00', $row['break_duration_hours']);
+        $this->assertSame('7.25', $row['worked_duration_hours']);
+        $this->assertSame('7.50', $row['scheduled_duration_hours']);
+        $this->assertSame('-0.250', $row['difference_hours']);
+        $labels = array_column($row['worked_duration_breakdown']['lines'], 'label');
+        $this->assertContains('Paid break (kept)', $labels);
+        $this->assertContains('− Unpaid break', $labels);
+        $this->assertContains('− Excess (unpaid)', $labels);
+    }
+
+    public function test_one_minute_paid_break_deducts_one_minute_excess(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-1m-paid',
+            'full_legal_name' => 'One Minute Paid',
+            'email' => 'one-min@example.com',
+            'employment_type' => 'casual',
+        ]);
+        $employee->id = 13;
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Short',
+            'breaks' => [
+                ['label' => 'Paid break', 'minutes' => 1, 'paid' => true],
+            ],
+        ]);
+        $shift->id = 9;
+
+        $scheduleShift = new EmployeeScheduleShift([
+            'employee_id' => 13,
+            'scheduled_date' => '2026-06-29',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '03:00',
+            'end_time' => '09:00',
+            'shift_id' => 9,
+        ]);
+        $scheduleShift->id = 90;
+        $scheduleShift->setRelation('shiftTemplate', $shift);
+
+        // 3 minutes on site, two 1-minute breaks → 1m paid kept, 1m excess unpaid
+        $clockIn = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 03:38:00', 'UTC'),
+            'shift_id' => 9,
+        ]);
+        $clockIn->id = 130;
+        $clockIn->setRelation('shift', $shift);
+
+        $break1Start = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 03:39:00', 'UTC'),
+        ]);
+        $break1Start->id = 131;
+        $break1End = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 03:40:00', 'UTC'),
+        ]);
+        $break1End->id = 132;
+
+        $break2Start = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 03:40:00', 'UTC'),
+        ]);
+        $break2Start->id = 133;
+        $break2End = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 03:41:00', 'UTC'),
+        ]);
+        $break2End->id = 134;
+
+        $clockOut = new TimeClockEntry([
+            'employee_id' => 13,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 03:41:00', 'UTC'),
+            'punch_source' => TimeClockEntry::PUNCH_SOURCE_MANUAL,
+        ]);
+        $clockOut->id = 135;
+
+        $employee->setRelation('timeClockEntries', new Collection([
+            $clockIn,
+            $break1Start,
+            $break1End,
+            $break2Start,
+            $break2End,
+            $clockOut,
+        ]));
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection([$scheduleShift]),
+            new Collection(),
+            null
+        );
+
+        $row = $result['groups'][0]['rows'][0];
+        // 3m wall − 1m excess = 2m payable (0.033h), not 0.05h
+        $this->assertSame('0.033', $row['worked_duration_hours']);
+        $lastLine = $row['worked_duration_breakdown']['lines'][array_key_last($row['worked_duration_breakdown']['lines'])];
+        $this->assertSame('2m (0.033h)', $lastLine['value']);
+        $this->assertContains('− Excess (unpaid)', array_column($row['worked_duration_breakdown']['lines'], 'label'));
+    }
+
+    public function test_exact_paid_and_unpaid_breaks_match_scheduled_payable_duration(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-exact-break',
+            'full_legal_name' => 'Exact Break Tester',
+            'email' => 'exact-break@example.com',
+            'employment_type' => 'full_time',
+        ]);
+        $employee->id = 12;
+
+        $shift = new \App\Models\Shift([
+            'name' => 'Day',
+            'breaks' => [
+                ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]);
+        $shift->id = 8;
+
+        $scheduleShift = new EmployeeScheduleShift([
+            'employee_id' => 12,
+            'scheduled_date' => '2026-06-29',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+            'shift_id' => 8,
+        ]);
+        $scheduleShift->id = 80;
+        $scheduleShift->setRelation('shiftTemplate', $shift);
+
+        $clockIn = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC'),
+            'shift_id' => 8,
+        ]);
+        $clockIn->id = 120;
+        $clockIn->setRelation('shift', $shift);
+
+        $break1Start = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 10:00:00', 'UTC'),
+        ]);
+        $break1Start->id = 121;
+        $break1End = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 10:15:00', 'UTC'),
+        ]);
+        $break1End->id = 122;
+
+        $break2Start = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => Carbon::parse('2026-06-29 12:00:00', 'UTC'),
+        ]);
+        $break2Start->id = 123;
+        $break2End = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => Carbon::parse('2026-06-29 12:30:00', 'UTC'),
+        ]);
+        $break2End->id = 124;
+
+        $clockOut = new TimeClockEntry([
+            'employee_id' => 12,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 17:00:00', 'UTC'),
+            'punch_source' => TimeClockEntry::PUNCH_SOURCE_MANUAL,
+        ]);
+        $clockOut->id = 125;
+
+        $employee->setRelation('timeClockEntries', new Collection([
+            $clockIn,
+            $break1Start,
+            $break1End,
+            $break2Start,
+            $break2End,
+            $clockOut,
+        ]));
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection([$scheduleShift]),
+            new Collection(),
+            null
+        );
+
+        $row = $result['groups'][0]['rows'][0];
+        // Perfect attendance: 8h wall, 45m breaks (15 paid + 30 unpaid) → both sides 7.50h
+        $this->assertSame('7.50', $row['worked_duration_hours']);
+        $this->assertSame('7.50', $row['scheduled_duration_hours']);
+        $this->assertSame('0.00', $row['difference_hours']);
+        $this->assertFalse($row['difference_is_alert']);
+    }
+
     public function test_format_decimal_hours(): void
     {
         $this->assertSame('7.50', AdminTimeClockTimesheet::formatDecimalHours(7 * 3600 + 30 * 60));
         $this->assertSame('0.00', AdminTimeClockTimesheet::formatDecimalHours(0));
+        $this->assertSame('-0.500', AdminTimeClockTimesheet::formatSignedDecimalHours(-30 * 60));
+        $this->assertSame('0.250', AdminTimeClockTimesheet::formatSignedDecimalHours(15 * 60));
+        $this->assertSame('0.033', AdminTimeClockTimesheet::formatTimesheetHours(2 * 60));
+        $this->assertSame('2m', AdminTimeClockTimesheet::formatMinutesSeconds(120));
+        $this->assertSame('1m 20s', AdminTimeClockTimesheet::formatMinutesSeconds(80));
     }
 }

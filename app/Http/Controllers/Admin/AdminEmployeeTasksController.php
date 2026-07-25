@@ -33,6 +33,12 @@ class AdminEmployeeTasksController extends Controller
         /** @var Employee $employee */
         $employee = Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
 
+        if (($employee->employment_status ?? '') !== 'active') {
+            throw ValidationException::withMessages([
+                'employee_public_id' => 'Tasks can only be assigned to active employees.',
+            ]);
+        }
+
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
 
@@ -79,6 +85,12 @@ class AdminEmployeeTasksController extends Controller
 
         /** @var Employee $employee */
         $employee = Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
+
+        if (($employee->employment_status ?? '') !== 'active') {
+            throw ValidationException::withMessages([
+                'employee_public_id' => 'Tasks can only be assigned to active employees.',
+            ]);
+        }
 
         $title = trim((string) $data['title']);
         if ($title === '') {

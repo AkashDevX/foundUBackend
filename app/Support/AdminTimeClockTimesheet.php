@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Employee;
 use App\Models\EmployeeScheduleShift;
+use App\Models\Shift;
 use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
 use App\Support\PayrollRateTypes;
@@ -251,6 +252,51 @@ final class AdminTimeClockTimesheet
         return number_format(max(0, $seconds) / 3600, 2, '.', '');
     }
 
+    /**
+     * Prefer 3dp under 1h so small unpaid/excess break deductions stay visible
+     * (e.g. 180s and 162s must not both round to 0.05).
+     */
+    public static function formatTimesheetHours(int $seconds): string
+    {
+        $hours = $seconds / 3600;
+        $decimals = abs($hours) > 0 && abs($hours) < 1 ? 3 : 2;
+
+        if ($seconds < 0) {
+            return '-'.number_format(abs($hours), $decimals, '.', '');
+        }
+
+        return number_format(max(0, $hours), $decimals, '.', '');
+    }
+
+    /**
+     * Compact minute/second label for calculation breakdowns.
+     */
+    public static function formatMinutesSeconds(int $seconds): string
+    {
+        $negative = $seconds < 0;
+        $seconds = abs($seconds);
+        $minutes = intdiv($seconds, 60);
+        $remain = $seconds % 60;
+
+        if ($minutes > 0 && $remain > 0) {
+            $label = sprintf('%dm %02ds', $minutes, $remain);
+        } elseif ($minutes > 0) {
+            $label = sprintf('%dm', $minutes);
+        } else {
+            $label = sprintf('%ds', $remain);
+        }
+
+        return $negative ? '-'.$label : $label;
+    }
+
+    /**
+     * Format hour totals that may be negative (e.g. timesheet difference).
+     */
+    public static function formatSignedDecimalHours(int $seconds): string
+    {
+        return self::formatTimesheetHours($seconds);
+    }
+
     public static function formatDecimalHoursFromFloat(float $hours): string
     {
         return number_format($hours, 2, '.', '');
@@ -271,7 +317,10 @@ final class AdminTimeClockTimesheet
      * @return list<array{
      *     clock_in: TimeClockEntry,
      *     clock_out: TimeClockEntry|null,
+     *     wall_seconds: int,
      *     seconds: int,
+     *     break_seconds: int,
+     *     breaks: list<array{start: TimeClockEntry, end: TimeClockEntry|null}>,
      *     is_open: bool,
      *     date: string,
      * }>
@@ -287,38 +336,120 @@ final class AdminTimeClockTimesheet
 
         $sessions = [];
         $openClockIn = null;
+        /** @var list<array{start: TimeClockEntry, end: TimeClockEntry|null}> $openBreaks */
+        $openBreaks = [];
+        $openBreakStart = null;
         $tz = DisplayTimezone::name();
+
+        $flushOpenSession = static function () use (&$sessions, &$openClockIn, &$openBreaks, &$openBreakStart, $tz): void {
+            if (! $openClockIn instanceof TimeClockEntry || $openClockIn->clocked_at === null) {
+                $openClockIn = null;
+                $openBreaks = [];
+                $openBreakStart = null;
+
+                return;
+            }
+
+            if ($openBreakStart instanceof TimeClockEntry) {
+                $openBreaks[] = ['start' => $openBreakStart, 'end' => null];
+                $openBreakStart = null;
+            }
+
+            $breakSeconds = 0;
+            foreach ($openBreaks as $break) {
+                $startAt = $break['start']->clocked_at;
+                $endAt = $break['end']?->clocked_at ?? now('UTC');
+                if ($startAt !== null && $endAt !== null) {
+                    $breakSeconds += (int) $startAt->diffInSeconds($endAt);
+                }
+            }
+
+            $wallSeconds = (int) $openClockIn->clocked_at->diffInSeconds(now('UTC'));
+            $sessions[] = [
+                'clock_in' => $openClockIn,
+                'clock_out' => null,
+                'wall_seconds' => max(0, $wallSeconds),
+                // Fallback treats all break time as unpaid until buildRow applies paid allowances.
+                'seconds' => max(0, $wallSeconds - $breakSeconds),
+                'break_seconds' => $breakSeconds,
+                'breaks' => $openBreaks,
+                'is_open' => true,
+                'date' => $openClockIn->clocked_at->copy()->timezone($tz)->toDateString(),
+            ];
+
+            $openClockIn = null;
+            $openBreaks = [];
+        };
 
         foreach ($sorted as $entry) {
             if ($entry->event_type === TimeClockEntry::EVENT_CLOCK_IN) {
+                if ($openClockIn instanceof TimeClockEntry) {
+                    $flushOpenSession();
+                }
                 $openClockIn = $entry;
+                $openBreaks = [];
+                $openBreakStart = null;
 
                 continue;
             }
 
-            if ($entry->event_type !== TimeClockEntry::EVENT_CLOCK_OUT || $openClockIn === null) {
+            if ($openClockIn === null) {
                 continue;
             }
 
-            $seconds = (int) $openClockIn->clocked_at?->diffInSeconds($entry->clocked_at);
+            if ($entry->event_type === TimeClockEntry::EVENT_BREAK_START) {
+                if ($openBreakStart === null) {
+                    $openBreakStart = $entry;
+                }
+
+                continue;
+            }
+
+            if ($entry->event_type === TimeClockEntry::EVENT_BREAK_END) {
+                if ($openBreakStart instanceof TimeClockEntry) {
+                    $openBreaks[] = ['start' => $openBreakStart, 'end' => $entry];
+                    $openBreakStart = null;
+                }
+
+                continue;
+            }
+
+            if ($entry->event_type !== TimeClockEntry::EVENT_CLOCK_OUT) {
+                continue;
+            }
+
+            if ($openBreakStart instanceof TimeClockEntry) {
+                $openBreaks[] = ['start' => $openBreakStart, 'end' => $entry];
+                $openBreakStart = null;
+            }
+
+            $breakSeconds = 0;
+            foreach ($openBreaks as $break) {
+                $startAt = $break['start']->clocked_at;
+                $endAt = $break['end']?->clocked_at;
+                if ($startAt !== null && $endAt !== null) {
+                    $breakSeconds += (int) $startAt->diffInSeconds($endAt);
+                }
+            }
+
+            $wallSeconds = (int) $openClockIn->clocked_at?->diffInSeconds($entry->clocked_at);
             $sessions[] = [
                 'clock_in' => $openClockIn,
                 'clock_out' => $entry,
-                'seconds' => $seconds,
+                'wall_seconds' => max(0, $wallSeconds),
+                'seconds' => max(0, $wallSeconds - $breakSeconds),
+                'break_seconds' => $breakSeconds,
+                'breaks' => $openBreaks,
                 'is_open' => false,
                 'date' => $openClockIn->clocked_at?->copy()->timezone($tz)->toDateString() ?? '',
             ];
             $openClockIn = null;
+            $openBreaks = [];
+            $openBreakStart = null;
         }
 
-        if ($openClockIn instanceof TimeClockEntry && $openClockIn->clocked_at !== null) {
-            $sessions[] = [
-                'clock_in' => $openClockIn,
-                'clock_out' => null,
-                'seconds' => (int) $openClockIn->clocked_at->diffInSeconds(now('UTC')),
-                'is_open' => true,
-                'date' => $openClockIn->clocked_at->copy()->timezone($tz)->toDateString(),
-            ];
+        if ($openClockIn instanceof TimeClockEntry) {
+            $flushOpenSession();
         }
 
         return $sessions;
@@ -427,8 +558,20 @@ final class AdminTimeClockTimesheet
         ?string $reviewNotes = null,
     ): array {
         $tz = DisplayTimezone::name();
-        $scheduledSeconds = $scheduleShift !== null ? self::scheduleShiftDurationSeconds($scheduleShift) : 0;
-        $workedSeconds = (int) ($session['seconds'] ?? 0);
+        $allocatedBreaks = self::resolveAllocatedBreaks($scheduleShift, $session);
+        $scheduledWallSeconds = $scheduleShift !== null ? self::scheduleShiftDurationSeconds($scheduleShift) : 0;
+        // Scheduled payable time excludes rostered unpaid breaks; paid breaks stay in the shift length.
+        $scheduledUnpaidSeconds = ShiftBreaks::unpaidMinutesTotal($allocatedBreaks) * 60;
+        $scheduledSeconds = max(0, $scheduledWallSeconds - $scheduledUnpaidSeconds);
+
+        $breakSeconds = (int) ($session['break_seconds'] ?? 0);
+        $wallSeconds = (int) ($session['wall_seconds'] ?? 0);
+        if ($wallSeconds <= 0 && $session !== null) {
+            $wallSeconds = max(0, (int) ($session['seconds'] ?? 0) + $breakSeconds);
+        }
+
+        $breakAdjustment = ShiftBreaks::breakPayAdjustment($breakSeconds, $allocatedBreaks);
+        $workedSeconds = max(0, $wallSeconds - $breakAdjustment['deducted_seconds']);
         $differenceSeconds = $workedSeconds - $scheduledSeconds;
 
         $employmentType = PayrollRateTypes::employmentTypeLabel($employee->employment_type);
@@ -436,6 +579,49 @@ final class AdminTimeClockTimesheet
 
         $clockIn = $session['clock_in'] ?? null;
         $clockOut = $session['clock_out'] ?? null;
+        $breaks = is_array($session['breaks'] ?? null) ? $session['breaks'] : [];
+
+        /** @var list<array{start: string, end: string, duration_hours: string, seconds: int, is_open: bool, label: string}> $breakItems */
+        $breakItems = [];
+        foreach ($breaks as $index => $break) {
+            $breakStart = $break['start'] ?? null;
+            $breakEnd = $break['end'] ?? null;
+            if (! $breakStart instanceof TimeClockEntry || $breakStart->clocked_at === null) {
+                continue;
+            }
+
+            $startLabel = DisplayTimezone::format($breakStart->clocked_at, 'g:i A');
+            $isOpenBreak = $breakEnd === null;
+            $endLabel = '—';
+            $itemSeconds = 0;
+
+            if ($breakEnd instanceof TimeClockEntry && $breakEnd->clocked_at !== null) {
+                $endLabel = DisplayTimezone::format($breakEnd->clocked_at, 'g:i A');
+                $itemSeconds = (int) $breakStart->clocked_at->diffInSeconds($breakEnd->clocked_at);
+            } elseif ($isOpenBreak && ($session['is_open'] ?? false)) {
+                $endLabel = 'In progress';
+                $itemSeconds = (int) $breakStart->clocked_at->diffInSeconds(now('UTC'));
+            }
+
+            $breakItems[] = [
+                'start' => $startLabel,
+                'end' => $endLabel,
+                'duration_hours' => self::formatDecimalHours($itemSeconds),
+                'seconds' => $itemSeconds,
+                'is_open' => $isOpenBreak,
+                'label' => 'Break '.($index + 1),
+            ];
+        }
+
+        $breakStartLabel = $breakItems !== []
+            ? implode("\n", array_map(static fn (array $item): string => $item['start'], $breakItems))
+            : '—';
+        $breakEndLabel = $breakItems !== []
+            ? implode("\n", array_map(static fn (array $item): string => $item['end'], $breakItems))
+            : '—';
+        $breakDurationLabel = $breakSeconds > 0 || $breakItems !== []
+            ? self::formatDecimalHours($breakSeconds)
+            : '—';
 
         $date = $workDate !== ''
             ? $workDate
@@ -466,6 +652,19 @@ final class AdminTimeClockTimesheet
             ? DisplayTimezone::format(Carbon::parse($date, $tz), 'l, M j, Y')
             : '—';
 
+        $breakTypeLabel = '—';
+        if ($breakItems !== []) {
+            $breakTypeLabel = count($breakItems) === 1 ? '1 break' : count($breakItems).' breaks';
+        } elseif ($scheduleShift !== null) {
+            $breakTypeLabel = 'Standard';
+        }
+
+        $durationBreakdown = self::buildDurationBreakdown(
+            $wallSeconds,
+            $breakAdjustment,
+            $workedSeconds,
+        );
+
         return [
             'employment_type' => $employmentType,
             'employment_type_palette' => self::positionPalette($employmentType),
@@ -477,15 +676,21 @@ final class AdminTimeClockTimesheet
             'clock_in_distance_meters' => AdminTimeClockDisplay::formatDistanceMetersInteger(
                 $clockIn instanceof TimeClockEntry ? $clockIn : null
             ),
-            'break_start' => '—',
-            'break_end' => '—',
-            'break_duration_hours' => '—',
+            'break_items' => $breakItems,
+            'break_start' => $breakStartLabel,
+            'break_end' => $breakEndLabel,
+            'break_duration_hours' => $breakDurationLabel,
             'clock_out' => $clockOutLabel,
             'clock_out_map' => AdminTimeClockDisplay::punchMapPayload($clockOut instanceof TimeClockEntry ? $clockOut : null),
-            'scheduled_duration_hours' => $scheduledSeconds > 0 ? self::formatDecimalHours($scheduledSeconds) : '—',
-            'worked_duration_hours' => $workedSeconds > 0 ? self::formatDecimalHours($workedSeconds) : '—',
-            'difference_hours' => ($scheduledSeconds > 0 || $workedSeconds > 0)
-                ? self::formatDecimalHours($differenceSeconds)
+            'scheduled_duration_hours' => $scheduledSeconds > 0 || $scheduledWallSeconds > 0
+                ? self::formatDecimalHours($scheduledSeconds)
+                : '—',
+            'worked_duration_hours' => $workedSeconds > 0 || $wallSeconds > 0
+                ? self::formatTimesheetHours($workedSeconds)
+                : '—',
+            'worked_duration_breakdown' => $durationBreakdown,
+            'difference_hours' => ($scheduledSeconds > 0 || $scheduledWallSeconds > 0 || $workedSeconds > 0 || $wallSeconds > 0)
+                ? self::formatTimesheetHours($differenceSeconds)
                 : '—',
             'difference_is_alert' => abs($differenceSeconds) >= 60,
             'date_label' => $date !== ''
@@ -498,7 +703,7 @@ final class AdminTimeClockTimesheet
             'can_reset' => in_array($status, [TimesheetApproval::STATUS_APPROVED, TimesheetApproval::STATUS_REJECTED], true),
             'work_date' => $date,
             'auto_clock_out' => $autoClockOut,
-            'break_type' => $scheduleShift !== null ? 'Standard' : '—',
+            'break_type' => $breakTypeLabel,
             'sort_date' => $date,
             'sort_time' => $scheduleShift !== null
                 ? self::storedTimeToHm($scheduleShift->start_time)
@@ -538,6 +743,111 @@ final class AdminTimeClockTimesheet
 
     /**
      * @param  array<string, mixed>|null  $session
+     * @return list<array{label: string, minutes: int, paid: bool}>
+     */
+    private static function resolveAllocatedBreaks(?EmployeeScheduleShift $scheduleShift, ?array $session): array
+    {
+        $template = $scheduleShift?->shiftTemplate;
+        if ($template instanceof Shift) {
+            return $template->normalizedBreaks();
+        }
+
+        $clockIn = $session['clock_in'] ?? null;
+        if ($clockIn instanceof TimeClockEntry) {
+            $fromPunch = $clockIn->shift;
+            if ($fromPunch instanceof Shift) {
+                return $fromPunch->normalizedBreaks();
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array{
+     *     actual_break_seconds: int,
+     *     paid_allowance_seconds: int,
+     *     unpaid_allowance_seconds: int,
+     *     total_allowance_seconds: int,
+     *     paid_kept_seconds: int,
+     *     unpaid_taken_seconds: int,
+     *     excess_seconds: int,
+     *     deducted_seconds: int,
+     * }  $breakAdjustment
+     * @return array{
+     *     lines: list<array{label: string, value: string}>,
+     *     summary: string,
+     * }
+     */
+    private static function buildDurationBreakdown(
+        int $wallSeconds,
+        array $breakAdjustment,
+        int $workedSeconds,
+    ): array {
+        $lines = [
+            [
+                'label' => 'Clock in → clock out',
+                'value' => self::formatMinutesSeconds($wallSeconds).' ('.self::formatTimesheetHours($wallSeconds).'h)',
+            ],
+        ];
+
+        if ($breakAdjustment['actual_break_seconds'] > 0) {
+            $lines[] = [
+                'label' => 'Breaks taken',
+                'value' => self::formatMinutesSeconds($breakAdjustment['actual_break_seconds']),
+            ];
+        }
+
+        if ($breakAdjustment['paid_kept_seconds'] > 0) {
+            $lines[] = [
+                'label' => 'Paid break (kept)',
+                'value' => self::formatMinutesSeconds($breakAdjustment['paid_kept_seconds']),
+            ];
+        }
+
+        if ($breakAdjustment['unpaid_taken_seconds'] > 0) {
+            $lines[] = [
+                'label' => '− Unpaid break',
+                'value' => self::formatMinutesSeconds($breakAdjustment['unpaid_taken_seconds']),
+            ];
+        }
+
+        if ($breakAdjustment['excess_seconds'] > 0) {
+            $lines[] = [
+                'label' => '− Excess (unpaid)',
+                'value' => self::formatMinutesSeconds($breakAdjustment['excess_seconds']),
+            ];
+        } elseif (
+            $breakAdjustment['deducted_seconds'] > 0
+            && $breakAdjustment['unpaid_taken_seconds'] === 0
+            && $breakAdjustment['paid_allowance_seconds'] === 0
+        ) {
+            $lines[] = [
+                'label' => '− Breaks deducted',
+                'value' => self::formatMinutesSeconds($breakAdjustment['deducted_seconds']),
+            ];
+        }
+
+        $lines[] = [
+            'label' => 'Shift duration',
+            'value' => self::formatMinutesSeconds($workedSeconds).' ('.self::formatTimesheetHours($workedSeconds).'h)',
+        ];
+
+        $summary = sprintf(
+            '%s − %s unpaid/excess = %s',
+            self::formatMinutesSeconds($wallSeconds),
+            self::formatMinutesSeconds($breakAdjustment['deducted_seconds']),
+            self::formatMinutesSeconds($workedSeconds),
+        );
+
+        return [
+            'lines' => $lines,
+            'summary' => $summary,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $session
      */
     private static function resolveLocationLabel(Employee $employee, ?EmployeeScheduleShift $scheduleShift, ?array $session): string
     {
@@ -567,6 +877,7 @@ final class AdminTimeClockTimesheet
     {
         $scheduledSeconds = 0;
         $workedSeconds = 0;
+        $breakSeconds = 0;
 
         foreach ($rows as $row) {
             if (($row['scheduled_duration_hours'] ?? '—') !== '—') {
@@ -575,16 +886,19 @@ final class AdminTimeClockTimesheet
             if (($row['worked_duration_hours'] ?? '—') !== '—') {
                 $workedSeconds += (int) round(((float) $row['worked_duration_hours']) * 3600);
             }
+            if (($row['break_duration_hours'] ?? '—') !== '—') {
+                $breakSeconds += (int) round(((float) $row['break_duration_hours']) * 3600);
+            }
         }
 
         $differenceSeconds = $workedSeconds - $scheduledSeconds;
 
         return [
-            'break_duration_hours' => '—',
+            'break_duration_hours' => $breakSeconds > 0 ? self::formatDecimalHours($breakSeconds) : '—',
             'scheduled_duration_hours' => $scheduledSeconds > 0 ? self::formatDecimalHours($scheduledSeconds) : '—',
             'worked_duration_hours' => $workedSeconds > 0 ? self::formatDecimalHours($workedSeconds) : '—',
             'difference_hours' => ($scheduledSeconds > 0 || $workedSeconds > 0)
-                ? self::formatDecimalHours($differenceSeconds)
+                ? self::formatSignedDecimalHours($differenceSeconds)
                 : '—',
             'difference_is_alert' => abs($differenceSeconds) >= 60,
         ];

@@ -77,9 +77,43 @@
                         </div>
                     </td>
                     <td class="{{ $td }} text-center font-medium">{{ $row['clock_in_distance_meters'] }}</td>
-                    <td class="{{ $td }} text-center text-brand-text-secondary">{{ $row['break_start'] }}</td>
-                    <td class="{{ $td }} text-center text-brand-text-secondary">{{ $row['break_end'] }}</td>
-                    <td class="{{ $td }} text-center text-brand-text-secondary">{{ $row['break_duration_hours'] }}</td>
+                    <td class="{{ $td }} text-center align-middle">
+                        @php $breakItems = $row['break_items'] ?? []; @endphp
+                        @if ($breakItems === [])
+                            <span class="text-brand-text-secondary">—</span>
+                        @else
+                            <div class="inline-flex flex-col items-center gap-0.5 leading-tight">
+                                @foreach ($breakItems as $item)
+                                    <span class="text-[11px] font-medium tabular-nums text-brand-text">{{ $item['start'] }}</span>
+                                @endforeach
+                            </div>
+                        @endif
+                    </td>
+                    <td class="{{ $td }} text-center align-middle">
+                        @if (($row['break_items'] ?? []) === [])
+                            <span class="text-brand-text-secondary">—</span>
+                        @else
+                            <div class="inline-flex flex-col items-center gap-0.5 leading-tight">
+                                @foreach ($row['break_items'] as $item)
+                                    <span class="text-[11px] font-medium tabular-nums {{ ($item['is_open'] ?? false) ? 'text-emerald-700' : 'text-brand-text' }}">{{ $item['end'] }}</span>
+                                @endforeach
+                            </div>
+                        @endif
+                    </td>
+                    <td class="{{ $td }} text-center align-middle">
+                        @if (($row['break_items'] ?? []) === [])
+                            <span class="text-brand-text-secondary">—</span>
+                        @else
+                            <div class="inline-flex flex-col items-center gap-0.5 leading-tight">
+                                @foreach ($row['break_items'] as $item)
+                                    <span class="text-[11px] font-medium tabular-nums text-brand-text">{{ $item['duration_hours'] }}</span>
+                                @endforeach
+                                @if (count($row['break_items']) > 1)
+                                    <span class="mt-0.5 border-t border-brand-border/70 pt-0.5 text-[10px] font-bold tabular-nums text-slate-600">Σ {{ $row['break_duration_hours'] }}</span>
+                                @endif
+                            </div>
+                        @endif
+                    </td>
                     <td class="{{ $td }} text-center font-medium {{ ($row['is_open'] ?? false) ? 'text-emerald-700' : '' }}" data-timesheet-row-ignore>
                         <div class="inline-flex items-center justify-center gap-1.5">
                             <span>{{ $row['clock_out'] }}</span>
@@ -87,7 +121,20 @@
                         </div>
                     </td>
                     <td class="{{ $td }} text-center">{{ $row['scheduled_duration_hours'] }}</td>
-                    <td class="{{ $td }} text-center font-semibold">{{ $row['worked_duration_hours'] }}</td>
+                    <td class="{{ $td }} text-center font-semibold" data-timesheet-row-ignore>
+                        @php $durationBreakdown = $row['worked_duration_breakdown'] ?? null; @endphp
+                        @if (is_array($durationBreakdown) && ($durationBreakdown['lines'] ?? []) !== [])
+                            <button
+                                type="button"
+                                class="cursor-help border-b border-dotted border-brand-text-secondary/60 font-semibold tabular-nums text-brand-text"
+                                data-shift-duration-tip
+                                data-tip-lines='@json($durationBreakdown['lines'])'
+                                aria-label="How shift duration is calculated: {{ $durationBreakdown['summary'] ?? $row['worked_duration_hours'] }}"
+                            >{{ $row['worked_duration_hours'] }}</button>
+                        @else
+                            {{ $row['worked_duration_hours'] }}
+                        @endif
+                    </td>
                     <td class="{{ $td }} text-center font-semibold {{ $row['difference_is_alert'] ? 'text-red-600' : '' }}">{{ $row['difference_hours'] }}</td>
                     <td class="{{ $td }} text-center">{{ $row['date_label'] }}</td>
                     <td class="px-3 py-2.5 text-center">

@@ -9,6 +9,7 @@ use App\Models\OrganizationPortalUser;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
 use App\Models\TimesheetApproval;
+use App\Support\PayrollLineTotals;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -83,6 +84,137 @@ class AdminReportsController extends Controller
                 'from' => $from?->toDateString(),
                 'to' => $to?->toDateString(),
                 'status' => $status,
+            ],
+        ]));
+    }
+
+    /**
+     * Paysheet — per-employee earnings calculation breakdown for a pay run.
+     *
+     * Shows how each earning line was calculated (hours × rate). Statutory
+     * deductions are not stored on payroll runs yet, so the report surfaces
+     * that explicitly rather than inventing a net figure.
+     */
+    public function paysheet(Request $request): View
+    {
+        $ctx = $this->pageContext($request);
+        $runOptions = collect();
+        $selectedRun = null;
+        $sheets = collect();
+        $summary = [
+            'employee_count' => 0,
+            'gross_pay' => 0.0,
+            'worked_hours' => 0.0,
+            'paid_leave_amount' => 0.0,
+            'allowance_amount' => 0.0,
+            'deductions_total' => 0.0,
+            'deductions_recorded' => false,
+            'net_pay' => null,
+            'accruals_value' => 0.0,
+        ];
+
+        try {
+            $conn = $ctx['connection'];
+
+            $runOptions = PayrollRun::on($conn)
+                ->orderByDesc('fortnight_start')
+                ->limit(24)
+                ->get()
+                ->map(static fn (PayrollRun $run): array => [
+                    'id' => $run->id,
+                    'label' => sprintf(
+                        '%s – %s (%s)',
+                        optional($run->fortnight_start)->format('d M Y') ?? '—',
+                        optional($run->fortnight_end)->format('d M Y') ?? '—',
+                        ucfirst((string) $run->status),
+                    ),
+                    'status' => $run->status,
+                ]);
+
+            $requestedRunId = (int) $request->integer('run_id');
+            $selectedRun = null;
+
+            if ($requestedRunId > 0) {
+                $selectedRun = PayrollRun::on($conn)->whereKey($requestedRunId)->first();
+            }
+
+            if ($selectedRun === null) {
+                $selectedRun = PayrollRun::on($conn)
+                    ->where('status', PayrollRun::STATUS_FINALIZED)
+                    ->orderByDesc('fortnight_start')
+                    ->first()
+                    ?? PayrollRun::on($conn)->orderByDesc('fortnight_start')->first();
+            }
+
+            if ($selectedRun !== null) {
+                $lines = PayrollRunLine::on($conn)
+                    ->where('payroll_run_id', $selectedRun->id)
+                    ->orderBy('employee_id')
+                    ->orderBy('sort_order')
+                    ->get();
+
+                $employees = Employee::on($conn)
+                    ->whereIn('id', $lines->pluck('employee_id')->unique()->all())
+                    ->get()
+                    ->keyBy('id');
+
+                $sheets = $lines
+                    ->groupBy('employee_id')
+                    ->map(function ($employeeLines, $employeeId) use ($employees) {
+                        /** @var \Illuminate\Support\Collection<int, PayrollRunLine> $employeeLines */
+                        $employee = $employees->get((int) $employeeId);
+                        $totals = PayrollLineTotals::summarize($employeeLines);
+
+                        return [
+                            'employee' => $this->employeeName($employee),
+                            'employee_code' => $employee?->employee_code ?: null,
+                            'employment_type' => $employee?->employment_type,
+                            'award_level' => $employee?->award_level,
+                            'totals' => $totals,
+                        ];
+                    })
+                    ->sortBy(fn (array $sheet): string => mb_strtolower($sheet['employee']))
+                    ->values();
+
+                $summary = [
+                    'employee_count' => $sheets->count(),
+                    'gross_pay' => round($sheets->sum(fn (array $s) => $s['totals']['gross_pay']), 2),
+                    'worked_hours' => round($sheets->sum(fn (array $s) => $s['totals']['worked_hours']), 2),
+                    'paid_leave_amount' => round($sheets->sum(fn (array $s) => $s['totals']['paid_leave_amount']), 2),
+                    'allowance_amount' => round($sheets->sum(fn (array $s) => $s['totals']['allowance_amount']), 2),
+                    'deductions_total' => round($sheets->sum(fn (array $s) => $s['totals']['deductions_total']), 2),
+                    'deductions_recorded' => $sheets->contains(fn (array $s) => $s['totals']['deductions_recorded']),
+                    'net_pay' => null,
+                    'accruals_value' => round($sheets->sum(fn (array $s) => $s['totals']['accruals_value']), 2),
+                ];
+
+                if ($summary['deductions_recorded']) {
+                    $summary['net_pay'] = round($summary['gross_pay'] - $summary['deductions_total'], 2);
+                }
+            }
+        } catch (\Throwable $e) {
+            $ctx['tenantError'] = $e->getMessage();
+        }
+
+        $periodLabel = 'No pay run selected';
+        if ($selectedRun !== null) {
+            $periodLabel = sprintf(
+                '%s – %s · %s',
+                optional($selectedRun->fortnight_start)->format('d M Y') ?? '—',
+                optional($selectedRun->fortnight_end)->format('d M Y') ?? '—',
+                ucfirst((string) $selectedRun->status),
+            );
+        }
+
+        return view('admin.reports', array_merge($ctx, [
+            'section' => 'paysheet',
+            'runOptions' => $runOptions,
+            'selectedRun' => $selectedRun,
+            'sheets' => $sheets,
+            'summary' => $summary,
+            'periodLabel' => $periodLabel,
+            'filters' => [
+                'run_id' => $selectedRun?->id,
             ],
         ]));
     }

@@ -28,6 +28,8 @@ final class AdminTimeClockDisplay
     {
         return match ($eventType) {
             TimeClockEntry::EVENT_CLOCK_IN => 'Clock in',
+            TimeClockEntry::EVENT_BREAK_START => 'Break in',
+            TimeClockEntry::EVENT_BREAK_END => 'Break out',
             TimeClockEntry::EVENT_CLOCK_OUT => 'Clock out',
             default => ucfirst(str_replace('_', ' ', $eventType)),
         };
@@ -37,6 +39,8 @@ final class AdminTimeClockDisplay
     {
         return match ($eventType) {
             TimeClockEntry::EVENT_CLOCK_IN => 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+            TimeClockEntry::EVENT_BREAK_START => 'bg-amber-50 text-amber-900 ring-amber-200',
+            TimeClockEntry::EVENT_BREAK_END => 'bg-amber-50 text-amber-800 ring-amber-200',
             TimeClockEntry::EVENT_CLOCK_OUT => 'bg-slate-100 text-slate-800 ring-slate-200',
             default => 'bg-brand-surface text-brand-text ring-brand-border',
         };
@@ -128,7 +132,7 @@ final class AdminTimeClockDisplay
             ? self::formatDistance($resolvedDistance)
             : '—';
         $allowedRadius = $entry->allowed_radius_meters
-            ?? (int) config('time_clock.geofence_radius_meters', 100);
+            ?? (int) config('time_clock.geofence_radius_meters', 300);
         $eventLabel = self::eventLabel($entry->event_type);
 
         return [

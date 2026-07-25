@@ -9,6 +9,7 @@ use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use App\Support\ShiftBreaks;
 use Illuminate\Support\Str;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -45,6 +46,19 @@ class AdminWorkforceController extends Controller
             ->all();
 
         return $days === [] ? null : $days;
+    }
+
+    /**
+     * @return array{breaks: list<array{label: string, minutes: int, paid: bool}>|null, breaks_summary: string|null}
+     */
+    private function normalizeShiftBreaksPayload(Request $request): array
+    {
+        $breaks = ShiftBreaks::normalize($request->input('shift_breaks'));
+
+        return [
+            'breaks' => $breaks === [] ? null : $breaks,
+            'breaks_summary' => ShiftBreaks::summaryFrom($breaks),
+        ];
     }
 
     private function nominatimUserAgent(): string
@@ -489,16 +503,22 @@ class AdminWorkforceController extends Controller
             'shift_end_time' => ['required', 'date_format:H:i'],
             'shift_days' => ['nullable', 'array'],
             'shift_days.*' => ['string', 'in:mon,tue,wed,thu,fri,sat,sun'],
-            'shift_breaks_summary' => ['nullable', 'string', 'max:255'],
+            'shift_breaks' => ['nullable', 'array', 'max:8'],
+            'shift_breaks.*.label' => ['nullable', 'string', 'max:80'],
+            'shift_breaks.*.minutes' => ['nullable', 'integer', 'min:1', 'max:480'],
+            'shift_breaks.*.paid' => ['nullable'],
             'shift_notes' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        $breakPayload = $this->normalizeShiftBreaksPayload($request);
 
         Shift::on($conn)->create([
             'name' => $data['shift_name'],
             'start_time' => $data['shift_start_time'],
             'end_time' => $data['shift_end_time'],
             'shift_days' => $this->normalizeShiftDays($data['shift_days'] ?? null),
-            'breaks_summary' => $data['shift_breaks_summary'] ?? null,
+            'breaks' => $breakPayload['breaks'],
+            'breaks_summary' => $breakPayload['breaks_summary'],
             'notes' => $data['shift_notes'] ?? null,
             'is_active' => true,
         ]);
@@ -519,9 +539,14 @@ class AdminWorkforceController extends Controller
             'shift_end_time' => ['required', 'date_format:H:i'],
             'shift_days' => ['nullable', 'array'],
             'shift_days.*' => ['string', 'in:mon,tue,wed,thu,fri,sat,sun'],
-            'shift_breaks_summary' => ['nullable', 'string', 'max:255'],
+            'shift_breaks' => ['nullable', 'array', 'max:8'],
+            'shift_breaks.*.label' => ['nullable', 'string', 'max:80'],
+            'shift_breaks.*.minutes' => ['nullable', 'integer', 'min:1', 'max:480'],
+            'shift_breaks.*.paid' => ['nullable'],
             'shift_notes' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        $breakPayload = $this->normalizeShiftBreaksPayload($request);
 
         $target = Shift::on($conn)->whereKey($shift)->firstOrFail();
         $target->forceFill([
@@ -529,7 +554,8 @@ class AdminWorkforceController extends Controller
             'start_time' => $data['shift_start_time'],
             'end_time' => $data['shift_end_time'],
             'shift_days' => $this->normalizeShiftDays($data['shift_days'] ?? null),
-            'breaks_summary' => $data['shift_breaks_summary'] ?? null,
+            'breaks' => $breakPayload['breaks'],
+            'breaks_summary' => $breakPayload['breaks_summary'],
             'notes' => $data['shift_notes'] ?? null,
         ])->save();
 

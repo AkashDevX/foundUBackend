@@ -43,6 +43,9 @@ function statusMeta(status) {
     if (normalized === 'active') {
         return { label: 'Active', classes: 'bg-emerald-50 text-emerald-900 border-emerald-200' };
     }
+    if (normalized === 'inactive') {
+        return { label: 'Inactive', classes: 'bg-slate-100 text-slate-800 border-slate-300' };
+    }
     if (normalized === 'declined' || normalized === 'rejected') {
         return { label: 'Declined', classes: 'bg-slate-100 text-slate-700 border-slate-200' };
     }

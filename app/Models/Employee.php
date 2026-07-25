@@ -141,6 +141,11 @@ class Employee extends Model
         return $this->hasMany(EmployeeLeaveEntitlement::class);
     }
 
+    public function timeOffRequests(): HasMany
+    {
+        return $this->hasMany(TimeOffRequest::class);
+    }
+
     public function taskAssignments(): HasMany
     {
         return $this->hasMany(EmployeeTaskAssignment::class);
@@ -215,13 +220,18 @@ class Employee extends Model
         };
 
         $payloadFromShift = static function (Shift $shift, int $unpaidBreakMinutes) use ($fmtTime): array {
+            $breaks = $shift->normalizedBreaks();
+
             return [
                 'id' => $shift->id,
                 'name' => $shift->name,
                 'start_time' => $fmtTime($shift->start_time),
                 'end_time' => $fmtTime($shift->end_time),
                 'breaks_summary' => $shift->breaks_summary,
-                'unpaid_break_minutes' => $unpaidBreakMinutes,
+                'breaks' => $breaks,
+                'unpaid_break_minutes' => $unpaidBreakMinutes > 0
+                    ? $unpaidBreakMinutes
+                    : $shift->unpaidBreakMinutesFromTemplate(),
                 'notes' => $shift->notes,
                 'shift_days' => is_array($shift->shift_days) ? $shift->shift_days : [],
                 'days' => is_array($shift->shift_days) ? $shift->shift_days : [],
@@ -338,6 +348,7 @@ class Employee extends Model
             'assigned_shift_status' => $this->employment_status,
             'assigned_department_code' => $assignedDepartment['code'] ?? null,
             'assigned_shift_breaks_summary' => $assignedShift['breaks_summary'] ?? null,
+            'assigned_shift_breaks' => $assignedShift['breaks'] ?? null,
             'assigned_shift_notes' => $assignedShift['notes'] ?? null,
             'assigned_work_location_notes' => $assignedWorkLocation['notes'] ?? null,
             'assignment_notes' => is_array($assignment) ? ($assignment['notes'] ?? null) : null,

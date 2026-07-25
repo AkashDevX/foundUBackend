@@ -167,6 +167,145 @@
         </div>
     </section>
 
+    @if (($pendingTimeOffRequests ?? collect())->isNotEmpty())
+        <section class="mb-5 overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
+            <div class="flex items-center justify-between gap-3 border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-4 py-3 sm:px-5">
+                <div>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Inbox</p>
+                    <p class="mt-0.5 text-sm font-bold text-brand-text">
+                        Time off requests
+                        <span class="font-medium text-brand-text-secondary">({{ $pendingTimeOffRequests->count() }})</span>
+                    </p>
+                </div>
+            </div>
+
+            <div class="max-h-72 overflow-auto">
+                <table class="min-w-full text-left text-sm">
+                    <thead class="sticky top-0 z-[1] border-b border-brand-border bg-brand-surface/90 text-xs font-semibold uppercase tracking-wide text-brand-label backdrop-blur">
+                        <tr>
+                            <th class="whitespace-nowrap px-4 py-2.5 sm:px-5">Employee</th>
+                            <th class="whitespace-nowrap px-4 py-2.5 sm:px-5">Date</th>
+                            <th class="hidden px-4 py-2.5 sm:table-cell sm:px-5">Reason</th>
+                            <th class="whitespace-nowrap px-4 py-2.5 sm:px-5">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-brand-border/80">
+                        @foreach ($pendingTimeOffRequests as $req)
+                            @php
+                                $reqEmployee = $req->employee;
+                                $reqName = $reqEmployee?->full_legal_name ?: ($reqEmployee?->email ?? 'Employee');
+                                $reqDateString = $req->requested_date instanceof \Carbon\CarbonInterface
+                                    ? $req->requested_date->toDateString()
+                                    : (string) $req->requested_date;
+                                $reqDateLabel = $req->requested_date instanceof \Carbon\CarbonInterface
+                                    ? $req->requested_date->format('D, j M Y')
+                                    : (string) $req->requested_date;
+                                $reqReason = trim((string) $req->reason);
+                            @endphp
+                            <tr class="transition hover:bg-brand-surface/40">
+                                <td class="px-4 py-3 sm:px-5">
+                                    <p class="font-semibold text-brand-text">{{ $reqName }}</p>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 sm:px-5">
+                                    <p class="font-medium text-brand-text">{{ $reqDateLabel }}</p>
+                                </td>
+                                <td class="hidden max-w-xs px-4 py-3 sm:table-cell sm:px-5">
+                                    <p class="truncate text-brand-text-secondary" title="{{ $reqReason !== '' ? $reqReason : '' }}">
+                                        {{ $reqReason !== '' ? $reqReason : '—' }}
+                                    </p>
+                                </td>
+                                <td class="px-4 py-3 sm:px-5">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        @if ($reqEmployee)
+                                            <a
+                                                href="{{ route('admin.employees.weekly-schedule', ['week' => $reqDateString, 'employee' => $reqEmployee->public_id, 'open_time_off_request' => $req->id]) }}"
+                                                class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700"
+                                            >
+                                                Approve
+                                            </a>
+                                        @endif
+                                        <form
+                                            id="reject-time-off-{{ $req->id }}"
+                                            method="post"
+                                            action="{{ route('admin.employees.weekly-schedule.time-off-requests.reject', ['timeOffRequest' => $req->id]) }}"
+                                            class="hidden"
+                                        >
+                                            @csrf
+                                            @foreach ($redirectQuery as $key => $value)
+                                                @if ($value !== null && $value !== '')
+                                                    <input type="hidden" name="redirect[{{ $key }}]" value="{{ $value }}">
+                                                @endif
+                                            @endforeach
+                                            <input type="hidden" name="decision_note" value="">
+                                        </form>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-800 shadow-sm transition hover:bg-red-50"
+                                            data-time-off-reject
+                                            data-form-id="reject-time-off-{{ $req->id }}"
+                                            data-employee-name="{{ $reqName }}"
+                                            data-date-label="{{ $reqDateLabel }}"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        @push('scripts')
+            <script>
+                (function () {
+                    document.querySelectorAll('[data-time-off-reject]').forEach((button) => {
+                        button.addEventListener('click', async () => {
+                            const formId = button.getAttribute('data-form-id');
+                            const form = formId ? document.getElementById(formId) : null;
+                            if (!(form instanceof HTMLFormElement)) {
+                                return;
+                            }
+
+                            const employeeName = button.getAttribute('data-employee-name') || 'this employee';
+                            const dateLabel = button.getAttribute('data-date-label') || 'that date';
+                            const dialog = window.CruLynkDialog;
+
+                            if (!dialog || typeof dialog.promptNote !== 'function') {
+                                if (window.confirm('Reject time off for ' + employeeName + ' on ' + dateLabel + '?')) {
+                                    form.requestSubmit();
+                                }
+                                return;
+                            }
+
+                            const note = await dialog.promptNote({
+                                title: 'Reject time-off request?',
+                                text: employeeName + ' · ' + dateLabel,
+                                inputLabel: 'Note to employee (optional)',
+                                inputPlaceholder: 'e.g. Too many people off that day',
+                                confirmText: 'Reject request',
+                                cancelText: 'Keep pending',
+                                danger: true,
+                            });
+
+                            if (note === null) {
+                                return;
+                            }
+
+                            const noteInput = form.querySelector('input[name="decision_note"]');
+                            if (noteInput instanceof HTMLInputElement) {
+                                noteInput.value = note;
+                            }
+
+                            form.requestSubmit();
+                        });
+                    });
+                })();
+            </script>
+        @endpush
+    @endif
+
     @if ($scheduleRows === [])
         <div class="rounded-2xl border border-dashed border-brand-border bg-brand-surface/50 px-6 py-12 text-center">
             <p class="text-sm font-semibold text-brand-text">No employees match these filters</p>

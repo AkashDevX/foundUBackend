@@ -111,6 +111,58 @@ export async function alertDialog({
     });
 }
 
+/**
+ * Branded SweetAlert prompt (optional note). Returns the trimmed string on confirm,
+ * or `null` when cancelled.
+ *
+ * @param {{
+ *   title?: string,
+ *   text?: string,
+ *   inputLabel?: string,
+ *   inputPlaceholder?: string,
+ *   confirmText?: string,
+ *   cancelText?: string,
+ *   danger?: boolean,
+ *   maxLength?: number,
+ * }} options
+ * @returns {Promise<string|null>}
+ */
+export async function promptNote({
+    title = 'Add a note',
+    text = '',
+    inputLabel = 'Note (optional)',
+    inputPlaceholder = '',
+    confirmText = 'Confirm',
+    cancelText = 'Cancel',
+    danger = false,
+    maxLength = 500,
+} = {}) {
+    const result = await dialog.fire({
+        title,
+        text,
+        icon: danger ? 'warning' : 'question',
+        input: 'textarea',
+        inputLabel,
+        inputPlaceholder,
+        inputAttributes: {
+            maxlength: String(maxLength),
+            'aria-label': inputLabel,
+        },
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: cancelText,
+        focusCancel: true,
+        reverseButtons: true,
+        confirmButtonColor: danger ? BRAND_DANGER : BRAND_PRIMARY,
+    });
+
+    if (result.isConfirmed !== true) {
+        return null;
+    }
+
+    return typeof result.value === 'string' ? result.value.trim() : '';
+}
+
 export function toastSuccess(message) {
     if (!message) {
         return;
@@ -461,6 +513,7 @@ export function initCruLynkDialogs() {
 export const CruLynkDialog = {
     confirm: confirmAction,
     alert: alertDialog,
+    promptNote,
     toastSuccess,
     toastError,
     toastWarning,

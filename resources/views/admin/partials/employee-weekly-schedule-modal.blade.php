@@ -100,6 +100,7 @@
             <input type="hidden" name="entry_type" id="schedule-entry-type-hidden" value="{{ EmployeeScheduleShift::TYPE_SHIFT }}">
             <input type="hidden" name="start_time" id="schedule-start-hidden">
             <input type="hidden" name="end_time" id="schedule-end-hidden">
+            <input type="hidden" name="time_off_request_id" id="schedule-time-off-request-id">
 
             <div id="schedule-shift-fields" class="space-y-4">
                 <label class="block">
@@ -256,6 +257,7 @@
         const dateHidden = document.getElementById('schedule-date-hidden');
         const startHidden = document.getElementById('schedule-start-hidden');
         const endHidden = document.getElementById('schedule-end-hidden');
+        const timeOffRequestIdInput = document.getElementById('schedule-time-off-request-id');
         const previewEl = document.getElementById('schedule-shift-preview');
 
         const modeEl = document.getElementById('schedule-modal-mode');
@@ -541,6 +543,7 @@
 
         function switchToShiftMode(defaultShiftId, defaultLocationId) {
             entryTypeHidden.dataset.edit = '0';
+            if (timeOffRequestIdInput) timeOffRequestIdInput.value = '';
             applyEntryType(TYPE_SHIFT);
             form.action = storeUrl;
             deleteButton.classList.add('hidden');
@@ -557,6 +560,8 @@
         function openEditForm(payload, fromDetails) {
             currentPayload = payload;
             openedFromDetails = Boolean(fromDetails);
+
+            if (timeOffRequestIdInput) timeOffRequestIdInput.value = '';
 
             const isEdit = Boolean(payload.shiftId);
             const isSuggestion = payload.isSuggestion === '1' || payload.isSuggestion === true;
@@ -757,5 +762,33 @@
                 convertToShiftButton.dataset.defaultLocationId
             );
         });
+
+        // Deep-link from the "Time off requests" inbox: auto-open the modal prefilled as a
+        // day off for the requested date/employee, tagged with the originating request id so
+        // saving marks it approved.
+        const openTimeOff = @json($openTimeOffRequest ?? null);
+        if (openTimeOff && openTimeOff.id) {
+            openEditForm({
+                shiftId: '',
+                employeePublicId: openTimeOff.employee_public_id || '',
+                employeeName: openTimeOff.employee_name || 'Employee',
+                dayLabel: '',
+                scheduledDate: openTimeOff.requested_date || '',
+                entryType: TYPE_TIME_OFF,
+                shiftTemplateId: '',
+                workLocationId: '',
+                notes: openTimeOff.reason || '',
+                isSuggestion: '0',
+                timeRange: '',
+                durationLabel: '',
+                blockTitle: '',
+                blockSubtitle: '',
+                blockMeta: '',
+                leaveTypeId: '',
+                leaveHours: '',
+                leaveTypeName: '',
+            }, false);
+            if (timeOffRequestIdInput) timeOffRequestIdInput.value = String(openTimeOff.id);
+        }
     })();
 </script>

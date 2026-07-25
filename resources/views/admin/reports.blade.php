@@ -2,6 +2,7 @@
 
 @php
     use App\Support\DisplayTimezone;
+    use App\Support\PayrollRateTypes;
 
     /** @var \App\Models\Company $currentCompany */
     /** @var string|null $tenantError */
@@ -12,6 +13,11 @@
             'title' => 'Payroll Summary Report',
             'subtitle' => 'Consolidated gross pay and hours by pay period.',
             'ref' => 'PAY',
+        ],
+        'paysheet' => [
+            'title' => 'Paysheet Report',
+            'subtitle' => 'Per-employee earnings calculation and deductions for a selected pay run.',
+            'ref' => 'PSH',
         ],
         'timesheet' => [
             'title' => 'Timesheet & Hours Report',
@@ -96,6 +102,17 @@
                             <option value="">All statuses</option>
                             <option value="draft" @selected(($filters['status'] ?? '') === 'draft')>Draft</option>
                             <option value="finalized" @selected(($filters['status'] ?? '') === 'finalized')>Finalized</option>
+                        </select>
+                    </div>
+                @elseif ($section === 'paysheet')
+                    <div class="sm:col-span-2 lg:col-span-3">
+                        <label for="f-run" class="{{ $fLabel }}">Pay run</label>
+                        <select id="f-run" name="run_id" class="{{ $fInput }}">
+                            @forelse ($runOptions as $opt)
+                                <option value="{{ $opt['id'] }}" @selected((string) ($filters['run_id'] ?? '') === (string) $opt['id'])>{{ $opt['label'] }}</option>
+                            @empty
+                                <option value="">No pay runs available</option>
+                            @endforelse
                         </select>
                     </div>
                 @elseif ($section === 'timesheet')
@@ -306,6 +323,235 @@
                                 @endif
                             </table>
                         </div>
+                    </section>
+                @endif
+
+                {{-- ===================== PAYSHEET ===================== --}}
+                @if ($section === 'paysheet')
+                    @php
+                        $summary = $summary ?? [
+                            'employee_count' => 0,
+                            'gross_pay' => 0,
+                            'worked_hours' => 0,
+                            'paid_leave_amount' => 0,
+                            'allowance_amount' => 0,
+                            'deductions_total' => 0,
+                            'deductions_recorded' => false,
+                            'net_pay' => null,
+                            'accruals_value' => 0,
+                        ];
+                        $sheets = $sheets ?? collect();
+                    @endphp
+
+                    <section>
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">1. Key figures</h3>
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Employees on paysheet</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['employee_count'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Total gross earnings</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-primary">{{ $money($summary['gross_pay']) }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Worked hours</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $hrs($summary['worked_hours']) }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">
+                                    {{ $summary['deductions_recorded'] ? 'Total net pay' : 'Deductions recorded' }}
+                                </dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">
+                                    @if ($summary['deductions_recorded'])
+                                        {{ $money($summary['net_pay'] ?? 0) }}
+                                    @else
+                                        None
+                                    @endif
+                                </dd>
+                            </div>
+                        </div>
+                        @unless ($summary['deductions_recorded'])
+                            <p class="mt-3 text-xs text-brand-text-secondary">
+                                Statutory deductions (PAYG tax, superannuation, salary sacrifice, etc.) are not stored on pay runs yet.
+                                This paysheet shows gross earnings and how each line was calculated. Net pay will appear once deduction lines are recorded.
+                            </p>
+                        @endunless
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. Employee paysheets</h3>
+
+                        @forelse ($sheets as $sheet)
+                            @php $t = $sheet['totals']; @endphp
+                            <article class="mb-6 overflow-hidden rounded-xl border border-brand-border last:mb-0">
+                                <header class="border-b border-brand-border bg-brand-surface/50 px-4 py-4 sm:px-5">
+                                    <div class="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <h4 class="text-base font-bold text-brand-text">{{ $sheet['employee'] }}</h4>
+                                            <p class="mt-0.5 text-xs text-brand-text-secondary">
+                                                {{ $sheet['employee_code'] ?: 'No employee code' }}
+                                                · {{ PayrollRateTypes::employmentTypeLabel($sheet['employment_type'] ?? null) }}
+                                                · {{ PayrollRateTypes::awardLevelLabel($sheet['award_level'] ?? null) }}
+                                            </p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Gross pay</p>
+                                            <p class="text-lg font-extrabold tabular-nums text-brand-primary">{{ $money($t['gross_pay']) }}</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                                        <div class="rounded-lg border border-brand-border bg-white px-3 py-2">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Ordinary / base</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums">{{ $money($t['ordinary_amount']) }}</p>
+                                        </div>
+                                        <div class="rounded-lg border border-brand-border bg-white px-3 py-2">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Penalty / weekend / PH</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums">{{ $money($t['penalty_amount']) }}</p>
+                                        </div>
+                                        <div class="rounded-lg border border-brand-border bg-white px-3 py-2">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Overtime</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums">{{ $money($t['overtime_amount']) }}</p>
+                                        </div>
+                                        <div class="rounded-lg border border-brand-border bg-white px-3 py-2">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Allowances</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums">{{ $money($t['allowance_amount']) }}</p>
+                                        </div>
+                                        <div class="rounded-lg border border-brand-border bg-white px-3 py-2">
+                                            <p class="text-[10px] font-bold uppercase tracking-widest text-brand-text-secondary">Paid leave</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums">{{ $money($t['paid_leave_amount']) }}</p>
+                                        </div>
+                                    </div>
+                                </header>
+
+                                <div class="px-4 py-4 sm:px-5">
+                                    <h5 class="mb-2 text-[11px] font-bold uppercase tracking-widest text-brand-primary">Earnings — how pay was calculated</h5>
+                                    <div class="overflow-hidden rounded-lg border border-brand-border">
+                                        <table class="min-w-full divide-y divide-brand-border">
+                                            <thead class="bg-brand-surface/60">
+                                                <tr>
+                                                    <th class="{{ $th }}">Earning line</th>
+                                                    <th class="{{ $th }} text-right">Hours</th>
+                                                    <th class="{{ $th }} text-right">Rate</th>
+                                                    <th class="{{ $th }} text-right">Amount</th>
+                                                    <th class="{{ $th }}">Calculation</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-brand-border">
+                                                @forelse ($t['earnings'] as $line)
+                                                    <tr>
+                                                        <td class="{{ $td }} font-medium">{{ $line['label'] }}</td>
+                                                        <td class="{{ $td }} text-right tabular-nums">{{ $line['hours'] > 0 ? $hrs($line['hours']) : '—' }}</td>
+                                                        <td class="{{ $td }} text-right tabular-nums">{{ $line['rate'] > 0 ? $money($line['rate']) : '—' }}</td>
+                                                        <td class="{{ $td }} text-right font-semibold tabular-nums">{{ $money($line['amount']) }}</td>
+                                                        <td class="{{ $td }} text-xs text-brand-text-secondary">
+                                                            @if ($line['hours'] > 0 && $line['rate'] > 0)
+                                                                {{ $hrs($line['hours']) }}h × {{ $money($line['rate']) }} = {{ $money($line['amount']) }}
+                                                            @elseif ($line['amount'] > 0)
+                                                                Fixed amount {{ $money($line['amount']) }}
+                                                            @else
+                                                                —
+                                                            @endif
+                                                        </td>
+                                                    </tr>
+                                                @empty
+                                                    <tr><td colspan="5" class="px-4 py-8 text-center text-sm text-brand-text-secondary">No earnings lines for this employee.</td></tr>
+                                                @endforelse
+                                            </tbody>
+                                            @if (! empty($t['earnings']))
+                                                <tfoot class="border-t-2 border-brand-border bg-brand-surface/40">
+                                                    <tr>
+                                                        <td class="{{ $td }} font-bold" colspan="3">Gross earnings</td>
+                                                        <td class="{{ $td }} text-right font-bold tabular-nums text-brand-primary">{{ $money($t['gross_pay']) }}</td>
+                                                        <td class="{{ $td }}"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            @endif
+                                        </table>
+                                    </div>
+
+                                    <h5 class="mb-2 mt-5 text-[11px] font-bold uppercase tracking-widest text-brand-primary">Deductions</h5>
+                                    <div class="overflow-hidden rounded-lg border border-brand-border">
+                                        @if ($t['deductions_recorded'] && ! empty($t['deductions']))
+                                            <table class="min-w-full divide-y divide-brand-border">
+                                                <thead class="bg-brand-surface/60">
+                                                    <tr>
+                                                        <th class="{{ $th }}">Deduction</th>
+                                                        <th class="{{ $th }} text-right">Amount</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-brand-border">
+                                                    @foreach ($t['deductions'] as $line)
+                                                        <tr>
+                                                            <td class="{{ $td }} font-medium">{{ $line['label'] }}</td>
+                                                            <td class="{{ $td }} text-right font-semibold tabular-nums">{{ $money($line['amount']) }}</td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                                <tfoot class="border-t-2 border-brand-border bg-brand-surface/40">
+                                                    <tr>
+                                                        <td class="{{ $td }} font-bold">Total deductions</td>
+                                                        <td class="{{ $td }} text-right font-bold tabular-nums">{{ $money($t['deductions_total']) }}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="{{ $td }} font-bold">Net pay</td>
+                                                        <td class="{{ $td }} text-right font-bold tabular-nums text-brand-primary">{{ $money($t['net_pay'] ?? 0) }}</td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        @else
+                                            <div class="px-4 py-5 text-sm text-brand-text-secondary">
+                                                No deductions recorded for this employee on this pay run.
+                                                Gross pay remains {{ $money($t['gross_pay']) }} until tax, super or other deductions are captured.
+                                            </div>
+                                        @endif
+                                    </div>
+
+                                    @if (! empty($t['accruals']) || ! empty($t['unpaid_leave']))
+                                        <h5 class="mb-2 mt-5 text-[11px] font-bold uppercase tracking-widest text-brand-primary">Leave tracking (not included in gross pay)</h5>
+                                        <div class="overflow-hidden rounded-lg border border-brand-border">
+                                            <table class="min-w-full divide-y divide-brand-border">
+                                                <thead class="bg-brand-surface/60">
+                                                    <tr>
+                                                        <th class="{{ $th }}">Item</th>
+                                                        <th class="{{ $th }} text-right">Hours</th>
+                                                        <th class="{{ $th }} text-right">Value</th>
+                                                        <th class="{{ $th }}">Note</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-brand-border">
+                                                    @foreach ($t['accruals'] as $line)
+                                                        <tr>
+                                                            <td class="{{ $td }} font-medium">{{ $line['label'] }}</td>
+                                                            <td class="{{ $td }} text-right tabular-nums">{{ $hrs($line['hours']) }}</td>
+                                                            <td class="{{ $td }} text-right tabular-nums">{{ $money($line['amount']) }}</td>
+                                                            <td class="{{ $td }} text-xs text-brand-text-secondary">Balance accrual only — excluded from gross</td>
+                                                        </tr>
+                                                    @endforeach
+                                                    @foreach ($t['unpaid_leave'] as $line)
+                                                        <tr>
+                                                            <td class="{{ $td }} font-medium">{{ $line['label'] }}</td>
+                                                            <td class="{{ $td }} text-right tabular-nums">{{ $hrs($line['hours']) }}</td>
+                                                            <td class="{{ $td }} text-right tabular-nums">{{ $money(0) }}</td>
+                                                            <td class="{{ $td }} text-xs text-brand-text-secondary">Unpaid attendance tracking</td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </div>
+                            </article>
+                        @empty
+                            <div class="rounded-xl border border-dashed border-brand-border px-4 py-12 text-center text-sm text-brand-text-secondary">
+                                @if ($selectedRun ?? null)
+                                    This pay run has no employee lines yet. Generate a draft or finalized run under Payroll → Payrun first.
+                                @else
+                                    No pay runs have been generated for this organization.
+                                @endif
+                            </div>
+                        @endforelse
                     </section>
                 @endif
 

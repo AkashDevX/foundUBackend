@@ -48,9 +48,11 @@ setApiConfig({
 - `POST /api/v1/register` — header `X-Company-Slug`; creates **pending** employee (tenant DB)
 - `POST /api/v1/login` — email + password; **Bearer token** only if status is **active**
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`
-- `GET /api/v1/time-clock/status` — current clock state + assignment geofence info
+- `GET /api/v1/time-clock/status` — current clock state + assignment geofence info (`is_on_break`, `can_break_in`, `can_break_out`, open-session breaks)
 - `POST /api/v1/time-clock/clock-in` — body `{ latitude, longitude, accuracy_meters? }` (must be within radius of assigned work site)
-- `POST /api/v1/time-clock/clock-out` — body `{ latitude, longitude, accuracy_meters?, comment? }`; must be clocked in first (`comment` is optional, max 2000 chars)
+- `POST /api/v1/time-clock/clock-out` — body `{ latitude, longitude, accuracy_meters?, comment? }`; must be clocked in first (`comment` is optional, max 2000 chars); auto-ends an open break if needed
+- `POST /api/v1/time-clock/break-start` — body `{ latitude, longitude, accuracy_meters? }`; must be clocked in and not already on break
+- `POST /api/v1/time-clock/break-end` — body `{ latitude, longitude, accuracy_meters? }`; must be on break
 
 Organization portal (admin approve/decline): web UI at `/` → `/admin` after signing in.
 
@@ -87,4 +89,4 @@ const { status, clockIn, clockOut, refresh } = useTimeClock();
 // status.is_clocked_in, status.can_clock_in, status.geofence_radius_meters
 ```
 
-The API compares device GPS to the **assigned work location** coordinates (set in the admin workforce UI). Default allowed radius: **100 m** (`TIME_CLOCK_GEOFENCE_RADIUS_METERS` on the server).
+The API compares device GPS to the **assigned work location** coordinates (set in the admin workforce UI). Default allowed radius: **300 m** (`TIME_CLOCK_GEOFENCE_RADIUS_METERS` on the server).

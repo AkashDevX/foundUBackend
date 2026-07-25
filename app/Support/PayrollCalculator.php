@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Employee;
+use App\Models\Shift;
 use App\Models\TimeClockEntry;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -185,7 +186,13 @@ final class PayrollCalculator
 
     /**
      * @param  Collection<int, TimeClockEntry>  $entries
-     * @return list<array{clock_in: CarbonInterface, clock_out: CarbonInterface}>
+     * @return list<array{
+     *     clock_in: CarbonInterface,
+     *     clock_out: CarbonInterface,
+     *     original_in: CarbonInterface,
+     *     original_out: CarbonInterface,
+     *     unpaid_break_intervals: list<array{start: CarbonInterface, end: CarbonInterface}>,
+     * }>
      */
     public static function extractSessions(
         Collection $entries,
@@ -202,20 +209,52 @@ final class PayrollCalculator
 
         $sessions = [];
         $openIn = null;
+        /** @var list<array{start: TimeClockEntry, end: TimeClockEntry}> $openBreaks */
+        $openBreaks = [];
+        $openBreakStart = null;
 
         foreach ($sorted as $entry) {
             if ($entry->event_type === TimeClockEntry::EVENT_CLOCK_IN) {
                 $openIn = $entry;
+                $openBreaks = [];
+                $openBreakStart = null;
 
                 continue;
             }
 
-            if ($entry->event_type !== TimeClockEntry::EVENT_CLOCK_OUT || ! $openIn instanceof TimeClockEntry) {
+            if (! $openIn instanceof TimeClockEntry) {
                 continue;
+            }
+
+            if ($entry->event_type === TimeClockEntry::EVENT_BREAK_START) {
+                if ($openBreakStart === null) {
+                    $openBreakStart = $entry;
+                }
+
+                continue;
+            }
+
+            if ($entry->event_type === TimeClockEntry::EVENT_BREAK_END) {
+                if ($openBreakStart instanceof TimeClockEntry) {
+                    $openBreaks[] = ['start' => $openBreakStart, 'end' => $entry];
+                    $openBreakStart = null;
+                }
+
+                continue;
+            }
+
+            if ($entry->event_type !== TimeClockEntry::EVENT_CLOCK_OUT) {
+                continue;
+            }
+
+            if ($openBreakStart instanceof TimeClockEntry) {
+                $openBreaks[] = ['start' => $openBreakStart, 'end' => $entry];
+                $openBreakStart = null;
             }
 
             if ($openIn->clocked_at === null || $entry->clocked_at === null) {
                 $openIn = null;
+                $openBreaks = [];
 
                 continue;
             }
@@ -225,6 +264,7 @@ final class PayrollCalculator
 
             if ($clockOut->lt($rangeStart) || $clockIn->gt($rangeEnd)) {
                 $openIn = null;
+                $openBreaks = [];
 
                 continue;
             }
@@ -233,22 +273,108 @@ final class PayrollCalculator
             $sessionEnd = $clockOut->gt($rangeEnd) ? $rangeEnd->copy() : $clockOut->copy();
 
             if ($sessionEnd->gt($sessionStart)) {
+                $allocatedBreaks = self::allocatedBreaksForClockIn($openIn);
+                $breakIntervals = [];
+                foreach ($openBreaks as $break) {
+                    $breakStartAt = $break['start']->clocked_at?->copy()->timezone($tz);
+                    $breakEndAt = $break['end']->clocked_at?->copy()->timezone($tz);
+                    if ($breakStartAt === null || $breakEndAt === null || ! $breakEndAt->gt($breakStartAt)) {
+                        continue;
+                    }
+
+                    $breakIntervals[] = [
+                        'start' => $breakStartAt,
+                        'end' => $breakEndAt,
+                    ];
+                }
+
                 $sessions[] = [
                     'clock_in' => $sessionStart,
                     'clock_out' => $sessionEnd,
                     'original_in' => $clockIn,
                     'original_out' => $clockOut,
+                    'unpaid_break_intervals' => self::unpaidBreakIntervals($breakIntervals, $allocatedBreaks),
                 ];
             }
 
             $openIn = null;
+            $openBreaks = [];
         }
 
         return $sessions;
     }
 
     /**
-     * @param  array{clock_in: CarbonInterface, clock_out: CarbonInterface, original_in: CarbonInterface, original_out: CarbonInterface}  $session
+     * @return list<array{label: string, minutes: int, paid: bool}>
+     */
+    private static function allocatedBreaksForClockIn(TimeClockEntry $clockIn): array
+    {
+        $shift = null;
+        if ($clockIn->relationLoaded('shift')) {
+            $shift = $clockIn->shift;
+        } elseif ($clockIn->shift_id) {
+            // Prefer the eager-loaded relation; fall back so paid/unpaid allocations
+            // still apply if a caller forgot to with('shift').
+            $shift = $clockIn->shift()->first();
+        }
+
+        if ($shift instanceof Shift) {
+            return $shift->normalizedBreaks();
+        }
+
+        return [];
+    }
+
+    /**
+     * Convert clocked break intervals into unpaid/excess intervals only (paid allowance kept).
+     * Matches ShiftBreaks::breakPayAdjustment: keep allocated paid minutes, deduct the rest.
+     *
+     * @param  list<array{start: CarbonInterface, end: CarbonInterface}>  $breakIntervals
+     * @param  list<array{label: string, minutes: int, paid: bool}>  $allocatedBreaks
+     * @return list<array{start: CarbonInterface, end: CarbonInterface}>
+     */
+    private static function unpaidBreakIntervals(array $breakIntervals, array $allocatedBreaks): array
+    {
+        $paidRemaining = ShiftBreaks::paidMinutesTotal($allocatedBreaks) * 60;
+        $unpaid = [];
+
+        foreach ($breakIntervals as $interval) {
+            $cursor = $interval['start']->copy();
+            $end = $interval['end']->copy();
+
+            while ($cursor->lt($end)) {
+                $remaining = max(0, $end->getTimestamp() - $cursor->getTimestamp());
+                if ($remaining <= 0) {
+                    break;
+                }
+
+                if ($paidRemaining > 0) {
+                    $keep = min($paidRemaining, $remaining);
+                    $cursor = $cursor->copy()->addSeconds($keep);
+                    $paidRemaining -= $keep;
+
+                    continue;
+                }
+
+                $unpaid[] = [
+                    'start' => $cursor->copy(),
+                    'end' => $end->copy(),
+                ];
+                break;
+            }
+        }
+
+        return $unpaid;
+    }
+
+    /**
+     * @param  array{
+     *     clock_in: CarbonInterface,
+     *     clock_out: CarbonInterface,
+     *     original_in: CarbonInterface,
+     *     original_out: CarbonInterface,
+     *     unpaid_break_intervals?: list<array{start: CarbonInterface, end: CarbonInterface}>,
+     * }  $session
      * @param  \Illuminate\Support\Collection<string, int>  $holidayDates
      * @return list<array{at: CarbonInterface, base_type: string, week_key: string}>
      */
@@ -257,6 +383,9 @@ final class PayrollCalculator
         $chunks = [];
         $cursor = $session['clock_in']->copy();
         $end = $session['clock_out']->copy();
+        $unpaidBreaks = is_array($session['unpaid_break_intervals'] ?? null)
+            ? $session['unpaid_break_intervals']
+            : [];
 
         $midnightShiftEnd = $isNonRotatingShift && self::qualifiesMidnightShift($session['original_out']);
 
@@ -264,6 +393,12 @@ final class PayrollCalculator
             $minuteEnd = $cursor->copy()->addMinute();
             if ($minuteEnd->gt($end)) {
                 $minuteEnd = $end->copy();
+            }
+
+            if (self::minuteOverlapsUnpaidBreak($cursor, $minuteEnd, $unpaidBreaks)) {
+                $cursor = $minuteEnd;
+
+                continue;
             }
 
             $dateStr = $cursor->toDateString();
@@ -280,6 +415,23 @@ final class PayrollCalculator
         }
 
         return $chunks;
+    }
+
+    /**
+     * @param  list<array{start: CarbonInterface, end: CarbonInterface}>  $unpaidBreaks
+     */
+    private static function minuteOverlapsUnpaidBreak(
+        CarbonInterface $minuteStart,
+        CarbonInterface $minuteEnd,
+        array $unpaidBreaks,
+    ): bool {
+        foreach ($unpaidBreaks as $break) {
+            if ($minuteStart->lt($break['end']) && $minuteEnd->gt($break['start'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

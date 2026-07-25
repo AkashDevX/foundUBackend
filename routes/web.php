@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\AdminWeeklyScheduleController;
 use App\Http\Controllers\Admin\AdminRegistrationDecisionController;
 use App\Http\Controllers\Admin\AdminRegistrationFileController;
 use App\Http\Controllers\Admin\AdminReportsController;
+use App\Http\Controllers\Admin\AdminTermsController;
 use App\Http\Controllers\Admin\AdminWorkforceController;
 use App\Http\Controllers\Platform\PlatformDashboardController;
 use App\Http\Controllers\Platform\PlatformOrganizationRequestsController;
@@ -81,6 +82,7 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::delete('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'destroyShift'])->name('admin.employees.weekly-schedule.shifts.destroy');
     Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/status', [AdminWeeklyScheduleController::class, 'markShiftStatus'])->name('admin.employees.weekly-schedule.shifts.status');
     Route::post('/admin/employees/weekly-schedule/fill-from-assignments', [AdminWeeklyScheduleController::class, 'fillFromAssignments'])->name('admin.employees.weekly-schedule.fill-from-assignments');
+    Route::post('/admin/employees/weekly-schedule/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.time-off-requests.reject');
     Route::get('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'index'])->name('admin.employees.tasks');
     Route::post('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'store'])->name('admin.employees.tasks.store');
     Route::post('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'update'])->name('admin.employees.tasks.update');
@@ -99,8 +101,11 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/payroll/holidays', [AdminPayrollController::class, 'holidays'])->name('admin.payroll.holidays');
     Route::post('/admin/payroll/holidays', [AdminPayrollController::class, 'storeHoliday'])->name('admin.payroll.holidays.store');
     Route::delete('/admin/payroll/holidays/{holiday}', [AdminPayrollController::class, 'destroyHoliday'])->name('admin.payroll.holidays.destroy');
+    Route::get('/admin/terms', [AdminTermsController::class, 'edit'])->name('admin.terms.edit');
+    Route::put('/admin/terms', [AdminTermsController::class, 'update'])->name('admin.terms.update');
     Route::get('/admin/reports', [AdminReportsController::class, 'index'])->name('admin.reports');
     Route::get('/admin/reports/payroll', [AdminReportsController::class, 'payroll'])->name('admin.reports.payroll');
+    Route::get('/admin/reports/paysheet', [AdminReportsController::class, 'paysheet'])->name('admin.reports.paysheet');
     Route::get('/admin/reports/timesheet', [AdminReportsController::class, 'timesheet'])->name('admin.reports.timesheet');
     Route::get('/admin/reports/leave', [AdminReportsController::class, 'leave'])->name('admin.reports.leave');
     Route::get('/admin/reports/headcount', [AdminReportsController::class, 'headcount'])->name('admin.reports.headcount');
@@ -110,6 +115,10 @@ Route::middleware('auth:portal')->group(function (): void {
         ->name('admin.registrations.accept');
     Route::post('/admin/registrations/{companySlug}/{publicId}/decline', [AdminRegistrationDecisionController::class, 'decline'])
         ->name('admin.registrations.decline');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/mark-inactive', [AdminRegistrationDecisionController::class, 'markInactive'])
+        ->name('admin.registrations.mark-inactive');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/reactivate', [AdminRegistrationDecisionController::class, 'reactivate'])
+        ->name('admin.registrations.reactivate');
     Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
         ->name('admin.registration.file')
         ->where('slot', '[a-z\\-]+');

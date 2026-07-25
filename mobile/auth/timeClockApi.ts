@@ -96,3 +96,43 @@ export async function postAutoClockOut(
   }
   return { ok: true, data: json as TimeClockPunchBody };
 }
+
+export async function postBreakStart(
+  cfg: FoundUApiConfig,
+  bearerToken: string,
+  coords: DeviceCoordinates,
+): Promise<
+  | { ok: true; data: TimeClockPunchBody }
+  | { ok: false; status: number; body: TimeClockErrorBody | Record<string, unknown> }
+> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/time-clock/break-start`, {
+    method: 'POST',
+    headers: authHeaders(cfg, bearerToken),
+    body: JSON.stringify(coords),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: json as TimeClockErrorBody };
+  }
+  return { ok: true, data: json as TimeClockPunchBody };
+}
+
+export async function postBreakEnd(
+  cfg: FoundUApiConfig,
+  bearerToken: string,
+  coords: DeviceCoordinates,
+): Promise<
+  | { ok: true; data: TimeClockPunchBody }
+  | { ok: false; status: number; body: TimeClockErrorBody | Record<string, unknown> }
+> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/time-clock/break-end`, {
+    method: 'POST',
+    headers: authHeaders(cfg, bearerToken),
+    body: JSON.stringify(coords),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: json as TimeClockErrorBody };
+  }
+  return { ok: true, data: json as TimeClockPunchBody };
+}

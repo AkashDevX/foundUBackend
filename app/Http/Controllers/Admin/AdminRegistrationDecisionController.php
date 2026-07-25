@@ -48,6 +48,40 @@ class AdminRegistrationDecisionController extends Controller
         return back()->with('success', 'Registration declined. This person will not be able to sign in to the mobile app.');
     }
 
+    public function markInactive(Request $request, string $companySlug, string $publicId): RedirectResponse
+    {
+        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+
+        if ($employee->employment_status !== 'active') {
+            return back()->with('error', 'Only active employees can be marked inactive.');
+        }
+
+        $employee->forceFill([
+            'employment_status' => 'inactive',
+        ])->save();
+
+        $this->revokeEmployeeTokens($employee);
+
+        return back()->with('success', 'Employee marked inactive. They can no longer sign in, and will be hidden from payroll, schedules, and assignments.');
+    }
+
+    public function reactivate(Request $request, string $companySlug, string $publicId): RedirectResponse
+    {
+        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+
+        if ($employee->employment_status !== 'inactive') {
+            return back()->with('error', 'Only inactive employees can be reactivated.');
+        }
+
+        $this->revokeEmployeeTokens($employee);
+
+        $employee->forceFill([
+            'employment_status' => 'active',
+        ])->save();
+
+        return back()->with('success', 'Employee reactivated. They can sign in to the mobile app again and will appear in payroll, schedules, and assignments.');
+    }
+
     private function employeeForPortalSession(Request $request, string $companySlug, string $publicId): Employee
     {
         /** @var OrganizationPortalUser $portalUser */

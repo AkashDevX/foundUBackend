@@ -51,6 +51,7 @@ export type WorkAssignment = {
     start_time: string | null;
     end_time: string | null;
     breaks_summary: string | null;
+    breaks?: Array<{ label: string; minutes: number; paid: boolean }> | null;
     unpaid_break_minutes?: number | null;
     notes: string | null;
   } | null;
@@ -61,6 +62,7 @@ export type WorkAssignment = {
     start_time: string | null;
     end_time: string | null;
     breaks_summary: string | null;
+    breaks?: Array<{ label: string; minutes: number; paid: boolean }> | null;
     unpaid_break_minutes: number;
     notes: string | null;
   }>;

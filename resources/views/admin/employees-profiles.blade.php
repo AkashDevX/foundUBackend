@@ -25,6 +25,7 @@
     $statusBadge = static fn (string $status): string => match (strtolower($status)) {
         'active' => 'border-emerald-200 bg-emerald-50 text-emerald-900',
         'pending' => 'border-amber-200 bg-amber-50 text-amber-900',
+        'inactive' => 'border-slate-300 bg-slate-100 text-slate-800',
         'declined', 'rejected' => 'border-slate-200 bg-slate-100 text-slate-700',
         '' => '',
         default => 'border-brand-border bg-brand-surface text-brand-text-secondary',

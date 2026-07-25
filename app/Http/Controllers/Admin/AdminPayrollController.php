@@ -303,7 +303,9 @@ class AdminPayrollController extends Controller
             ->where('employment_status', 'active')
             ->with([
                 'timeClockEntries' => static function ($query) use ($entriesFrom, $entriesTo): void {
-                    $query->whereBetween('clocked_at', [$entriesFrom, $entriesTo])->orderBy('clocked_at');
+                    $query->with('shift')
+                        ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                        ->orderBy('clocked_at');
                 },
                 'scheduleShifts' => static function ($query) use ($fortnightStart, $fortnightEnd): void {
                     $query->whereBetween('scheduled_date', [$fortnightStart, $fortnightEnd]);

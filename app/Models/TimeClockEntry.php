@@ -28,11 +28,24 @@ class TimeClockEntry extends Model
 {
     public const EVENT_CLOCK_IN = 'clock_in';
 
+    public const EVENT_BREAK_START = 'break_start';
+
+    public const EVENT_BREAK_END = 'break_end';
+
     public const EVENT_CLOCK_OUT = 'clock_out';
+
+    /** Event types that mean the employee still has an open work session. */
+    public const ON_SHIFT_EVENTS = [
+        self::EVENT_CLOCK_IN,
+        self::EVENT_BREAK_START,
+        self::EVENT_BREAK_END,
+    ];
 
     public const PUNCH_SOURCE_MANUAL = 'manual';
 
     public const PUNCH_SOURCE_AUTO_GEOFENCE_EXIT = 'auto_geofence_exit';
+
+    public const PUNCH_SOURCE_AUTO_SHIFT_END = 'auto_shift_end';
 
     public function employee(): BelongsTo
     {

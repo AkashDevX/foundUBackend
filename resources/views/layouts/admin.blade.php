@@ -128,6 +128,7 @@
                     </button>
                     <div id="reports-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.reports*') ? '' : 'hidden' }}">
                         <a href="{{ route('admin.reports.payroll') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.payroll') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Payroll summary</a>
+                        <a href="{{ route('admin.reports.paysheet') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.paysheet') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Paysheet</a>
                         <a href="{{ route('admin.reports.timesheet') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.timesheet') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Timesheet &amp; hours</a>
                         <a href="{{ route('admin.reports.leave') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.leave') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Leave report</a>
                         <a href="{{ route('admin.reports.headcount') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.headcount') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Workforce headcount</a>

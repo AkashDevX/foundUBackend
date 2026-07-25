@@ -393,22 +393,18 @@ final class AdminWeeklySchedule
     /**
      * @return Collection<int, EmployeeAssignmentShift>
      */
+    /**
+     * Assignment shifts for schedule suggestions / clock-in eligibility.
+     *
+     * Prefer the multi-shift `assignmentShifts` relation; if that collection is empty,
+     * fall back to the legacy `employees.shift_id` (`assignedShift`). Never short-circuit
+     * on a loaded-but-empty relation — TimeClockService often loads `assignedShift` first,
+     * which previously made empty `assignmentShifts` hide a valid legacy shift.
+     *
+     * @return Collection<int, EmployeeAssignmentShift>
+     */
     private static function assignmentShiftsForEmployee(Employee $employee): Collection
     {
-        if ($employee->relationLoaded('assignmentShifts')) {
-            return $employee->assignmentShifts->isNotEmpty()
-                ? $employee->assignmentShifts
-                : collect();
-        }
-
-        if ($employee->relationLoaded('assignedShift')) {
-            if ($employee->assignedShift instanceof Shift) {
-                return collect([self::legacyAssignmentShift($employee->assignedShift)]);
-            }
-
-            return collect();
-        }
-
         $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
 
         if ($employee->assignmentShifts->isNotEmpty()) {
@@ -491,6 +487,157 @@ final class AdminWeeklySchedule
         }
 
         return $created;
+    }
+
+    /**
+     * True when the employee's assignment shift(s) run on the given date's weekday — i.e. the
+     * weekly schedule would show a shift (concrete or suggestion) for that day. Read-only; does
+     * not create rows. Callers must separately treat a day-off (time_off) as "no shift".
+     */
+    public static function hasAssignmentShiftForDate(Employee $employee, CarbonInterface $date): bool
+    {
+        // Ensure the newer multi-shift assignment relation is loaded; otherwise
+        // assignmentShiftsForEmployee() short-circuits on a pre-loaded (often null)
+        // legacy `assignedShift` and misses the employee's real assignment shifts.
+        $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+
+        $dayKey = self::dayKeyForDate($date);
+
+        foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
+            $shift = $assignmentShift->shiftTemplate;
+            if ($shift instanceof Shift && self::shiftRunsOnDay($shift, $dayKey)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Create concrete employee_schedule_shifts row(s) for the given date from the employee's
+     * assignment shift(s), mirroring the schedule "suggestion" logic. No-op when a concrete
+     * shift already exists for the day or the day is marked as time off. Returns rows created.
+     */
+    public static function materializeAssignmentShiftsForDate(Employee $employee, CarbonInterface $date): int
+    {
+        // See hasAssignmentShiftForDate(): make sure assignmentShifts is loaded so we
+        // don't short-circuit on a pre-loaded null legacy `assignedShift`.
+        $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+
+        $dateString = $date->toDateString();
+
+        $alreadyScheduled = EmployeeScheduleShift::query()
+            ->where('employee_id', $employee->id)
+            ->whereIn('entry_type', [EmployeeScheduleShift::TYPE_SHIFT, EmployeeScheduleShift::TYPE_TIME_OFF])
+            ->whereDate('scheduled_date', $dateString)
+            ->exists();
+
+        if ($alreadyScheduled) {
+            return 0;
+        }
+
+        $dayKey = self::dayKeyForDate($date);
+        $created = 0;
+
+        foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
+            $shift = $assignmentShift->shiftTemplate;
+            if (! $shift instanceof Shift || ! self::shiftRunsOnDay($shift, $dayKey)) {
+                continue;
+            }
+
+            EmployeeScheduleShift::query()->create([
+                'employee_id' => $employee->id,
+                'scheduled_date' => $dateString,
+                'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+                'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
+                'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
+                'shift_id' => $shift->id,
+                'job_title_id' => $employee->job_title_id,
+                'department_id' => $employee->department_id,
+                'work_location_id' => $employee->work_location_id,
+                'notes' => null,
+            ]);
+
+            $created++;
+        }
+
+        return $created;
+    }
+
+    /** Day key (mon..sun) for a date, matching AdminWeeklyAvailability::DAY_KEYS ordering. */
+    public static function dayKeyForDate(CarbonInterface $date): string
+    {
+        return AdminWeeklyAvailability::DAY_KEYS[$date->dayOfWeekIso - 1] ?? 'mon';
+    }
+
+    /** The employee's assignment shift template that runs on the given date's weekday, if any. */
+    public static function assignmentShiftForDate(Employee $employee, CarbonInterface $date): ?Shift
+    {
+        $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
+
+        $dayKey = self::dayKeyForDate($date);
+
+        foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
+            $shift = $assignmentShift->shiftTemplate;
+            if ($shift instanceof Shift && self::shiftRunsOnDay($shift, $dayKey)) {
+                return $shift;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Read-only display times for the employee's shift on a date (mobile status pill).
+     * A concrete schedule row wins; otherwise the assignment shift that runs that weekday.
+     * Returns null on a day off or when there's no shift.
+     *
+     * @return array{start_time: string, end_time: string, start_label: string, end_label: string}|null
+     */
+    public static function shiftTimesForDate(Employee $employee, CarbonInterface $date): ?array
+    {
+        $dateString = $date->toDateString();
+
+        $entries = EmployeeScheduleShift::query()
+            ->where('employee_id', $employee->id)
+            ->whereDate('scheduled_date', $dateString)
+            ->orderBy('start_time')
+            ->get();
+
+        $hasTimeOff = $entries->contains(
+            static fn (EmployeeScheduleShift $entry): bool => $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF
+        );
+        if ($hasTimeOff) {
+            return null;
+        }
+
+        /** @var EmployeeScheduleShift|null $concrete */
+        $concrete = $entries->first(
+            static fn (EmployeeScheduleShift $entry): bool => $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT
+        );
+        if ($concrete instanceof EmployeeScheduleShift) {
+            return self::shiftTimesPayload($concrete->start_time, $concrete->end_time);
+        }
+
+        $shift = self::assignmentShiftForDate($employee, $date);
+        if ($shift instanceof Shift) {
+            return self::shiftTimesPayload($shift->start_time, $shift->end_time);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{start_time: string, end_time: string, start_label: string, end_label: string}
+     */
+    private static function shiftTimesPayload(mixed $start, mixed $end): array
+    {
+        return [
+            'start_time' => self::storedTimeToHm($start),
+            'end_time' => self::storedTimeToHm($end),
+            'start_label' => self::formatStoredTime($start),
+            'end_label' => self::formatStoredTime($end),
+        ];
     }
 
     /**

@@ -2,15 +2,20 @@
 
 use App\Http\Controllers\Api\V1\AppBootstrapController;
 use App\Http\Controllers\Api\V1\AutoClockOutEmployeeController;
+use App\Http\Controllers\Api\V1\BreakEndEmployeeController;
+use App\Http\Controllers\Api\V1\BreakStartEmployeeController;
 use App\Http\Controllers\Api\V1\ClockInEmployeeController;
 use App\Http\Controllers\Api\V1\ClockOutEmployeeController;
 use App\Http\Controllers\Api\V1\CurrentEmployeeController;
 use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Http\Controllers\Api\V1\EmployeeTasksController;
+use App\Http\Controllers\Api\V1\EmployeeTimeOffRequestsController;
+use App\Http\Controllers\Api\V1\RequestTimeOffController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
+use App\Http\Controllers\Api\V1\TermsAndConditionsController;
 use App\Http\Controllers\Api\V1\TimeClockStatusController;
 use App\Http\Controllers\Api\V1\UpdateEmployeeTaskCompletionController;
 use Illuminate\Support\Facades\DB;
@@ -46,16 +51,20 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
      * - Org approval does not log anyone in; RN must not treat approval as auth — user signs in manually.
      * - GET /me, POST /logout — Authorization: Bearer {token} from /login only.
      * - GET /time-clock/status, POST /time-clock/clock-in|clock-out — GPS geofence vs assigned work site.
+     * - POST /time-clock/break-start|break-end — unpaid break punches within an open shift.
      * - POST /time-clock/auto-clock-out — automatic clock-out when employee leaves geofence.
      * - GET /tasks — employee task allocations (optional ?date=).
      * - PATCH /tasks/{id} — mark a task complete or pending for the given date.
      */
     Route::post('/register', RegisterEmployeeController::class);
     Route::post('/login', LoginEmployeeController::class);
+    Route::get('/terms', TermsAndConditionsController::class);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', CurrentEmployeeController::class);
         Route::get('/shifts/schedule', EmployeeScheduleController::class);
+        Route::get('/time-off/requests', EmployeeTimeOffRequestsController::class);
+        Route::post('/time-off/requests', RequestTimeOffController::class);
         Route::get('/tasks', EmployeeTasksController::class);
         Route::patch('/tasks/{task}', UpdateEmployeeTaskCompletionController::class)
             ->where(['task' => '[0-9]+']);
@@ -70,6 +79,8 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::get('/time-clock/status', TimeClockStatusController::class);
         Route::post('/time-clock/clock-in', ClockInEmployeeController::class);
         Route::post('/time-clock/clock-out', ClockOutEmployeeController::class);
+        Route::post('/time-clock/break-start', BreakStartEmployeeController::class);
+        Route::post('/time-clock/break-end', BreakEndEmployeeController::class);
         Route::post('/time-clock/auto-clock-out', AutoClockOutEmployeeController::class);
         Route::get('/payroll', \App\Http\Controllers\Api\V1\EmployeePayrollController::class);
     });

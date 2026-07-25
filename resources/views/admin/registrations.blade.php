@@ -105,6 +105,11 @@
                 >Active</a>
                 <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
                 <a
+                    href="{{ route('admin.registrations.index', ['status' => 'inactive']) }}"
+                    class="rounded px-1.5 py-0.5 {{ $statusFilter === 'inactive' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
+                >Inactive</a>
+                <span class="text-brand-text-secondary/50" aria-hidden="true">/</span>
+                <a
                     href="{{ route('admin.registrations.index', ['status' => 'declined']) }}"
                     class="rounded px-1.5 py-0.5 {{ $statusFilter === 'declined' ? 'font-semibold text-brand-primary' : 'text-brand-text-secondary hover:text-brand-text' }}"
                 >Declined</a>
@@ -172,6 +177,11 @@
                                         <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900 ring-1 ring-emerald-200/80">
                                             <span class="size-1.5 rounded-full bg-emerald-500"></span>
                                             Active
+                                        </span>
+                                    @elseif ($st === 'inactive')
+                                        <span class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-800 ring-1 ring-slate-300/80">
+                                            <span class="size-1.5 rounded-full bg-slate-500"></span>
+                                            Inactive
                                         </span>
                                     @elseif ($st === 'declined' || $st === 'rejected')
                                         <span class="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-900 ring-1 ring-red-200/80">
