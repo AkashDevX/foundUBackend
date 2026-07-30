@@ -73,6 +73,94 @@ export async function postLogin(
   return { ok: true, data: json as LoginSuccessBody };
 }
 
+/**
+ * Request a password-reset OTP email for an active employee.
+ * Server always returns a generic success body when validation passes.
+ */
+export async function postForgotPassword(
+  cfg: FoundUApiConfig,
+  email: string,
+): Promise<
+  | { ok: true; message: string }
+  | { ok: false; status: number; message: string; body: unknown }
+> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/forgot-password`, {
+    method: 'POST',
+    headers: headers(cfg),
+    body: JSON.stringify({ email }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { message?: string };
+  const message =
+    typeof json.message === 'string' && json.message.trim() !== ''
+      ? json.message.trim()
+      : res.ok
+        ? 'If an account exists for that email, we have sent a verification code.'
+        : 'Could not send verification code.';
+  if (!res.ok) {
+    return { ok: false, status: res.status, message, body: json };
+  }
+  return { ok: true, message };
+}
+
+export async function postVerifyPasswordResetOtp(
+  cfg: FoundUApiConfig,
+  email: string,
+  otp: string,
+): Promise<
+  | { ok: true; resetToken: string; message: string }
+  | { ok: false; status: number; message: string; body: unknown }
+> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/forgot-password/verify-otp`, {
+    method: 'POST',
+    headers: headers(cfg),
+    body: JSON.stringify({ email, otp }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { message?: string; reset_token?: string };
+  const message =
+    typeof json.message === 'string' && json.message.trim() !== ''
+      ? json.message.trim()
+      : 'Verification failed.';
+  if (!res.ok) {
+    return { ok: false, status: res.status, message, body: json };
+  }
+  const resetToken = typeof json.reset_token === 'string' ? json.reset_token : '';
+  if (resetToken === '') {
+    return { ok: false, status: res.status, message: 'No reset token returned.', body: json };
+  }
+  return { ok: true, resetToken, message };
+}
+
+export async function postResetPassword(
+  cfg: FoundUApiConfig,
+  resetToken: string,
+  password: string,
+  passwordConfirmation: string,
+): Promise<
+  | { ok: true; message: string }
+  | { ok: false; status: number; message: string; body: unknown }
+> {
+  const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/api/v1/forgot-password/reset`, {
+    method: 'POST',
+    headers: headers(cfg),
+    body: JSON.stringify({
+      reset_token: resetToken,
+      password,
+      password_confirmation: passwordConfirmation,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { message?: string };
+  const message =
+    typeof json.message === 'string' && json.message.trim() !== ''
+      ? json.message.trim()
+      : res.ok
+        ? 'Your password has been updated.'
+        : 'Could not update password.';
+  if (!res.ok) {
+    return { ok: false, status: res.status, message, body: json };
+  }
+  return { ok: true, message };
+}
+
 /** Authenticated snapshot — includes admin-assigned shift / location / department (`work_assignment`). */
 export async function getCurrentEmployee(
   cfg: FoundUApiConfig,

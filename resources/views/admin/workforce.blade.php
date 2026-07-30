@@ -8,6 +8,56 @@
 
 @push('scripts')
     @vite(['resources/js/workforce.js'])
+    @if (in_array($section, ['departments', 'job-titles', 'work-locations', 'shifts', 'leave-types'], true))
+        <script>
+            (function () {
+                function normalize(value) {
+                    return String(value || '')
+                        .toLowerCase()
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .trim();
+                }
+
+                function bindListSearch(rootAttr, filterAttr, listAttr, itemAttr, emptyAttr) {
+                    document.querySelectorAll('[' + rootAttr + ']').forEach(function (root) {
+                        var input = root.querySelector('[' + filterAttr + ']');
+                        var list = root.querySelector('[' + listAttr + ']');
+                        var empty = root.querySelector('[' + emptyAttr + ']');
+                        if (!input || !list) {
+                            return;
+                        }
+
+                        var items = Array.prototype.slice.call(list.querySelectorAll('[' + itemAttr + ']'));
+
+                        function applyFilter() {
+                            var query = normalize(input.value);
+                            var shown = 0;
+                            items.forEach(function (item) {
+                                var haystack = normalize(item.getAttribute('data-search'));
+                                var match = query === '' || haystack.indexOf(query) !== -1;
+                                item.classList.toggle('hidden', !match);
+                                if (match) {
+                                    shown += 1;
+                                }
+                            });
+                            if (empty) {
+                                empty.classList.toggle('hidden', shown !== 0);
+                            }
+                        }
+
+                        input.addEventListener('input', applyFilter);
+                    });
+                }
+
+                bindListSearch('data-department-search', 'data-department-filter', 'data-department-list', 'data-department-item', 'data-department-empty');
+                bindListSearch('data-job-title-search', 'data-job-title-filter', 'data-job-title-list', 'data-job-title-item', 'data-job-title-empty');
+                bindListSearch('data-work-location-search', 'data-work-location-filter', 'data-work-location-list', 'data-work-location-item', 'data-work-location-empty');
+                bindListSearch('data-shift-search', 'data-shift-filter', 'data-shift-list', 'data-shift-item', 'data-shift-empty');
+                bindListSearch('data-leave-type-search', 'data-leave-type-filter', 'data-leave-type-list', 'data-leave-type-item', 'data-leave-type-empty');
+            })();
+        </script>
+    @endif
 @endpush
 
 @section('content')
@@ -78,15 +128,34 @@
                     </button>
                 </form>
             </div>
-            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-department-search>
                 @if ($departments->isNotEmpty())
-                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved departments</h3>
-                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $departments->count() }}</span>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved departments</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $departments->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-department-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by name, code, or ID…"
+                                autocomplete="off"
+                                aria-label="Search departments"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
                     </div>
                 @endif
+                <div data-department-list>
                 @forelse ($departments as $d)
-                    <article class="{{ $savedCard }} mb-4 last:mb-0">
+                    @php
+                        $departmentSearch = strtolower(trim(($d->name ?? '').' '.($d->code ?? '').' '.($d->id ?? '')));
+                    @endphp
+                    <article class="{{ $savedCard }} mb-4 last:mb-0" data-department-item data-search="{{ $departmentSearch }}">
                         <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
                         <div class="relative flex gap-4 pl-2">
                             <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
@@ -137,6 +206,10 @@
                         <p class="mt-4 text-sm font-semibold text-brand-text">No departments yet</p>
                     </div>
                 @endforelse
+                </div>
+                <div data-department-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No departments match your search.
+                </div>
             </div>
         </section>
         @endif
@@ -166,15 +239,34 @@
                     </button>
                 </form>
             </div>
-            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-job-title-search>
                 @if ($jobTitles->isNotEmpty())
-                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved job titles</h3>
-                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $jobTitles->count() }}</span>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved job titles</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $jobTitles->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-job-title-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by name or ID…"
+                                autocomplete="off"
+                                aria-label="Search job titles"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
                     </div>
                 @endif
+                <div data-job-title-list>
                 @forelse ($jobTitles as $jt)
-                    <article class="{{ $savedCard }} mb-4 last:mb-0">
+                    @php
+                        $jobTitleSearch = strtolower(trim(($jt->name ?? '').' '.($jt->id ?? '')));
+                    @endphp
+                    <article class="{{ $savedCard }} mb-4 last:mb-0" data-job-title-item data-search="{{ $jobTitleSearch }}">
                         <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
                         <div class="relative flex gap-4 pl-2">
                             <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
@@ -214,6 +306,10 @@
                         <p class="mt-4 text-sm font-semibold text-brand-text">No job titles yet</p>
                     </div>
                 @endforelse
+                </div>
+                <div data-job-title-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No job titles match your search.
+                </div>
             </div>
         </section>
         @endif
@@ -343,21 +439,47 @@
                     </button>
                 </form>
             </div>
-            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-work-location-search>
                 @if ($workLocations->isNotEmpty())
-                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved work locations</h3>
-                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $workLocations->count() }}</span>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved work locations</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $workLocations->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-work-location-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by name, address, or ID…"
+                                autocomplete="off"
+                                aria-label="Search work locations"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
                     </div>
                 @endif
+                <div data-work-location-list>
                 @forelse ($workLocations as $loc)
                     @php
                         $hasCoords = $loc->latitude !== null && $loc->longitude !== null;
                         $osmHref = $hasCoords
                             ? 'https://www.openstreetmap.org/?mlat='.urlencode((string) $loc->latitude).'&mlon='.urlencode((string) $loc->longitude).'#map=17/'.$loc->latitude.'/'.$loc->longitude
                             : null;
+                        $coordsSearch = $hasCoords
+                            ? number_format((float) $loc->latitude, 5).' '.number_format((float) $loc->longitude, 5)
+                            : 'no pin';
+                        $workLocationSearch = strtolower(trim(
+                            ($loc->name ?? '').' '.
+                            ($loc->address ?? '').' '.
+                            ($loc->notes ?? '').' '.
+                            ($loc->id ?? '').' '.
+                            $coordsSearch
+                        ));
                     @endphp
-                    <article class="{{ $savedCard }} mb-4 last:mb-0">
+                    <article class="{{ $savedCard }} mb-4 last:mb-0" data-work-location-item data-search="{{ $workLocationSearch }}">
                         <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
                         <div class="relative flex gap-4 pl-2">
                             <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
@@ -515,6 +637,10 @@
                         <p class="mt-4 text-sm font-semibold text-brand-text">No work locations yet</p>
                     </div>
                 @endforelse
+                </div>
+                <div data-work-location-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No work locations match your search.
+                </div>
             </div>
         </section>
         @endif
@@ -582,19 +708,49 @@
                     </button>
                 </form>
             </div>
-            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-shift-search>
                 @if ($shifts->isNotEmpty())
-                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved shifts</h3>
-                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $shifts->count() }}</span>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved shifts</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $shifts->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-shift-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by name, time, or ID…"
+                                autocomplete="off"
+                                aria-label="Search shifts"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
                     </div>
                 @endif
+                <div data-shift-list>
                 @forelse ($shifts as $sh)
                     @php
                         $shiftDayKeys = is_array($sh->shift_days ?? null) ? $sh->shift_days : [];
                         $allDaysSelected = $shiftDayKeys === [];
+                        $structuredBreaks = \App\Support\ShiftBreaks::normalize($sh->breaks ?? null);
+                        $breakSearch = collect($structuredBreaks)->map(fn ($b) => ($b['label'] ?? '').' '.($b['minutes'] ?? '').' '.(! empty($b['paid']) ? 'paid' : 'unpaid'))->implode(' ');
+                        $daySearch = $allDaysSelected
+                            ? 'every day '.implode(' ', array_values($shiftDaysMap))
+                            : collect($shiftDayKeys)->map(fn ($k) => $shiftDaysMap[$k] ?? $k)->implode(' ');
+                        $shiftSearch = strtolower(trim(
+                            ($sh->name ?? '').' '.
+                            $fmtShift($sh).' '.
+                            ($sh->id ?? '').' '.
+                            $daySearch.' '.
+                            $breakSearch.' '.
+                            ($sh->breaks_summary ?? '').' '.
+                            ($sh->notes ?? '')
+                        ));
                     @endphp
-                    <article class="{{ $savedCard }} mb-4 last:mb-0">
+                    <article class="{{ $savedCard }} mb-4 last:mb-0" data-shift-item data-search="{{ $shiftSearch }}">
                         <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
                         <div class="relative flex gap-4 pl-2">
                             <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
@@ -620,9 +776,6 @@
                                         <p class="mt-1.5 text-[11px] font-medium text-brand-text-secondary">Applies every day</p>
                                     @endif
                                 </div>
-                                @php
-                                    $structuredBreaks = \App\Support\ShiftBreaks::normalize($sh->breaks ?? null);
-                                @endphp
                                 @if ($structuredBreaks !== [])
                                     <div class="mt-3">
                                         <p class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Breaks</p>
@@ -706,6 +859,10 @@
                         <p class="mt-4 text-sm font-semibold text-brand-text">No shifts yet</p>
                     </div>
                 @endforelse
+                </div>
+                <div data-shift-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No shifts match your search.
+                </div>
             </div>
         </section>
         @endif
@@ -767,15 +924,46 @@
                     </button>
                 </form>
             </div>
-            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5">
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-leave-type-search>
                 @if ($leaveTypes->isNotEmpty())
-                    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved leave types</h3>
-                        <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $leaveTypes->count() }}</span>
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved leave types</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $leaveTypes->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-leave-type-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by name, code, or ID…"
+                                autocomplete="off"
+                                aria-label="Search leave types"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
                     </div>
                 @endif
+                <div data-leave-type-list>
                 @forelse ($leaveTypes as $lt)
-                    <article class="{{ $savedCard }} mb-4 last:mb-0 {{ $lt->is_active ? '' : 'opacity-70' }}">
+                    @php
+                        $hoursLabel = $lt->default_annual_hours !== null
+                            ? rtrim(rtrim(number_format((float) $lt->default_annual_hours, 2), '0'), '.').' h / yr'
+                            : '';
+                        $leaveTypeSearch = strtolower(trim(
+                            ($lt->name ?? '').' '.
+                            ($lt->code ?? '').' '.
+                            ($lt->id ?? '').' '.
+                            ($lt->is_paid ? 'paid' : 'unpaid').' '.
+                            ($lt->requires_approval ? 'approval required' : 'no approval').' '.
+                            ($lt->is_active ? 'active' : 'inactive').' '.
+                            $hoursLabel.' '.
+                            ($lt->notes ?? '')
+                        ));
+                    @endphp
+                    <article class="{{ $savedCard }} mb-4 last:mb-0 {{ $lt->is_active ? '' : 'opacity-70' }}" data-leave-type-item data-search="{{ $leaveTypeSearch }}">
                         <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
                         <div class="relative flex gap-4 pl-2">
                             <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
@@ -792,7 +980,7 @@
                                 <div class="mt-2 flex flex-wrap items-center gap-2 gap-y-1">
                                     <span class="{{ $chip }} {{ $lt->is_paid ? 'text-emerald-700' : 'text-brand-text-secondary' }}">{{ $lt->is_paid ? 'Paid' : 'Unpaid' }}</span>
                                     @if ($lt->default_annual_hours !== null)
-                                        <span class="{{ $chip }} tabular-nums">{{ rtrim(rtrim(number_format((float) $lt->default_annual_hours, 2), '0'), '.') }} h / yr</span>
+                                        <span class="{{ $chip }} tabular-nums">{{ $hoursLabel }}</span>
                                     @endif
                                     <span class="{{ $chip }}">{{ $lt->requires_approval ? 'Approval required' : 'No approval' }}</span>
                                 </div>
@@ -856,6 +1044,10 @@
                         <p class="mt-4 text-sm font-semibold text-brand-text">No leave types yet</p>
                     </div>
                 @endforelse
+                </div>
+                <div data-leave-type-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No leave types match your search.
+                </div>
             </div>
         </section>
         @endif

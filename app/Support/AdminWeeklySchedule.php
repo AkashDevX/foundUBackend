@@ -431,16 +431,40 @@ final class AdminWeeklySchedule
     }
 
     /**
-     * @param  Collection<int, Employee>  $employees
-     * @return int Number of rows created.
+     * Copy a shift template's start/end times onto future weekly schedule rows that reference it.
+     * Past dates are left unchanged for timesheet/payroll history.
+     *
+     * @return int Number of schedule rows updated.
      */
-    public static function fillWeekFromAssignments(string $connection, Collection $employees, CarbonInterface $weekStart, Collection $existingEntries): int
+    public static function syncTemplateTimesToSchedule(string $connection, Shift $shift, ?CarbonInterface $fromDate = null): int
+    {
+        $from = ($fromDate ?? Carbon::today())->toDateString();
+        $startTime = self::storedTimeToHm($shift->start_time);
+        $endTime = self::storedTimeToHm($shift->end_time);
+
+        return EmployeeScheduleShift::on($connection)
+            ->where('shift_id', $shift->id)
+            ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+            ->whereDate('scheduled_date', '>=', $from)
+            ->update([
+                'start_time' => $startTime,
+                'end_time' => $endTime,
+            ]);
+    }
+
+    /**
+     * @param  Collection<int, Employee>  $employees
+     * @param  Collection<int, EmployeeScheduleShift>  $existingEntries
+     * @return array{created: int, updated: int}
+     */
+    public static function fillWeekFromAssignments(string $connection, Collection $employees, CarbonInterface $weekStart, Collection $existingEntries): array
     {
         $existingKeys = $existingEntries
             ->map(static fn (EmployeeScheduleShift $entry): string => ((int) $entry->employee_id).'|'.($entry->scheduled_date?->toDateString() ?? ''))
             ->flip();
 
         $created = 0;
+        $updated = 0;
         $days = self::weekDays($weekStart);
 
         foreach ($employees as $employee) {
@@ -449,9 +473,47 @@ final class AdminWeeklySchedule
                 continue;
             }
 
+            /** @var array<int, Shift> $assignmentTemplatesById */
+            $assignmentTemplatesById = [];
+            foreach ($assignmentShifts as $assignmentShift) {
+                $shift = $assignmentShift->shiftTemplate;
+                if ($shift instanceof Shift && $shift->id) {
+                    $assignmentTemplatesById[(int) $shift->id] = $shift;
+                }
+            }
+
             foreach ($days as $day) {
                 $lookupKey = ((int) $employee->id).'|'.$day['date_string'];
                 if ($existingKeys->has($lookupKey)) {
+                    $dayEntries = $existingEntries->filter(
+                        static fn (EmployeeScheduleShift $entry): bool => (int) $entry->employee_id === (int) $employee->id
+                            && ($entry->scheduled_date?->toDateString() ?? '') === $day['date_string']
+                            && $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT
+                    );
+
+                    foreach ($dayEntries as $entry) {
+                        $shiftId = (int) ($entry->shift_id ?? 0);
+                        if ($shiftId === 0 || ! isset($assignmentTemplatesById[$shiftId])) {
+                            continue;
+                        }
+
+                        $template = $assignmentTemplatesById[$shiftId];
+                        $startTime = self::storedTimeToHm($template->start_time);
+                        $endTime = self::storedTimeToHm($template->end_time);
+                        $currentStart = self::storedTimeToHm($entry->start_time);
+                        $currentEnd = self::storedTimeToHm($entry->end_time);
+
+                        if ($currentStart === $startTime && $currentEnd === $endTime) {
+                            continue;
+                        }
+
+                        $entry->forceFill([
+                            'start_time' => $startTime,
+                            'end_time' => $endTime,
+                        ])->save();
+                        $updated++;
+                    }
+
                     continue;
                 }
 
@@ -467,8 +529,8 @@ final class AdminWeeklySchedule
                         'employee_id' => $employee->id,
                         'scheduled_date' => $day['date_string'],
                         'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
-                        'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
-                        'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
+                        'start_time' => self::storedTimeToHm($shift->start_time),
+                        'end_time' => self::storedTimeToHm($shift->end_time),
                         'shift_id' => $shift->id,
                         'job_title_id' => $employee->job_title_id,
                         'department_id' => $employee->department_id,
@@ -486,7 +548,7 @@ final class AdminWeeklySchedule
             }
         }
 
-        return $created;
+        return ['created' => $created, 'updated' => $updated];
     }
 
     /**

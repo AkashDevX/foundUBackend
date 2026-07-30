@@ -9,6 +9,7 @@ use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
+use App\Support\AdminWeeklySchedule;
 use App\Support\ShiftBreaks;
 use Illuminate\Support\Str;
 use Illuminate\Contracts\View\View;
@@ -549,6 +550,13 @@ class AdminWorkforceController extends Controller
         $breakPayload = $this->normalizeShiftBreaksPayload($request);
 
         $target = Shift::on($conn)->whereKey($shift)->firstOrFail();
+        $previousStart = $target->start_time instanceof \Carbon\CarbonInterface
+            ? $target->start_time->format('H:i')
+            : null;
+        $previousEnd = $target->end_time instanceof \Carbon\CarbonInterface
+            ? $target->end_time->format('H:i')
+            : null;
+
         $target->forceFill([
             'name' => $data['shift_name'],
             'start_time' => $data['shift_start_time'],
@@ -558,6 +566,13 @@ class AdminWorkforceController extends Controller
             'breaks_summary' => $breakPayload['breaks_summary'],
             'notes' => $data['shift_notes'] ?? null,
         ])->save();
+
+        $timesChanged = $previousStart !== $data['shift_start_time']
+            || $previousEnd !== $data['shift_end_time'];
+
+        if ($timesChanged) {
+            AdminWeeklySchedule::syncTemplateTimesToSchedule($conn, $target);
+        }
 
         return redirect()->back()->with('status', 'Shift updated.');
     }

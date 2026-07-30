@@ -11,13 +11,16 @@ use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Http\Controllers\Api\V1\EmployeeTasksController;
 use App\Http\Controllers\Api\V1\EmployeeTimeOffRequestsController;
 use App\Http\Controllers\Api\V1\RequestTimeOffController;
+use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
+use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\TermsAndConditionsController;
 use App\Http\Controllers\Api\V1\TimeClockStatusController;
 use App\Http\Controllers\Api\V1\UpdateEmployeeTaskCompletionController;
+use App\Http\Controllers\Api\V1\VerifyPasswordResetOtpController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +51,9 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
      * Mobile: same X-Company-Slug header for all routes below.
      * - POST /register — never returns a token; client must stay logged-out until user submits POST /login.
      * - POST /login — only email+password grants a Bearer token (status must be active).
+     * - POST /forgot-password — emails a one-time verification code for active accounts.
+     * - POST /forgot-password/verify-otp — verifies OTP and returns a short-lived reset_token.
+     * - POST /forgot-password/reset — sets a new password using reset_token.
      * - Org approval does not log anyone in; RN must not treat approval as auth — user signs in manually.
      * - GET /me, POST /logout — Authorization: Bearer {token} from /login only.
      * - GET /time-clock/status, POST /time-clock/clock-in|clock-out — GPS geofence vs assigned work site.
@@ -58,6 +64,12 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
      */
     Route::post('/register', RegisterEmployeeController::class);
     Route::post('/login', LoginEmployeeController::class);
+    Route::post('/forgot-password', ForgotPasswordController::class)
+        ->middleware('throttle:5,1');
+    Route::post('/forgot-password/verify-otp', VerifyPasswordResetOtpController::class)
+        ->middleware('throttle:10,1');
+    Route::post('/forgot-password/reset', ResetPasswordController::class)
+        ->middleware('throttle:20,1');
     Route::get('/terms', TermsAndConditionsController::class);
 
     Route::middleware('auth:sanctum')->group(function () {

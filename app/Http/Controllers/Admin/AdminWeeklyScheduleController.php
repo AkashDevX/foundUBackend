@@ -274,11 +274,23 @@ class AdminWeeklyScheduleController extends Controller
             ->whereBetween('scheduled_date', [$weekStart->toDateString(), $weekEnd])
             ->get();
 
-        $created = AdminWeeklySchedule::fillWeekFromAssignments($conn, $employees, $weekStart, $existingEntries);
+        $result = AdminWeeklySchedule::fillWeekFromAssignments($conn, $employees, $weekStart, $existingEntries);
+        $created = $result['created'];
+        $updated = $result['updated'];
 
-        $message = $created > 0
-            ? sprintf('Added %d shift block(s) from work assignments.', $created)
-            : 'No empty days were found to fill from assignments.';
+        if ($created > 0 && $updated > 0) {
+            $message = sprintf(
+                'Added %d shift block(s) and updated timing on %d existing block(s) from work assignments.',
+                $created,
+                $updated,
+            );
+        } elseif ($created > 0) {
+            $message = sprintf('Added %d shift block(s) from work assignments.', $created);
+        } elseif ($updated > 0) {
+            $message = sprintf('Updated timing on %d existing shift block(s) from work assignments.', $updated);
+        } else {
+            $message = 'No empty days were found to fill from assignments.';
+        }
 
         return $this->redirectBack($request, $message);
     }

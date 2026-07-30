@@ -47,6 +47,9 @@ setApiConfig({
 - `POST /api/v1/request-organization` — header `X-Platform-Slug: crulynk`; new organisation access request (master DB, **CruLynk platform portal only**)
 - `POST /api/v1/register` — header `X-Company-Slug`; creates **pending** employee (tenant DB)
 - `POST /api/v1/login` — email + password; **Bearer token** only if status is **active**
+- `POST /api/v1/forgot-password` — body `{ email }`; emails a 6-digit OTP if the account is **active** (always returns a generic success message; throttled)
+- `POST /api/v1/forgot-password/verify-otp` — body `{ email, otp }`; returns `{ reset_token }`
+- `POST /api/v1/forgot-password/reset` — body `{ reset_token, password, password_confirmation }` (same password rules as registration)
 - `GET /api/v1/me`, `POST /api/v1/logout` — header `Authorization: Bearer …`
 - `GET /api/v1/time-clock/status` — current clock state + assignment geofence info (`is_on_break`, `can_break_in`, `can_break_out`, open-session breaks)
 - `POST /api/v1/time-clock/clock-in` — body `{ latitude, longitude, accuracy_meters? }` (must be within radius of assigned work site)
