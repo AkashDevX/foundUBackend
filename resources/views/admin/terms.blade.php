@@ -19,7 +19,7 @@
 
     <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
         <header class="border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-5 py-5 sm:px-6">
-            <h2 class="text-base font-bold text-brand-text">Edit terms and conditions</h2>
+            <h2 class="text-base font-bold text-brand-text">Edit Terms and Conditions</h2>
             <p class="mt-1 text-sm text-brand-text-secondary">
                 Applicants see this when they tap “Terms and conditions” on the last create-account step.
                 Use numbered headings (e.g. <span class="font-mono text-xs">1. Introduction</span>) on their own line to create sections.
