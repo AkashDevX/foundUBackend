@@ -1,0 +1,41 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Tenant registry lives on the master connection only.
+     */
+    protected $connection = 'master';
+
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        if (Schema::connection($this->connection)->hasTable('companies')) {
+            return;
+        }
+
+        Schema::connection($this->connection)->create('companies', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('slug')->unique();
+            $table->string('database_name');
+            $table->string('tenant_connection')->unique();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::connection($this->connection)->dropIfExists('companies');
+    }
+};

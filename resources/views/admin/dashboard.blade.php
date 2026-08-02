@@ -2,175 +2,134 @@
 
 @section('title', 'Dashboard')
 
-@section('heading', 'Attendance overview')
+@section('heading', 'Dashboard')
 
-@section('subheading', 'Today’s snapshot — sample data until your API is connected.')
+@section('subheading')
+    {{ $currentCompany->name }}
+@endsection
 
 @section('content')
     @php
-        $kpis = [
-            [
-                'label' => 'Present today',
-                'value' => '142',
-                'hint' => 'of 156 expected',
-                'bar' => 91,
-                'icon' => 'check',
-            ],
-            [
-                'label' => 'Absent',
-                'value' => '8',
-                'hint' => '3 unexcused · 6 on leave',
-                'bar' => null,
-                'icon' => 'x',
-            ],
-            [
-                'label' => 'Late arrivals',
-                'value' => '12',
-                'hint' => 'after 9:15',
-                'bar' => null,
-                'icon' => 'clock',
-            ],
+        /** @var \App\Models\Company $currentCompany */
+        /** @var string|null $tenantError */
+        /** @var array{sections: list<array>, alert_count: int} $notifications */
+        use App\Support\DisplayTimezone;
+        /** @var int $statsTotal */
+        /** @var int $statsPending */
+        /** @var int $statsActive */
+        /** @var int $statsDeclined */
+
+        $severityStyles = [
+            'urgent' => 'border-l-red-500 bg-red-50/60',
+            'warning' => 'border-l-amber-500 bg-amber-50/50',
+            'info' => 'border-l-brand-primary-light bg-brand-surface/40',
+            'success' => 'border-l-emerald-500 bg-emerald-50/50',
         ];
-        $bars = [
-            ['label' => 'Mon', 'pct' => 72],
-            ['label' => 'Tue', 'pct' => 88],
-            ['label' => 'Wed', 'pct' => 65],
-            ['label' => 'Thu', 'pct' => 92],
-            ['label' => 'Fri', 'pct' => 78],
-        ];
-        $departments = [
-            ['name' => 'Operations', 'pct' => 96],
-            ['name' => 'Engineering', 'pct' => 94],
-            ['name' => 'People', 'pct' => 100],
-            ['name' => 'Sales', 'pct' => 89],
-        ];
-        $rows = [
-            ['name' => 'Jordan Lee', 'dept' => 'Engineering', 'time' => '8:42 AM', 'status' => 'On time', 'ok' => true],
-            ['name' => 'Sam Rivera', 'dept' => 'Operations', 'time' => '9:18 AM', 'status' => 'Late', 'ok' => false],
-            ['name' => 'Alex Morgan', 'dept' => 'People', 'time' => '8:55 AM', 'status' => 'On time', 'ok' => true],
-            ['name' => 'Casey Kim', 'dept' => 'Sales', 'time' => '—', 'status' => 'Absent', 'ok' => false],
-            ['name' => 'Riley Chen', 'dept' => 'Engineering', 'time' => '8:31 AM', 'status' => 'On time', 'ok' => true],
+
+        $severityDots = [
+            'urgent' => 'bg-red-500',
+            'warning' => 'bg-amber-500',
+            'info' => 'bg-brand-primary-light',
+            'success' => 'bg-emerald-500',
         ];
     @endphp
 
-    {{-- Welcome --}}
-    <div class="relative mb-10 overflow-hidden rounded-2xl border border-brand-border bg-brand-card shadow-sm">
-        <div class="absolute inset-0 bg-gradient-to-br from-brand-primary via-brand-primary-dark to-brand-primary-dark opacity-[0.96]"></div>
-        <div class="absolute -right-20 -top-28 size-80 rounded-full bg-brand-primary-light/20 blur-3xl"></div>
-        <div class="relative px-6 py-8 sm:px-8 sm:py-9">
-            <p class="text-sm font-medium text-white/80">{{ now()->format('l, F j, Y') }}</p>
-            <h2 class="mt-1 text-2xl font-bold tracking-tight text-brand-white sm:text-3xl">Good morning, Admin</h2>
-            <p class="mt-2 max-w-xl text-sm leading-relaxed text-white/85">
-                You’re viewing sample data. Wire these numbers to your attendance service when you’re ready.
-            </p>
-        </div>
-    </div>
+    @if ($tenantError !== null)
+        <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
+    @endif
 
-    {{-- KPIs --}}
-    <div class="mb-10 grid gap-5 sm:grid-cols-3">
-        @foreach ($kpis as $kpi)
-            <article class="rounded-xl border border-brand-border bg-brand-card p-6 shadow-sm">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">{{ $kpi['label'] }}</p>
-                        <p class="mt-2 text-3xl font-bold tabular-nums text-brand-text">{{ $kpi['value'] }}</p>
-                        <p class="mt-1 text-sm text-brand-text-secondary">{{ $kpi['hint'] }}</p>
-                    </div>
-                    <span class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
-                        @if ($kpi['icon'] === 'check')
-                            <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @elseif ($kpi['icon'] === 'x')
-                            <svg class="size-6 text-brand-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @else
-                            <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        @endif
+    <div class="mb-6 overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
+        <div class="border-b border-brand-border border-l-4 border-l-brand-primary bg-white px-5 py-4 sm:px-6 sm:py-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h2 class="text-xl font-semibold text-brand-text sm:text-2xl">{{ $currentCompany->name }}</h2>
+                    <p class="mt-1.5 text-sm text-brand-text-secondary">
+                        <time datetime="{{ DisplayTimezone::now()->toDateString() }}">{{ DisplayTimezone::now()->format('l, F j, Y') }}</time>
+                        <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
+                        <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
+                    </p>
+                </div>
+                @if (($notifications['alert_count'] ?? 0) > 0)
+                    <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-950 ring-1 ring-amber-200/80">
+                        {{ $notifications['alert_count'] }} alert{{ $notifications['alert_count'] === 1 ? '' : 's' }}
                     </span>
-                </div>
-                @if ($kpi['bar'] !== null)
-                    <div class="mt-5 h-1.5 overflow-hidden rounded-full bg-brand-input">
-                        <div class="h-full rounded-full bg-brand-primary" style="width: {{ $kpi['bar'] }}%"></div>
-                    </div>
                 @endif
-            </article>
-        @endforeach
+            </div>
+        </div>
+
+        <div class="flex flex-col divide-y divide-brand-border sm:flex-row sm:divide-x sm:divide-y-0">
+            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsTotal }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Total employees</span>
+            </div>
+            <a
+                href="{{ route('admin.registrations.index', ['status' => 'pending']) }}"
+                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
+            >
+                <span class="block text-2xl font-medium tabular-nums text-brand-primary-light sm:text-3xl">{{ $statsPending }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Pending registrations</span>
+            </a>
+            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
+                <span class="block text-2xl font-medium tabular-nums text-brand-primary sm:text-3xl">{{ $statsActive }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Active employees</span>
+            </div>
+            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
+                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsDeclined }}</span>
+                <span class="mt-0.5 block text-sm text-brand-text-secondary">Declined</span>
+            </div>
+        </div>
     </div>
 
-    {{-- Week + departments (single panel) --}}
-    <section class="mb-10 rounded-xl border border-brand-border bg-brand-card p-6 shadow-sm sm:p-8">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-                <h3 class="text-base font-semibold text-brand-text">This week</h3>
-                <p class="text-sm text-brand-text-secondary">Check-ins by weekday (sample)</p>
-            </div>
-        </div>
-        <div
-            class="mt-8 flex h-52 items-end justify-between gap-2 border-b border-brand-border pb-2 sm:gap-4"
-            role="img"
-            aria-label="Bar chart: attendance by weekday"
-        >
-            @foreach ($bars as $bar)
-                <div class="flex min-w-0 flex-1 flex-col items-center gap-2">
-                    <div class="flex h-full w-full max-w-[4rem] flex-1 items-end justify-center">
-                        <div
-                            class="w-full rounded-t-lg bg-gradient-to-t from-brand-primary-dark to-brand-primary-light"
-                            style="height: {{ $bar['pct'] }}%"
-                        ></div>
-                    </div>
-                    <span class="text-xs font-medium text-brand-text-secondary">{{ $bar['label'] }}</span>
+    <section class="space-y-4">
+        @foreach ($notifications['sections'] ?? [] as $section)
+            <div class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-brand-border bg-brand-surface/50 px-5 py-4 sm:px-6">
+                    <h3 class="text-base font-bold text-brand-text">{{ $section['title'] }}</h3>
+                    @if (! ($section['unavailable'] ?? false))
+                        <span class="text-xs font-semibold uppercase tracking-wide text-brand-label">
+                            {{ $section['total_count'] }} {{ $section['total_count'] === 1 ? 'item' : 'items' }}
+                        </span>
+                    @endif
                 </div>
-            @endforeach
-        </div>
-        <div class="mt-8 border-t border-brand-border pt-6">
-            <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Attendance by department</p>
-            <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                @foreach ($departments as $d)
-                    <div class="flex items-center justify-between gap-3 rounded-lg bg-brand-input/50 px-4 py-3">
-                        <span class="truncate text-sm text-brand-text-secondary">{{ $d['name'] }}</span>
-                        <span class="shrink-0 text-sm font-semibold tabular-nums text-brand-text">{{ $d['pct'] }}%</span>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    </section>
 
-    {{-- Recent activity --}}
-    <section class="overflow-hidden rounded-xl border border-brand-border bg-brand-card shadow-sm">
-        <div class="border-b border-brand-border px-6 py-5 sm:px-8">
-            <h3 class="text-base font-semibold text-brand-text">Recent check-ins</h3>
-            <p class="mt-0.5 text-sm text-brand-text-secondary">Latest arrivals (mock)</p>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full text-left text-sm">
-                <thead class="bg-brand-input/50 text-xs font-semibold uppercase tracking-wide text-brand-label">
-                    <tr>
-                        <th class="px-6 py-3.5">Person</th>
-                        <th class="px-6 py-3.5">Department</th>
-                        <th class="px-6 py-3.5">Checked in</th>
-                        <th class="px-6 py-3.5">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-brand-border text-brand-text">
-                    @foreach ($rows as $row)
-                        <tr class="transition hover:bg-brand-input/25">
-                            <td class="whitespace-nowrap px-6 py-3.5 font-medium">{{ $row['name'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5 text-brand-text-secondary">{{ $row['dept'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5 tabular-nums text-brand-text-secondary">{{ $row['time'] }}</td>
-                            <td class="whitespace-nowrap px-6 py-3.5">
-                                @if ($row['ok'])
-                                    <span class="inline-flex rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-xs font-semibold text-brand-primary-dark">On time</span>
-                                @elseif ($row['status'] === 'Late')
-                                    <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">Late</span>
+                @if ($section['unavailable'] ?? false)
+                    <div class="px-5 py-6 text-sm text-brand-text-secondary sm:px-6">
+                        {{ $section['unavailable_reason'] ?? 'Not available yet.' }}
+                    </div>
+                @elseif (($section['total_count'] ?? 0) === 0)
+                    <div class="px-5 py-6 text-sm text-brand-text-secondary sm:px-6">
+                        No notifications in this category right now.
+                    </div>
+                @else
+                    <ul class="divide-y divide-brand-border">
+                        @foreach ($section['items'] as $item)
+                            @php
+                                $severity = $item['severity'] ?? 'info';
+                                $rowClass = $severityStyles[$severity] ?? $severityStyles['info'];
+                                $dotClass = $severityDots[$severity] ?? $severityDots['info'];
+                            @endphp
+                            <li class="border-l-4 {{ $rowClass }}">
+                                @if (! empty($item['url']))
+                                    <a href="{{ $item['url'] }}" class="flex items-start gap-3 px-5 py-3.5 text-sm transition hover:bg-white/70 sm:px-6">
+                                        <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
+                                        <span class="text-brand-text">{{ $item['message'] }}</span>
+                                    </a>
                                 @else
-                                    <span class="inline-flex rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-700">Absent</span>
+                                    <div class="flex items-start gap-3 px-5 py-3.5 text-sm sm:px-6">
+                                        <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
+                                        <span class="text-brand-text">{{ $item['message'] }}</span>
+                                    </div>
                                 @endif
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-        <div class="border-t border-brand-border px-6 py-3.5 text-sm text-brand-text-secondary sm:px-8">
-            Showing {{ count($rows) }} mock records
-        </div>
+                            </li>
+                        @endforeach
+                    </ul>
+                    @if (($section['total_count'] ?? 0) > count($section['items']))
+                        <div class="border-t border-brand-border bg-brand-surface/30 px-5 py-3 text-xs text-brand-text-secondary sm:px-6">
+                            Showing {{ count($section['items']) }} of {{ $section['total_count'] }} notifications.
+                        </div>
+                    @endif
+                @endif
+            </div>
+        @endforeach
     </section>
 @endsection

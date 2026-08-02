@@ -47,6 +47,17 @@ return [
             'report' => false,
         ],
 
+        /*
+        | Employee registration uploads (IDs, licences, police check, etc.).
+        | Stored outside public/; serve via authenticated routes later if needed.
+        */
+        'employee_registration' => [
+            'driver' => 'local',
+            'root' => storage_path('app/employee_registration'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

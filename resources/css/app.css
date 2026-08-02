@@ -23,4 +23,177 @@
     --color-brand-link: #2563eb;
     --color-brand-icon: #9ca3af;
     --color-brand-border: #e5e7eb;
+    /* Soft canvas behind cards (admin) */
+    --color-brand-surface: #f0f4f9;
+}
+
+/* Leaflet map on /admin/workforce — match admin typography */
+.leaflet-container {
+    font-family: var(--font-sans);
+    z-index: 0;
+}
+
+.wf-leaflet-pin-outer {
+    background: transparent !important;
+    border: none !important;
+}
+
+.wf-leaflet-pin-inner {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    background: var(--color-brand-primary);
+    border: 3px solid #fff;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    margin: 3px auto 0;
+}
+
+.tc-punch-pin-outer,
+.tc-site-pin-outer {
+    background: transparent !important;
+    border: none !important;
+}
+
+.tc-punch-pin-inner,
+.tc-site-pin-inner {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 9999px;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    margin: 3px auto 0;
+}
+
+.tc-site-pin-inner {
+    background: var(--color-brand-primary);
+}
+
+/* Workforce location tabs */
+[data-wf-tab].wf-tab-active {
+    background: #fff;
+    color: var(--color-brand-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--color-brand-border);
+}
+
+[data-wf-tab]:not(.wf-tab-active) {
+    background: transparent;
+    color: var(--color-brand-text-secondary);
+    border: 1px solid transparent;
+}
+
+[data-wf-tab]:not(.wf-tab-active):hover {
+    background: rgba(255, 255, 255, 0.75);
+    color: var(--color-brand-text);
+}
+
+/* Workforce map: geocode & async feedback */
+[data-wf-map-loader] {
+    transition: opacity 0.2s ease;
+}
+[data-wf-geocode-status].wf-is-geocoding {
+    text-align: start;
+    align-items: flex-start;
+}
+[data-wf-geocode-status].wf-is-geocoding::before {
+    content: '';
+    display: block;
+    flex: none;
+    width: 0.7rem;
+    height: 0.7rem;
+    margin-top: 0.15rem;
+    border: 2px solid rgba(0, 61, 122, 0.2);
+    border-top-color: var(--color-brand-primary);
+    border-radius: 9999px;
+    animation: wf-map-spin 0.65s linear infinite;
+}
+    @keyframes wf-map-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* SweetAlert2 — CruLynk admin dialogs */
+.swal2-container {
+    z-index: 20000 !important;
+}
+
+.crulynk-swal-popup {
+    border-radius: 1rem !important;
+    border: 1px solid var(--color-brand-border) !important;
+    box-shadow: 0 24px 48px rgba(0, 40, 85, 0.18) !important;
+    font-family: var(--font-sans) !important;
+    padding: 0.25rem 0.25rem 1.25rem !important;
+}
+
+.crulynk-swal-title {
+    font-size: 1.125rem !important;
+    font-weight: 700 !important;
+    color: var(--color-brand-text) !important;
+}
+
+.crulynk-swal-text {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    color: var(--color-brand-text-secondary) !important;
+}
+
+.crulynk-swal-confirm,
+.crulynk-swal-cancel {
+    border-radius: 0.75rem !important;
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    padding: 0.625rem 1.25rem !important;
+    box-shadow: none !important;
+}
+
+.crulynk-swal-confirm:focus,
+.crulynk-swal-cancel:focus {
+    box-shadow: 0 0 0 3px rgba(0, 61, 122, 0.25) !important;
+}
+
+.crulynk-swal-toast {
+    border-radius: 0.875rem !important;
+    border: 1px solid var(--color-brand-border) !important;
+    box-shadow: 0 12px 28px rgba(0, 40, 85, 0.12) !important;
+    font-family: var(--font-sans) !important;
+}
+
+.crulynk-swal-toast-title {
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    color: var(--color-brand-text) !important;
+}
+
+.crulynk-swal-error-list {
+    margin: 0;
+    padding-left: 1.15rem;
+    text-align: left;
+    color: var(--color-brand-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.crulynk-swal-error-list li + li {
+    margin-top: 0.35rem;
+}
+
+.wf-addr-suggest-hint--busy {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+.wf-addr-suggest-hint--busy::before {
+    content: '';
+    flex: none;
+    display: block;
+    width: 0.7rem;
+    height: 0.7rem;
+    margin-top: 0.12rem;
+    border: 2px solid rgba(0, 61, 122, 0.2);
+    border-top-color: var(--color-brand-primary);
+    border-radius: 9999px;
+    animation: wf-map-spin 0.65s linear infinite;
 }
