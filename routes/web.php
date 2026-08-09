@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
+use App\Http\Controllers\Admin\AdminTrainingController;
 use App\Http\Controllers\Admin\AdminPayrollController;
 use App\Http\Controllers\Admin\AdminWeeklyScheduleController;
 use App\Http\Controllers\Admin\AdminRegistrationDecisionController;
@@ -87,6 +88,27 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'store'])->name('admin.employees.tasks.store');
     Route::post('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'update'])->name('admin.employees.tasks.update');
     Route::delete('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'destroy'])->name('admin.employees.tasks.destroy');
+
+    Route::get('/admin/training', [AdminTrainingController::class, 'index'])->name('admin.training.index');
+    Route::get('/admin/training/create', [AdminTrainingController::class, 'create'])->name('admin.training.create');
+    Route::post('/admin/training', [AdminTrainingController::class, 'store'])->name('admin.training.store');
+    Route::get('/admin/training/{module}', [AdminTrainingController::class, 'show'])->name('admin.training.show')->whereNumber('module');
+    Route::post('/admin/training/{module}', [AdminTrainingController::class, 'update'])->name('admin.training.update')->whereNumber('module');
+    Route::post('/admin/training/{module}/delete', [AdminTrainingController::class, 'destroy'])->name('admin.training.destroy')->whereNumber('module');
+    Route::post('/admin/training/{module}/pages', [AdminTrainingController::class, 'storePage'])->name('admin.training.pages.store')->whereNumber('module');
+    Route::post('/admin/training/{module}/pages/{page}', [AdminTrainingController::class, 'updatePage'])->name('admin.training.pages.update')->whereNumber(['module', 'page']);
+    Route::post('/admin/training/{module}/pages/{page}/delete', [AdminTrainingController::class, 'destroyPage'])->name('admin.training.pages.destroy')->whereNumber(['module', 'page']);
+    Route::post('/admin/training/{module}/pages/{page}/move', [AdminTrainingController::class, 'movePage'])->name('admin.training.pages.move')->whereNumber(['module', 'page']);
+    Route::post('/admin/training/{module}/pages/{page}/sections', [AdminTrainingController::class, 'storeSection'])->name('admin.training.sections.store')->whereNumber(['module', 'page']);
+    Route::post('/admin/training/{module}/pages/{page}/sections/{section}', [AdminTrainingController::class, 'updateSection'])->name('admin.training.sections.update')->whereNumber(['module', 'page', 'section']);
+    Route::post('/admin/training/{module}/pages/{page}/sections/{section}/delete', [AdminTrainingController::class, 'destroySection'])->name('admin.training.sections.destroy')->whereNumber(['module', 'page', 'section']);
+    Route::post('/admin/training/{module}/pages/{page}/sections/{section}/move', [AdminTrainingController::class, 'moveSection'])->name('admin.training.sections.move')->whereNumber(['module', 'page', 'section']);
+    Route::post('/admin/training/{module}/questions', [AdminTrainingController::class, 'storeQuestion'])->name('admin.training.questions.store')->whereNumber('module');
+    Route::post('/admin/training/{module}/questions/{question}/delete', [AdminTrainingController::class, 'destroyQuestion'])->name('admin.training.questions.destroy')->whereNumber(['module', 'question']);
+    Route::post('/admin/training/{module}/assign', [AdminTrainingController::class, 'assign'])->name('admin.training.assign')->whereNumber('module');
+    Route::get('/admin/training/{module}/results', [AdminTrainingController::class, 'results'])->name('admin.training.results')->whereNumber('module');
+    Route::post('/admin/training/{module}/assignments/{assignment}/reset', [AdminTrainingController::class, 'resetAttempt'])->name('admin.training.assignments.reset')->whereNumber(['module', 'assignment']);
+    Route::post('/admin/training/{module}/assignments/{assignment}/delete', [AdminTrainingController::class, 'destroyAssignment'])->name('admin.training.assignments.destroy')->whereNumber(['module', 'assignment']);
     Route::get('/admin/employees/time-clock', [AdminEmployeeAssignmentController::class, 'timeClock'])->name('admin.employees.time-clock');
     Route::post('/admin/employees/time-clock/timesheets/approve', [AdminEmployeeAssignmentController::class, 'approveTimesheet'])->name('admin.employees.time-clock.timesheets.approve');
     Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
@@ -109,6 +131,7 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/reports/timesheet', [AdminReportsController::class, 'timesheet'])->name('admin.reports.timesheet');
     Route::get('/admin/reports/leave', [AdminReportsController::class, 'leave'])->name('admin.reports.leave');
     Route::get('/admin/reports/headcount', [AdminReportsController::class, 'headcount'])->name('admin.reports.headcount');
+    Route::get('/admin/reports/training', [AdminReportsController::class, 'training'])->name('admin.reports.training');
     Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
         ->name('admin.employees.assignment.update');
     Route::post('/admin/registrations/{companySlug}/{publicId}/accept', [AdminRegistrationDecisionController::class, 'accept'])

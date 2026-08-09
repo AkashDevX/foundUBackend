@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AcknowledgeTrainingMaterialsController;
 use App\Http\Controllers\Api\V1\AppBootstrapController;
 use App\Http\Controllers\Api\V1\AutoClockOutEmployeeController;
 use App\Http\Controllers\Api\V1\BreakEndEmployeeController;
@@ -10,6 +11,8 @@ use App\Http\Controllers\Api\V1\CurrentEmployeeController;
 use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Http\Controllers\Api\V1\EmployeeTasksController;
 use App\Http\Controllers\Api\V1\EmployeeTimeOffRequestsController;
+use App\Http\Controllers\Api\V1\EmployeeTrainingDetailController;
+use App\Http\Controllers\Api\V1\EmployeeTrainingListController;
 use App\Http\Controllers\Api\V1\RequestTimeOffController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
@@ -17,6 +20,7 @@ use App\Http\Controllers\Api\V1\LogoutEmployeeController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
+use App\Http\Controllers\Api\V1\SubmitTrainingAttemptController;
 use App\Http\Controllers\Api\V1\TermsAndConditionsController;
 use App\Http\Controllers\Api\V1\TimeClockStatusController;
 use App\Http\Controllers\Api\V1\UpdateEmployeeTaskCompletionController;
@@ -86,6 +90,15 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::post('/tasks/{task}/reopen', UpdateEmployeeTaskCompletionController::class)
             ->defaults('completed', false)
             ->where(['task' => '[0-9]+']);
+
+        Route::get('/training', EmployeeTrainingListController::class);
+        Route::get('/training/{assignment}', EmployeeTrainingDetailController::class)
+            ->where(['assignment' => '[0-9]+']);
+        Route::post('/training/{assignment}/acknowledge-materials', AcknowledgeTrainingMaterialsController::class)
+            ->where(['assignment' => '[0-9]+']);
+        Route::post('/training/{assignment}/submit', SubmitTrainingAttemptController::class)
+            ->where(['assignment' => '[0-9]+']);
+
         Route::post('/logout', LogoutEmployeeController::class);
 
         Route::get('/time-clock/status', TimeClockStatusController::class);

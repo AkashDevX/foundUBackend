@@ -34,6 +34,11 @@
             'subtitle' => 'Employee distribution by status, type and department.',
             'ref' => 'HCT',
         ],
+        'training' => [
+            'title' => 'Training Results Report',
+            'subtitle' => 'Study completion, quiz scores, and when each step was finished.',
+            'ref' => 'TRN',
+        ],
     ];
     $meta = $reportMeta[$section] ?? ['title' => 'Report', 'subtitle' => '', 'ref' => 'RPT'];
     $periodLabel = $periodLabel ?? '';
@@ -71,6 +76,9 @@
             .report-document tr { page-break-inside: avoid; }
         }
     </style>
+    @if (($section ?? '') === 'training')
+        @vite(['resources/js/employee-autocomplete.js'])
+    @endif
 @endpush
 
 @section('content')
@@ -78,9 +86,9 @@
         <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
-    <div class="mx-auto max-w-4xl">
+    <div class="mx-auto {{ ($section ?? '') === 'training' ? 'max-w-6xl' : 'max-w-4xl' }}">
         {{-- Filters (screen only) --}}
-        <form method="GET" action="{{ route('admin.reports.'.$section) }}" class="report-toolbar mb-5 rounded-2xl border border-brand-border bg-white p-4 shadow-sm sm:p-5">
+        <form method="GET" action="{{ route('admin.reports.'.$section) }}" class="report-toolbar mb-5 overflow-visible rounded-2xl border border-brand-border bg-white p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex items-center gap-2">
                 <svg class="size-4 text-brand-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" /></svg>
                 <h2 class="text-sm font-bold text-brand-text">Report filters</h2>
@@ -194,6 +202,60 @@
                             @foreach ($statusOptions as $opt)
                                 <option value="{{ $opt }}" @selected(($filters['employment_status'] ?? '') === $opt)>{{ $opt }}</option>
                             @endforeach
+                        </select>
+                    </div>
+                @elseif ($section === 'training')
+                    <div>
+                        <label for="f-from" class="{{ $fLabel }}">Activity from</label>
+                        <input type="date" id="f-from" name="from" value="{{ $filters['from'] ?? '' }}" class="{{ $fInput }}">
+                    </div>
+                    <div>
+                        <label for="f-to" class="{{ $fLabel }}">Activity to</label>
+                        <input type="date" id="f-to" name="to" value="{{ $filters['to'] ?? '' }}" class="{{ $fInput }}">
+                    </div>
+                    <div>
+                        <label for="f-module" class="{{ $fLabel }}">Module</label>
+                        <select id="f-module" name="module_id" class="{{ $fInput }}">
+                            <option value="">All modules</option>
+                            @foreach ($moduleOptions as $opt)
+                                <option value="{{ $opt['id'] }}" @selected((string) ($filters['module_id'] ?? '') === (string) $opt['id'])>{{ $opt['title'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="overflow-visible" data-employee-autocomplete data-employees='@json($employeeSearchOptions ?? [])'>
+                        <label for="f-employee" class="{{ $fLabel }}">Employee</label>
+                        <input type="hidden" name="employee_id" value="{{ $filters['employee_id'] ?? '' }}" data-employee-autocomplete-value>
+                        <div class="relative">
+                            <input
+                                type="text"
+                                id="f-employee"
+                                value="{{ $selectedEmployeeLabel ?? '' }}"
+                                data-employee-autocomplete-input
+                                class="{{ $fInput }} pe-9"
+                                placeholder="Search by name or email…"
+                                autocomplete="off"
+                                aria-autocomplete="list"
+                                aria-controls="report-employee-suggestions"
+                            >
+                            <button
+                                type="button"
+                                data-employee-autocomplete-clear
+                                class="absolute right-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-brand-text-secondary/80 transition hover:bg-brand-surface hover:text-brand-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 {{ ($selectedEmployeeLabel ?? '') === '' ? 'hidden' : '' }}"
+                                aria-label="Clear employee"
+                            >
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                            <div id="report-employee-suggestions" data-employee-autocomplete-suggestions class="hidden" role="listbox" aria-label="Employee suggestions"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="f-status" class="{{ $fLabel }}">Status</label>
+                        <select id="f-status" name="status" class="{{ $fInput }}">
+                            <option value="">All statuses</option>
+                            <option value="not_started" @selected(($filters['status'] ?? '') === 'not_started')>Not started</option>
+                            <option value="studying" @selected(($filters['status'] ?? '') === 'studying')>Studying</option>
+                            <option value="in_quiz" @selected(($filters['status'] ?? '') === 'in_quiz')>In quiz</option>
+                            <option value="completed" @selected(($filters['status'] ?? '') === 'completed')>Completed</option>
                         </select>
                     </div>
                 @endif
@@ -766,6 +828,107 @@
                             </div>
                         </section>
                     @endforeach
+                @endif
+
+                {{-- ===================== TRAINING ===================== --}}
+                @if ($section === 'training')
+                    @php
+                        $statusLabels = [
+                            'not_started' => 'Not started',
+                            'studying' => 'Studying',
+                            'in_quiz' => 'In quiz',
+                            'completed' => 'Completed',
+                        ];
+                        $bandLabels = [
+                            'strong' => 'Strong',
+                            'pass' => 'Pass',
+                            'weak' => 'Weak',
+                            'fail' => 'Fail',
+                            'pending' => 'Pending',
+                        ];
+                    @endphp
+
+                    <section>
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">1. Key figures</h3>
+                        <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Assigned</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['assigned'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Completed</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['completed'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">In progress</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['in_progress'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Not started</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['not_started'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Average score</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-primary">{{ $summary['average_percent'] !== null ? $summary['average_percent'].'%' : '—' }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Pass rate</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $summary['pass_rate'] !== null ? $summary['pass_rate'].'%' : '—' }}</dd>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. Employee training activity</h3>
+                        <div class="overflow-x-auto rounded-xl border border-brand-border">
+                            <table class="min-w-full divide-y divide-brand-border">
+                                <thead class="bg-brand-surface/60">
+                                    <tr>
+                                        <th class="{{ $th }}">Module</th>
+                                        <th class="{{ $th }}">Employee</th>
+                                        <th class="{{ $th }}">Status</th>
+                                        <th class="{{ $th }}">Assigned</th>
+                                        <th class="{{ $th }}">Studied materials</th>
+                                        <th class="{{ $th }}">Quiz taken</th>
+                                        <th class="{{ $th }}">Score</th>
+                                        <th class="{{ $th }}">Result</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-brand-border">
+                                    @forelse ($rows as $row)
+                                        <tr>
+                                            <td class="{{ $td }} font-medium">{{ $row['module_title'] }}</td>
+                                            <td class="{{ $td }}">
+                                                <span class="font-medium">{{ $row['employee_name'] }}</span>
+                                                @if (! empty($row['employee_email']))
+                                                    <span class="mt-0.5 block text-xs text-brand-text-secondary">{{ $row['employee_email'] }}</span>
+                                                @endif
+                                            </td>
+                                            <td class="{{ $td }}">{{ $statusLabels[$row['status']] ?? $row['status'] }}</td>
+                                            <td class="{{ $td }} text-xs tabular-nums whitespace-nowrap">{{ DisplayTimezone::formatDateTime($row['assigned_at'] ?? null) ?: '—' }}</td>
+                                            <td class="{{ $td }} text-xs tabular-nums whitespace-nowrap">{{ DisplayTimezone::formatDateTime($row['materials_acknowledged_at'] ?? null) ?: '—' }}</td>
+                                            <td class="{{ $td }} text-xs tabular-nums whitespace-nowrap">{{ DisplayTimezone::formatDateTime($row['submitted_at'] ?? null) ?: '—' }}</td>
+                                            <td class="{{ $td }} tabular-nums whitespace-nowrap">
+                                                @if ($row['percent'] !== null)
+                                                    <span class="font-semibold">{{ rtrim(rtrim(number_format((float) $row['percent'], 1), '0'), '.') }}%</span>
+                                                    <span class="text-xs text-brand-text-secondary">({{ $row['score'] }}/{{ $row['max_score'] }})</span>
+                                                @else
+                                                    —
+                                                @endif
+                                            </td>
+                                            <td class="{{ $td }}">
+                                                {{ $bandLabels[$row['band'] ?? 'pending'] ?? 'Pending' }}
+                                            </td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td colspan="8" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No training assignments match these filters.</td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
                 @endif
             </div>
 

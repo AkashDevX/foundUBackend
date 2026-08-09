@@ -9,11 +9,14 @@ use App\Models\OrganizationPortalUser;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
 use App\Models\TimesheetApproval;
+use App\Models\TrainingModule;
+use App\Support\AdminTraining;
 use App\Support\PayrollLineTotals;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 class AdminReportsController extends Controller
 {
@@ -456,6 +459,135 @@ class AdminReportsController extends Controller
                 'department' => $department,
                 'employment_type' => $employmentType,
                 'employment_status' => $employmentStatus,
+            ],
+        ]));
+    }
+
+    /**
+     * Training — study acknowledgment, quiz completion, and scores across modules.
+     */
+    public function training(Request $request): View
+    {
+        $ctx = $this->pageContext($request);
+        $from = $this->parseDate($request, 'from');
+        $to = $this->parseDate($request, 'to');
+        $moduleId = (int) $request->query('module_id', 0);
+        $employeeId = (int) $request->query('employee_id', 0);
+        $status = (string) $request->query('status', '');
+        $status = in_array($status, ['not_started', 'studying', 'in_quiz', 'completed'], true) ? $status : '';
+
+        $moduleOptions = collect();
+        $employeeSearchOptions = collect();
+        $selectedEmployeeLabel = '';
+        $rows = collect();
+        $summary = [
+            'assigned' => 0,
+            'completed' => 0,
+            'in_progress' => 0,
+            'not_started' => 0,
+            'average_percent' => null,
+            'pass_rate' => null,
+        ];
+
+        try {
+            $conn = $ctx['connection'];
+
+            $moduleOptions = TrainingModule::on($conn)
+                ->orderBy('title')
+                ->get(['id', 'title'])
+                ->map(static fn (TrainingModule $m): array => [
+                    'id' => $m->id,
+                    'title' => $m->title,
+                ]);
+
+            $employees = Employee::on($conn)
+                ->orderBy('first_name')
+                ->orderBy('last_name')
+                ->get(['id', 'full_legal_name', 'first_name', 'last_name', 'email']);
+
+            $employeeSearchOptions = $employees->map(function (Employee $e): array {
+                $label = $this->employeeName($e);
+                $email = trim((string) ($e->email ?? ''));
+
+                return [
+                    'id' => (string) $e->id,
+                    'label' => $label,
+                    'email' => $email,
+                    'search' => strtolower(trim($label.' '.$email)),
+                ];
+            })->values();
+
+            if ($employeeId > 0) {
+                $selected = $employees->firstWhere('id', $employeeId);
+                $selectedEmployeeLabel = $selected ? $this->employeeName($selected) : '';
+            }
+
+            $allRows = AdminTraining::reportRows(
+                $conn,
+                $moduleId > 0 ? $moduleId : null,
+                $employeeId > 0 ? $employeeId : null,
+            );
+
+            $filtered = collect($allRows)->filter(function (array $row) use ($from, $to, $status): bool {
+                if ($status !== '' && (string) ($row['status'] ?? '') !== $status) {
+                    return false;
+                }
+
+                if (! $from && ! $to) {
+                    return true;
+                }
+
+                $dates = array_filter([
+                    $row['assigned_at'] ?? null,
+                    $row['materials_acknowledged_at'] ?? null,
+                    $row['submitted_at'] ?? null,
+                ]);
+
+                if ($dates === []) {
+                    return false;
+                }
+
+                foreach ($dates as $date) {
+                    if (! $date instanceof CarbonInterface) {
+                        continue;
+                    }
+                    if ($from && $date->lt($from)) {
+                        continue;
+                    }
+                    if ($to && $date->gt($to->copy()->endOfDay())) {
+                        continue;
+                    }
+
+                    return true;
+                }
+
+                return false;
+            })->values();
+
+            $rows = $filtered->sortBy([
+                ['module_title', 'asc'],
+                ['employee_name', 'asc'],
+            ])->values();
+
+            $summary = AdminTraining::reportSummary($rows->all());
+        } catch (\Throwable $e) {
+            $ctx['tenantError'] = $e->getMessage();
+        }
+
+        return view('admin.reports', array_merge($ctx, [
+            'section' => 'training',
+            'rows' => $rows,
+            'summary' => $summary,
+            'moduleOptions' => $moduleOptions,
+            'employeeSearchOptions' => $employeeSearchOptions,
+            'selectedEmployeeLabel' => $selectedEmployeeLabel,
+            'periodLabel' => $this->periodLabel($from, $to, 'All training assignments'),
+            'filters' => [
+                'from' => $from?->toDateString(),
+                'to' => $to?->toDateString(),
+                'module_id' => $moduleId > 0 ? $moduleId : '',
+                'employee_id' => $employeeId > 0 ? $employeeId : '',
+                'status' => $status,
             ],
         ]));
     }

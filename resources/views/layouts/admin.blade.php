@@ -84,21 +84,26 @@
                         <a href="{{ route('admin.payroll.holidays') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.holidays*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Public holidays</a>
                     </div>
 
-                    <button type="button" id="employees-nav-toggle" class="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? $navActive : $navInactive }} w-full" @if(request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*')) aria-current="page" @endif aria-expanded="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? 'true' : 'false' }}">
-                        @if(request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*'))
+                    @php
+                        $employeesNavOpen = (request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*'))
+                            || request()->routeIs('admin.training*');
+                    @endphp
+                    <button type="button" id="employees-nav-toggle" class="{{ $employeesNavOpen ? $navActive : $navInactive }} w-full" @if($employeesNavOpen) aria-current="page" @endif aria-expanded="{{ $employeesNavOpen ? 'true' : 'false' }}">
+                        @if($employeesNavOpen)
                             <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
                         @endif
-                        <span class="{{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                        <span class="{{ $employeesNavOpen ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
                             <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 01-4.681-3.72 8.986 8.986 0 0115.863 0 3 3 0 01-4.681 3.72z" /></svg>
                         </span>
                         <span class="flex-1 text-left">Employees</span>
                         <svg class="size-4 transition-transform" id="employees-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    <div id="employees-nav-submenu" class="ml-12 space-y-1 pb-1 {{ request()->routeIs('admin.employees*') && ! request()->routeIs('admin.employees.time-clock*') ? '' : 'hidden' }}">
+                    <div id="employees-nav-submenu" class="ml-12 space-y-1 pb-1 {{ $employeesNavOpen ? '' : 'hidden' }}">
                         <a href="{{ route('admin.employees.assignments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.assignments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work assignments</a>
                         <a href="{{ route('admin.employees.profiles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.profiles') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Employee profiles</a>
                         <a href="{{ route('admin.employees.weekly-schedule') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.weekly-schedule') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Weekly schedule</a>
                         <a href="{{ route('admin.employees.tasks') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.tasks*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Tasks</a>
+                        <a href="{{ route('admin.training.index') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.training*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Training</a>
                     </div>
 
                     <button type="button" id="payroll-time-nav-toggle" class="{{ $payrollActive ? $navActive : $navInactive }} w-full" @if($payrollActive) aria-current="page" @endif aria-expanded="{{ $payrollActive ? 'true' : 'false' }}">
@@ -132,6 +137,7 @@
                         <a href="{{ route('admin.reports.timesheet') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.timesheet') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Timesheet &amp; hours</a>
                         <a href="{{ route('admin.reports.leave') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.leave') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Leave report</a>
                         <a href="{{ route('admin.reports.headcount') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.headcount') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Workforce headcount</a>
+                        <a href="{{ route('admin.reports.training') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.reports.training') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Training results</a>
                     </div>
                 </nav>
             </div>
