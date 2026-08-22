@@ -25,7 +25,7 @@ return [
     |
     */
 
-    'geofence_exit_extra_meters' => (int) env('TIME_CLOCK_GEOFENCE_EXIT_EXTRA_METERS', 50),
+    'geofence_exit_extra_meters' => (int) env('TIME_CLOCK_GEOFENCE_EXIT_EXTRA_METERS', 0),
 
     /*
     |--------------------------------------------------------------------------

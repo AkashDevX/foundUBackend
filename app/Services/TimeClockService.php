@@ -318,18 +318,34 @@ class TimeClockService
 
             $session = $this->assertCanClockOut($employee);
 
-            $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (! $location instanceof WorkLocation) {
-                throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
+            // Prefer the CURRENT assigned work location so mid-shift reassignment
+            // can auto clock-out when the employee is outside the new site
+            // (even if they are still at the original clock-in coordinates).
+            $liveLocation = $employee->workLocation;
+            $sessionLocation = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
+
+            if ($liveLocation instanceof WorkLocation && $this->workLocationHasCoordinates($liveLocation)) {
+                $location = $liveLocation;
+                $geofence = $this->evaluateGeofence(
+                    $location,
+                    $device['latitude'],
+                    $device['longitude'],
+                    $device['accuracy_meters'] ?? null,
+                );
+            } else {
+                $location = $sessionLocation;
+                if (! $location instanceof WorkLocation) {
+                    throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
+                }
+                $geofence = $this->evaluateSessionGeofence(
+                    $session['clock_in'],
+                    $location,
+                    $device['latitude'],
+                    $device['longitude'],
+                    $device['accuracy_meters'] ?? null,
+                );
             }
 
-            $geofence = $this->evaluateSessionGeofence(
-                $session['clock_in'],
-                $location,
-                $device['latitude'],
-                $device['longitude'],
-                $device['accuracy_meters'] ?? null,
-            );
             $this->assertOutsideGeofenceForAutoClockOut($geofence, $device['accuracy_meters'] ?? null);
 
             if ($session['is_on_break']) {
