@@ -661,48 +661,21 @@
             <div class="shrink-0 border-b border-brand-border px-6 py-6 sm:px-7">
                 <form method="post" action="{{ route('admin.workforce.shifts.store') }}" class="space-y-4">
                     @csrf
-                    <div class="{{ $row }}">
-                        <label for="shift-name" class="{{ $lbl }}">Name</label>
-                        <input id="shift-name" name="shift_name" required maxlength="160" value="{{ old('shift_name') }}" class="{{ $in }}" placeholder="e.g. Morning" />
-                    </div>
-                    <div class="{{ $row }}">
-                        <span class="{{ $lbl }}">Hours</span>
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <div>
-                                <label for="shift-start" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Start</label>
-                                <input id="shift-start" name="shift_start_time" type="time" required value="{{ old('shift_start_time') }}" class="{{ $in }}" />
-                            </div>
-                            <div>
-                                <label for="shift-end" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">End</label>
-                                <input id="shift-end" name="shift_end_time" type="time" required value="{{ old('shift_end_time') }}" class="{{ $in }}" />
-                            </div>
-                        </div>
-                    </div>
-                    <div class="{{ $row }}">
-                        <span class="{{ $lbl }}">Days</span>
-                        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                            @foreach ($shiftDaysMap as $dayKey => $dayLabel)
-                                <label class="{{ $shiftDayLabel }}">
-                                    <span class="relative z-0">{{ $dayLabel }}</span>
-                                    <input type="checkbox" name="shift_days[]" value="{{ $dayKey }}" class="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0" @checked(in_array($dayKey, old('shift_days', []), true)) />
-                                </label>
-                            @endforeach
-                        </div>
-                    </div>
-                    <div class="{{ $row }}">
-                        <div class="sm:col-span-1">
-                            @include('admin.partials.shift-breaks-fields', [
-                                'breaks' => old('shift_breaks', [['label' => '', 'minutes' => '', 'paid' => false]]),
-                                'lbl' => $lbl,
-                                'in' => $in,
-                                'fieldId' => 'shift-breaks-create',
-                            ])
-                        </div>
-                    </div>
-                    <div class="{{ $row }}">
-                        <label for="shift-notes" class="{{ $lbl }}">Notes</label>
-                        <textarea id="shift-notes" name="shift_notes" rows="2" maxlength="2000" class="{{ $in }} min-h-[4.5rem] resize-y" placeholder="Optional roster notes">{{ old('shift_notes') }}</textarea>
-                    </div>
+                    @include('admin.partials.shift-create-fields', [
+                        'idPrefix' => 'shift',
+                        'fieldInputClass' => $in,
+                        'fieldLabelClass' => $lbl,
+                        'fieldRowClass' => $row,
+                        'shiftDaysMap' => $shiftDaysMap,
+                        'shiftDayLabel' => $shiftDayLabel,
+                        'selectedDays' => old('shift_days', []),
+                        'nameValue' => old('shift_name'),
+                        'startValue' => old('shift_start_time'),
+                        'endValue' => old('shift_end_time'),
+                        'notesValue' => old('shift_notes'),
+                        'breaks' => old('shift_breaks', [['label' => '', 'minutes' => '', 'paid' => false]]),
+                        'breaksFieldId' => 'shift-breaks-create',
+                    ])
                     <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-3 text-sm font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
                         Add shift
                     </button>

@@ -11,6 +11,7 @@ export default defineConfig({
                 'resources/js/workforce.js',
                 'resources/js/registration-admin-profile.js',
                 'resources/js/employee-autocomplete.js',
+                'resources/js/shift-breaks.js',
                 'resources/js/admin-time-clock-timesheet.js',
                 'resources/js/admin-time-clock-punch-map.js',
                 'resources/js/admin-time-clock-row-actions.js',

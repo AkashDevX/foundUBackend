@@ -14,7 +14,9 @@ use App\Models\Shift;
 use App\Models\TimeOffRequest;
 use App\Models\WorkLocation;
 use App\Support\AdminWeeklySchedule;
+use App\Support\AdminTimeOffRequestReview;
 use App\Support\PayrollEmployeeRates;
+use App\Support\WorkforceShifts;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -79,6 +81,80 @@ class AdminWeeklyScheduleController extends Controller
         return $this->redirectBack($request, $message);
     }
 
+    public function approvePendingTimeOffRequest(Request $request, int $timeOffRequest): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+        $reviewedBy = $portalUser->name ?: $portalUser->email;
+
+        $data = $request->validate([
+            'leave_type_id' => ['nullable', 'integer'],
+            'leave_hours' => ['nullable', 'numeric', 'min:0.25', 'max:24', 'required_with:leave_type_id'],
+        ]);
+
+        /** @var TimeOffRequest $req */
+        $req = TimeOffRequest::on($conn)->with('employee')->findOrFail($timeOffRequest);
+
+        if ($req->status !== TimeOffRequest::STATUS_PENDING) {
+            return $this->redirectToDashboard('This time-off request is no longer pending.');
+        }
+
+        /** @var Employee|null $employee */
+        $employee = $req->employee;
+        if ($employee === null || ($employee->employment_status ?? '') !== 'active') {
+            throw ValidationException::withMessages([
+                'time_off_request' => 'Time-off requests can only be approved for active employees.',
+            ]);
+        }
+
+        $scheduledDate = $req->requested_date?->toDateString();
+        if ($scheduledDate === null || $scheduledDate === '') {
+            throw ValidationException::withMessages([
+                'time_off_request' => 'This time-off request has no valid date.',
+            ]);
+        }
+
+        $leaveTypeId = ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null;
+        if ($leaveTypeId !== null) {
+            $isActiveType = LeaveType::on($conn)
+                ->where('id', $leaveTypeId)
+                ->where('is_active', true)
+                ->exists();
+
+            $isEntitled = EmployeeLeaveEntitlement::on($conn)
+                ->where('employee_id', $employee->id)
+                ->where('leave_type_id', $leaveTypeId)
+                ->exists();
+
+            if (! $isActiveType || ! $isEntitled) {
+                throw ValidationException::withMessages([
+                    'leave_type_id' => 'This employee is not entitled to the selected leave type.',
+                ]);
+            }
+        }
+
+        $payload = AdminTimeOffRequestReview::dayOffPayload(
+            $req,
+            $employee,
+            $leaveTypeId,
+            $leaveTypeId !== null ? (float) $data['leave_hours'] : null,
+        );
+
+        $this->clearShiftsForDay($conn, (int) $employee->id, $scheduledDate);
+        $this->clearTimeOffForDay($conn, (int) $employee->id, $scheduledDate);
+
+        /** @var EmployeeScheduleShift $entry */
+        $entry = EmployeeScheduleShift::on($conn)->create(
+            $this->scheduleEntryAttributes($payload, $employee, $portalUser->name)
+        );
+        $this->syncTimeOffLeaveRecord($conn, $entry, $payload, $employee, $reviewedBy);
+        $this->approveTimeOffRequest($conn, (int) $req->id, $employee, $entry, $reviewedBy);
+
+        return $this->redirectToDashboard('Time-off request approved.');
+    }
+
     public function rejectTimeOffRequest(Request $request, int $timeOffRequest): RedirectResponse
     {
         /** @var OrganizationPortalUser $portalUser */
@@ -98,15 +174,13 @@ class AdminWeeklyScheduleController extends Controller
                 ? trim((string) $data['decision_note'])
                 : null;
 
-            $req->fill([
-                'status' => TimeOffRequest::STATUS_REJECTED,
-                'decision_note' => $note,
-                'reviewed_by' => $portalUser->name ?: $portalUser->email,
-                'reviewed_at' => now(),
-            ])->save();
+            $req->fill(AdminTimeOffRequestReview::rejectAttributes(
+                $note,
+                $portalUser->name ?: $portalUser->email,
+            ))->save();
         }
 
-        return $this->redirectBack($request, 'Time-off request rejected.');
+        return $this->redirectToDashboard('Time-off request rejected.');
     }
 
     /**
@@ -120,13 +194,14 @@ class AdminWeeklyScheduleController extends Controller
             return;
         }
 
-        $req->fill([
-            'status' => TimeOffRequest::STATUS_APPROVED,
-            'reviewed_by' => $reviewedBy,
-            'reviewed_at' => now(),
-            'schedule_shift_id' => $entry->id,
-            'leave_record_id' => $entry->leave_record_id,
-        ])->save();
+        $req->fill(AdminTimeOffRequestReview::approveAttributes($reviewedBy, $entry))->save();
+    }
+
+    private function redirectToDashboard(string $message): RedirectResponse
+    {
+        return redirect()
+            ->route('admin.dashboard')
+            ->with('status', $message);
     }
 
     public function updateShift(Request $request, int $scheduleShift): RedirectResponse
@@ -168,6 +243,13 @@ class AdminWeeklyScheduleController extends Controller
         }
 
         $entry->fill($this->scheduleEntryAttributes($data, $employee));
+
+        // Day-off reason must not carry over when converting to a scheduled shift.
+        if ($wasTimeOff && $data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
+            $entry->notes = null;
+            $entry->status = null;
+        }
+
         $entry->save();
 
         $this->syncTimeOffLeaveRecord($conn, $entry, $data, $employee, $createdBy);
@@ -225,6 +307,7 @@ class AdminWeeklyScheduleController extends Controller
                 EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
                 EmployeeScheduleShift::STATUS_NO_SHOW,
             ])],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         /** @var EmployeeScheduleShift $entry */
@@ -238,6 +321,9 @@ class AdminWeeklyScheduleController extends Controller
 
         $status = $data['status'] ?? null;
         $entry->status = $status;
+        $entry->notes = $status !== null && isset($data['notes']) && trim((string) $data['notes']) !== ''
+            ? trim((string) $data['notes'])
+            : null;
 
         /** @var OrganizationPortalUser|null $portalUser */
         $portalUser = $request->user('portal');
@@ -322,31 +408,6 @@ class AdminWeeklyScheduleController extends Controller
 
         $schedule = AdminWeeklySchedule::buildSchedule($employees, $weekStart, $scheduleEntries);
 
-        $pendingTimeOffRequests = TimeOffRequest::on($conn)
-            ->where('status', TimeOffRequest::STATUS_PENDING)
-            ->with('employee')
-            ->orderBy('requested_date')
-            ->orderBy('id')
-            ->get();
-
-        $openTimeOffRequest = null;
-        $openRequestId = $request->query('open_time_off_request');
-        if (is_string($openRequestId) && ctype_digit($openRequestId)) {
-            /** @var TimeOffRequest|null $req */
-            $req = TimeOffRequest::on($conn)->with('employee')->find((int) $openRequestId);
-            if ($req !== null
-                && $req->status === TimeOffRequest::STATUS_PENDING
-                && $req->employee !== null) {
-                $openTimeOffRequest = [
-                    'id' => $req->id,
-                    'requested_date' => $req->requested_date?->toDateString(),
-                    'employee_public_id' => $req->employee->public_id,
-                    'employee_name' => $req->employee->full_legal_name ?: $req->employee->email,
-                    'reason' => $req->reason,
-                ];
-            }
-        }
-
         $departmentId = $request->query('department_id');
         $workLocationId = $request->query('work_location_id');
         $employeePublicId = $request->query('employee');
@@ -372,11 +433,10 @@ class AdminWeeklyScheduleController extends Controller
             'weekDays' => $schedule['days'],
             'scheduleRows' => $schedule['rows'],
             'scheduleStats' => $schedule['stats'],
-            'pendingTimeOffRequests' => $pendingTimeOffRequests,
-            'openTimeOffRequest' => $openTimeOffRequest,
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
-            'shiftTemplates' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
+            'shiftTemplates' => ($shiftTemplates = Shift::on($conn)->where('is_active', true)->orderBy('name')->get()),
+            'shiftCatalog' => WorkforceShifts::catalogForConnection($conn, $shiftTemplates),
             'leaveBalances' => AdminWeeklySchedule::leaveBalancesForEmployees($conn, $employees),
             'employees' => Employee::on($conn)
                 ->where('employment_status', 'active')
@@ -504,13 +564,13 @@ class AdminWeeklyScheduleController extends Controller
                 'leave_type_id' => ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null,
             ];
         } else {
+            // Do not overwrite notes — status comments (sick call out / no show) live here.
             $attributes = [
                 ...$attributes,
                 'start_time' => $data['start_time'],
                 'end_time' => $data['end_time'],
                 'shift_id' => $data['shift_id'],
                 'work_location_id' => $data['work_location_id'],
-                'notes' => null,
                 'leave_type_id' => null,
             ];
         }
@@ -702,6 +762,11 @@ class AdminWeeklyScheduleController extends Controller
         $rates = PayrollEmployeeRates::forEmployee($conn, $employee);
         $ordinary = PayrollEmployeeRates::ordinaryHourlyRate($rates);
 
+        $comment = $entry->notes !== null ? trim((string) $entry->notes) : '';
+        $leaveNotes = $comment !== ''
+            ? (str_starts_with(strtolower($comment), 'sick call out') ? $comment : 'Sick call out: '.$comment)
+            : 'Sick call out';
+
         $attributes = [
             'employee_id' => $employee->id,
             'leave_type' => EmployeeLeaveRecord::TYPE_SICK,
@@ -709,7 +774,7 @@ class AdminWeeklyScheduleController extends Controller
             'leave_date' => $entry->scheduled_date->toDateString(),
             'hours' => round($hours, 2),
             'hourly_rate' => $isPaid && $ordinary > 0 ? $ordinary : null,
-            'notes' => 'Sick call out',
+            'notes' => $leaveNotes,
         ];
 
         $existing = $entry->leave_record_id !== null

@@ -21,7 +21,7 @@
         ],
         'timesheet' => [
             'title' => 'Timesheet & Hours Report',
-            'subtitle' => 'Worked hours per employee from recorded timesheets.',
+            'subtitle' => 'Clocked start and finish times with hours for each shift.',
             'ref' => 'TSH',
         ],
         'leave' => [
@@ -86,7 +86,11 @@
         <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
+<<<<<<< HEAD
     <div class="mx-auto {{ ($section ?? '') === 'training' ? 'max-w-6xl' : 'max-w-4xl' }}">
+=======
+    <div class="mx-auto {{ $section === 'timesheet' ? 'max-w-5xl' : 'max-w-4xl' }}">
+>>>>>>> origin/main
         {{-- Filters (screen only) --}}
         <form method="GET" action="{{ route('admin.reports.'.$section) }}" class="report-toolbar mb-5 overflow-visible rounded-2xl border border-brand-border bg-white p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex items-center gap-2">
@@ -619,63 +623,81 @@
 
                 {{-- ===================== TIMESHEET ===================== --}}
                 @if ($section === 'timesheet')
-                    @php $totalHours = $rows->sum('hours'); @endphp
+                    @php
+                        $shifts = $shifts ?? collect();
+                        $stats = $stats ?? [
+                            'hours' => $shifts->sum('hours'),
+                            'employees' => $shifts->pluck('employee')->unique()->count(),
+                            'shifts' => $shifts->count(),
+                            'days' => $shifts->pluck('work_date')->unique()->count(),
+                        ];
+                        $totalHours = $stats['hours'];
+                    @endphp
 
                     <section>
                         <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">1. Key figures</h3>
-                        <div class="grid gap-3 sm:grid-cols-3">
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                             <div class="{{ $statBlock }}">
                                 <dt class="text-xs text-brand-text-secondary">Total hours</dt>
                                 <dd class="mt-1 text-xl font-bold tabular-nums text-brand-primary">{{ $hrs($totalHours) }}</dd>
                             </div>
                             <div class="{{ $statBlock }}">
                                 <dt class="text-xs text-brand-text-secondary">Employees with hours</dt>
-                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $rows->count() }}</dd>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $stats['employees'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Shifts</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $stats['shifts'] }}</dd>
                             </div>
                             <div class="{{ $statBlock }}">
                                 <dt class="text-xs text-brand-text-secondary">Days worked</dt>
-                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $rows->sum('days') }}</dd>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $stats['days'] }}</dd>
                             </div>
                         </div>
                     </section>
 
                     <section class="mt-8">
-                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. Hours by employee</h3>
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. Shift times and hours</h3>
+                        <p class="mb-4 text-xs text-brand-text-secondary">Each row is one clocked shift, with start time, finish time, and hours for that shift.</p>
                         <div class="overflow-hidden rounded-xl border border-brand-border">
                             <table class="min-w-full divide-y divide-brand-border">
                                 <thead class="bg-brand-surface/60">
                                     <tr>
-                                        <th class="{{ $th }} w-10">#</th>
                                         <th class="{{ $th }}">Employee</th>
-                                        <th class="{{ $th }} text-right">Days</th>
-                                        <th class="{{ $th }} text-right">Sessions</th>
-                                        <th class="{{ $th }} text-right">Hours</th>
+                                        <th class="{{ $th }}">Date</th>
+                                        <th class="{{ $th }}">Start time</th>
+                                        <th class="{{ $th }}">Finish time</th>
+                                        <th class="{{ $th }} text-right">Total hours</th>
+                                        <th class="{{ $th }}">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-brand-border">
-                                    @forelse ($rows as $i => $row)
+                                    @forelse ($shifts as $shift)
                                         <tr>
-                                            <td class="{{ $td }} tabular-nums text-brand-text-secondary">{{ $i + 1 }}</td>
-                                            <td class="{{ $td }} font-medium">{{ $row['employee'] }}</td>
-                                            <td class="{{ $td }} text-right tabular-nums">{{ $row['days'] }}</td>
-                                            <td class="{{ $td }} text-right tabular-nums">{{ $row['sessions'] }}</td>
-                                            <td class="{{ $td }} text-right font-semibold tabular-nums">{{ $hrs($row['hours']) }}</td>
+                                            <td class="{{ $td }} font-medium">{{ $shift['employee'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $shift['date_label'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $shift['start_time'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $shift['finish_time'] }}</td>
+                                            <td class="{{ $td }} text-right font-semibold tabular-nums">{{ $hrs($shift['hours']) }}</td>
+                                            <td class="{{ $td }}">{{ $shift['status_label'] }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="5" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No timesheets were recorded in this period.</td></tr>
+                                        <tr><td colspan="6" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No clocked shifts were recorded in this period.</td></tr>
                                     @endforelse
                                 </tbody>
-                                @if ($rows->isNotEmpty())
+                                @if ($shifts->isNotEmpty())
                                     <tfoot class="border-t-2 border-brand-border bg-brand-surface/40">
                                         <tr>
                                             <td class="{{ $td }} font-bold" colspan="4">Total hours</td>
                                             <td class="{{ $td }} text-right font-bold tabular-nums text-brand-primary">{{ $hrs($totalHours) }}</td>
+                                            <td class="{{ $td }}"></td>
                                         </tr>
                                     </tfoot>
                                 @endif
                             </table>
                         </div>
                     </section>
+
                 @endif
 
                 {{-- ===================== LEAVE ===================== --}}

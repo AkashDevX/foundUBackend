@@ -77,9 +77,9 @@ class TimeClockService
         return [
             'is_clocked_in' => $isClockedIn,
             'is_on_break' => $isOnBreak,
-            'can_clock_in' => ! $isClockedIn && $assignmentReady && $shiftIssue === null,
+            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null,
             'can_clock_out' => $isClockedIn,
-            'can_break_in' => $isClockedIn && ! $isOnBreak,
+            'can_break_in' => $isClockedIn && !$isOnBreak,
             'can_break_out' => $isOnBreak,
             'geofence_radius_meters' => $this->geofenceRadiusMeters(),
             'open_session' => $isClockedIn && $clockInEntry instanceof TimeClockEntry
@@ -134,7 +134,7 @@ class TimeClockService
             $scheduledShift = $this->assertScheduledShiftForClockIn($employee);
 
             $location = $this->resolveClockInWorkLocation($employee, $scheduledShift);
-            if (! $location instanceof WorkLocation) {
+            if (!$location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -176,7 +176,7 @@ class TimeClockService
             $session = $this->assertCanClockOut($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (! $location instanceof WorkLocation) {
+            if (!$location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -231,7 +231,7 @@ class TimeClockService
             $session = $this->assertCanBreakStart($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (! $location instanceof WorkLocation) {
+            if (!$location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -274,7 +274,7 @@ class TimeClockService
             $session = $this->assertCanBreakEnd($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (! $location instanceof WorkLocation) {
+            if (!$location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -334,7 +334,11 @@ class TimeClockService
                 );
             } else {
                 $location = $sessionLocation;
+<<<<<<< HEAD
                 if (! $location instanceof WorkLocation) {
+=======
+                if (!$location instanceof WorkLocation) {
+>>>>>>> origin/main
                     throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
                 }
                 $geofence = $this->evaluateSessionGeofence(
@@ -479,7 +483,7 @@ class TimeClockService
         }
 
         $last = $entries->first();
-        if ($last === null || ! in_array($last->event_type, TimeClockEntry::ON_SHIFT_EVENTS, true)) {
+        if ($last === null || !in_array($last->event_type, TimeClockEntry::ON_SHIFT_EVENTS, true)) {
             return null;
         }
 
@@ -496,7 +500,7 @@ class TimeClockService
 
         $sessionEntries = array_reverse($sessionEntries);
         $clockIn = $sessionEntries[0] ?? null;
-        if (! $clockIn instanceof TimeClockEntry || $clockIn->event_type !== TimeClockEntry::EVENT_CLOCK_IN) {
+        if (!$clockIn instanceof TimeClockEntry || $clockIn->event_type !== TimeClockEntry::EVENT_CLOCK_IN) {
             return null;
         }
 
@@ -534,7 +538,7 @@ class TimeClockService
             );
         }
 
-        if (! $this->workLocationHasCoordinates($employee->workLocation)) {
+        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
             throw new TimeClockException(
                 'work_location_missing_coordinates',
                 'Your assigned work site does not have map coordinates yet. Contact your administrator.',
@@ -560,7 +564,7 @@ class TimeClockService
         }
 
         $shift = TimeClockScheduledShift::findShiftForClockIn($employee);
-        if (! $shift instanceof EmployeeScheduleShift) {
+        if (!$shift instanceof EmployeeScheduleShift) {
             throw new TimeClockException(
                 TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY,
                 "You don't have any shifts today.",
@@ -601,7 +605,7 @@ class TimeClockService
             );
         }
 
-        if (! $this->workLocationHasCoordinates($employee->workLocation)) {
+        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
             throw new TimeClockException(
                 'work_location_missing_coordinates',
                 'Your assigned work site does not have map coordinates yet.',
@@ -637,7 +641,7 @@ class TimeClockService
             );
         }
 
-        if (! $this->workLocationHasCoordinates($employee->workLocation)) {
+        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
             throw new TimeClockException(
                 'work_location_missing_coordinates',
                 'Your assigned work site does not have map coordinates yet.',
@@ -680,7 +684,7 @@ class TimeClockService
             );
         }
 
-        if (! $this->workLocationHasCoordinates($employee->workLocation)) {
+        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
             throw new TimeClockException(
                 'work_location_missing_coordinates',
                 'Your assigned work site does not have map coordinates yet.',
@@ -688,7 +692,7 @@ class TimeClockService
         }
 
         $session = $this->resolveOpenSession($employee);
-        if ($session === null || ! $session['is_on_break']) {
+        if ($session === null || !$session['is_on_break']) {
             throw new TimeClockException(
                 'not_on_break',
                 'You are not currently on break.',
@@ -779,7 +783,7 @@ class TimeClockService
 
     private function accuracyBufferMeters(?float $accuracyMeters): float
     {
-        if ($accuracyMeters === null || ! is_finite($accuracyMeters) || $accuracyMeters <= 0) {
+        if ($accuracyMeters === null || !is_finite($accuracyMeters) || $accuracyMeters <= 0) {
             return 0.0;
         }
 
@@ -930,7 +934,7 @@ class TimeClockService
 
     private function workLocationHasCoordinates(?WorkLocation $location): bool
     {
-        if (! $location instanceof WorkLocation) {
+        if (!$location instanceof WorkLocation) {
             return false;
         }
 
@@ -946,7 +950,7 @@ class TimeClockService
             return 'no_work_location_assigned';
         }
 
-        if (! $hasCoordinates) {
+        if (!$hasCoordinates) {
             return 'work_location_missing_coordinates';
         }
 
