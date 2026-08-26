@@ -68,6 +68,8 @@ export async function confirmAction({
     icon = 'warning',
     danger = false,
     showCancel = true,
+    allowOutsideClick = true,
+    allowEscapeKey = true,
 } = {}) {
     const result = await dialog.fire({
         title,
@@ -80,6 +82,8 @@ export async function confirmAction({
         focusCancel: showCancel,
         reverseButtons: showCancel,
         confirmButtonColor: danger ? BRAND_DANGER : BRAND_PRIMARY,
+        allowOutsideClick,
+        allowEscapeKey,
     });
 
     return result.isConfirmed === true;
@@ -120,6 +124,7 @@ export async function alertDialog({
  *   text?: string,
  *   inputLabel?: string,
  *   inputPlaceholder?: string,
+ *   inputValue?: string,
  *   confirmText?: string,
  *   cancelText?: string,
  *   danger?: boolean,
@@ -132,6 +137,7 @@ export async function promptNote({
     text = '',
     inputLabel = 'Note (optional)',
     inputPlaceholder = '',
+    inputValue = '',
     confirmText = 'Confirm',
     cancelText = 'Cancel',
     danger = false,
@@ -144,6 +150,7 @@ export async function promptNote({
         input: 'textarea',
         inputLabel,
         inputPlaceholder,
+        inputValue,
         inputAttributes: {
             maxlength: String(maxLength),
             'aria-label': inputLabel,

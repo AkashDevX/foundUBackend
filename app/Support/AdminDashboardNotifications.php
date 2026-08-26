@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
+use App\Models\TimeOffRequest;
 use App\Models\TimesheetApproval;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -90,10 +91,11 @@ final class AdminDashboardNotifications
                 ->unique('employee_id')
                 ->values();
 
-        $leaveRecords = EmployeeLeaveRecord::on($conn)
-            ->where('status', EmployeeLeaveRecord::STATUS_PENDING)
+        $timeOffRequests = TimeOffRequest::on($conn)
+            ->where('status', TimeOffRequest::STATUS_PENDING)
             ->with('employee')
-            ->orderBy('leave_date')
+            ->orderBy('requested_date')
+            ->orderBy('id')
             ->get();
 
         $leaveOnSchedule = EmployeeLeaveRecord::on($conn)
@@ -194,8 +196,8 @@ final class AdminDashboardNotifications
 
         $sections[] = self::section(
             'pending_leave',
-            'Pending leave requests',
-            self::pendingLeaveItems($leaveRecords, $employeeUrl, $name),
+            'Pending time off requests',
+            self::pendingTimeOffItems($timeOffRequests, $name),
         );
 
         $sections[] = self::section(
@@ -210,27 +212,27 @@ final class AdminDashboardNotifications
             self::incompleteOnboardingItems($allEmployees, $employeeUrl, $name),
         );
 
-        $sections[] = self::section(
-            'incidents',
-            'New incident or hazard reports',
-            [],
-            true,
-            'Incident reporting is not set up yet.',
-        );
+        // $sections[] = self::section(
+        //     'incidents',
+        //     'New incident or hazard reports',
+        //     [],
+        //     true,
+        //     'Incident reporting is not set up yet.',
+        // );
 
-        $sections[] = self::section(
-            'messages',
-            'New messages from employees',
-            [],
-            true,
-            'Employee messaging is not set up yet.',
-        );
+        // $sections[] = self::section(
+        //     'messages',
+        //     'New messages from employees',
+        //     [],
+        //     true,
+        //     'Employee messaging is not set up yet.',
+        // );
 
-        $sections[] = self::section(
-            'training_renewals',
-            'Upcoming training or compliance renewals',
-            self::trainingRenewalItems($employees, $employeeUrl, $name, $now),
-        );
+        // $sections[] = self::section(
+        //     'training_renewals',
+        //     'Upcoming training or compliance renewals',
+        //     self::trainingRenewalItems($employees, $employeeUrl, $name, $now),
+        // );
 
         $sections[] = self::section(
             'open_shifts',
@@ -843,35 +845,43 @@ final class AdminDashboardNotifications
     }
 
     /**
-     * @param  Collection<int, EmployeeLeaveRecord>  $leaveRecords
+     * @param  Collection<int, TimeOffRequest>  $timeOffRequests
      * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
      */
-    private static function pendingLeaveItems(Collection $leaveRecords, callable $employeeUrl, callable $name): array
+    private static function pendingTimeOffItems(Collection $timeOffRequests, callable $name): array
     {
         $items = [];
 
-        foreach ($leaveRecords as $leave) {
-            $employee = $leave->employee;
+        foreach ($timeOffRequests as $request) {
+            $employee = $request->employee;
             if (! $employee instanceof Employee) {
                 continue;
             }
 
-            $typeLabel = match ($leave->leave_type) {
-                EmployeeLeaveRecord::TYPE_SICK => 'sick leave',
-                EmployeeLeaveRecord::TYPE_ANNUAL => 'annual leave',
-                default => strtolower(str_replace('_', ' ', (string) $leave->leave_type)).' leave',
-            };
+            $date = $request->requested_date;
+            $dateString = $date?->toDateString();
+
             $items[] = [
                 'message' => sprintf(
-                    '%s — pending %s on %s (%.1f h)',
+                    '%s — pending time off on %s',
                     $name($employee),
-                    $typeLabel,
-                    DisplayTimezone::formatDate($leave->leave_date),
-                    (float) $leave->hours,
+                    DisplayTimezone::formatDate($date),
                 ),
-                'url' => $employeeUrl($employee),
+                'url' => route('admin.dashboard', ['open_time_off_request' => $request->id]),
                 'severity' => 'warning',
-                'sort_at' => $leave->leave_date?->getTimestamp() ?? 0,
+                'sort_at' => $date?->getTimestamp() ?? 0,
+                'time_off_review' => [
+                    'id' => (int) $request->id,
+                    'employee_name' => $name($employee),
+                    'employee_public_id' => $employee->public_id,
+                    'requested_date' => $dateString,
+                    'date_label' => $date instanceof \Carbon\CarbonInterface
+                        ? $date->format('D, j M Y')
+                        : DisplayTimezone::formatDate($date),
+                    'reason' => trim((string) ($request->reason ?? '')),
+                    'approve_url' => route('admin.time-off-requests.approve', ['timeOffRequest' => $request->id]),
+                    'reject_url' => route('admin.time-off-requests.reject', ['timeOffRequest' => $request->id]),
+                ],
             ];
         }
 

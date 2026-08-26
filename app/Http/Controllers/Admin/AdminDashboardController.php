@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Models\TimeOffRequest;
 use App\Support\AdminDashboardNotifications;
 use App\Support\AdminEmployeeProfileView;
+use App\Support\AdminWeeklySchedule;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +30,8 @@ class AdminDashboardController extends Controller
         $statsActive = 0;
         $statsDeclined = 0;
         $notifications = ['sections' => [], 'alert_count' => 0];
+        $timeOffLeaveBalances = [];
+        $openTimeOffRequestId = null;
 
         try {
             $conn = $company->tenant_connection;
@@ -36,6 +40,22 @@ class AdminDashboardController extends Controller
             $statsActive = Employee::on($conn)->where('employment_status', 'active')->count();
             $statsDeclined = Employee::on($conn)->whereIn('employment_status', ['declined', 'rejected'])->count();
             $notifications = AdminDashboardNotifications::collect($company);
+
+            $pendingTimeOffEmployees = TimeOffRequest::on($conn)
+                ->where('status', TimeOffRequest::STATUS_PENDING)
+                ->with('employee')
+                ->get()
+                ->pluck('employee')
+                ->filter()
+                ->unique('id')
+                ->values();
+
+            $timeOffLeaveBalances = AdminWeeklySchedule::leaveBalancesForEmployees($conn, $pendingTimeOffEmployees);
+
+            $openId = $request->query('open_time_off_request');
+            if (is_string($openId) && ctype_digit($openId)) {
+                $openTimeOffRequestId = (int) $openId;
+            }
         } catch (\Throwable $e) {
             $tenantError = $e->getMessage();
         }
@@ -48,6 +68,8 @@ class AdminDashboardController extends Controller
             'statsActive' => $statsActive,
             'statsDeclined' => $statsDeclined,
             'notifications' => $notifications,
+            'timeOffLeaveBalances' => $timeOffLeaveBalances,
+            'openTimeOffRequestId' => $openTimeOffRequestId,
         ]);
     }
 

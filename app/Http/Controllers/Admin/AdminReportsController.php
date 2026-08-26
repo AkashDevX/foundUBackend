@@ -8,7 +8,10 @@ use App\Models\EmployeeLeaveRecord;
 use App\Models\OrganizationPortalUser;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
+use App\Models\TimeClockEntry;
 use App\Models\TimesheetApproval;
+use App\Support\AdminTimesheetHoursReport;
+use App\Support\DisplayTimezone;
 use App\Support\PayrollLineTotals;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -220,7 +223,7 @@ class AdminReportsController extends Controller
     }
 
     /**
-     * Timesheet & hours — approved worked hours per employee for a date range.
+     * Timesheet & hours — one row per clocked shift, plus an employee period summary.
      */
     public function timesheet(Request $request): View
     {
@@ -233,7 +236,13 @@ class AdminReportsController extends Controller
         $employeeId = (int) $request->integer('employee_id');
         $status = (string) $request->query('status', '');
         $status = in_array($status, ['approved', 'pending', 'rejected'], true) ? $status : '';
-        $rows = collect();
+        $shifts = collect();
+        $stats = [
+            'hours' => 0.0,
+            'employees' => 0,
+            'shifts' => 0,
+            'days' => 0,
+        ];
         $employeeOptions = collect();
 
         try {
@@ -245,41 +254,52 @@ class AdminReportsController extends Controller
                 ->get(['id', 'first_name', 'last_name', 'full_legal_name'])
                 ->map(fn (Employee $e) => ['id' => $e->id, 'name' => $this->employeeName($e)]);
 
-            $query = TimesheetApproval::on($conn)
-                ->whereBetween('work_date', [$from->toDateString(), $to->toDateString()]);
-            if ($status !== '') {
-                $query->where('status', $status);
-            }
-            if ($employeeId > 0) {
-                $query->where('employee_id', $employeeId);
-            }
+            $tz = DisplayTimezone::name();
+            $entriesFrom = Carbon::parse($from->toDateString(), $tz)->startOfDay()->utc()->subDay();
+            $entriesTo = Carbon::parse($to->toDateString(), $tz)->endOfDay()->utc()->addDay();
 
-            $aggregates = $query
-                ->selectRaw('employee_id, SUM(total_seconds) as total_seconds, COUNT(*) as day_count, SUM(completed_sessions) as sessions')
-                ->groupBy('employee_id')
-                ->get();
+            $activeEmployeeIds = TimeClockEntry::on($conn)
+                ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                ->when($employeeId > 0, static fn ($query) => $query->where('employee_id', $employeeId))
+                ->distinct()
+                ->pluck('employee_id');
 
             $employees = Employee::on($conn)
-                ->whereIn('id', $aggregates->pluck('employee_id')->all())
-                ->get()
-                ->keyBy('id');
-
-            $rows = $aggregates
-                ->map(fn ($row) => [
-                    'employee' => $this->employeeName($employees->get($row->employee_id)),
-                    'hours' => round(((int) $row->total_seconds) / 3600, 2),
-                    'days' => (int) $row->day_count,
-                    'sessions' => (int) $row->sessions,
+                ->whereIn('id', $activeEmployeeIds)
+                ->with([
+                    'timeClockEntries' => static function ($query) use ($entriesFrom, $entriesTo): void {
+                        $query->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                            ->orderBy('clocked_at')
+                            ->orderBy('id');
+                    },
                 ])
-                ->sortByDesc('hours')
-                ->values();
+                ->get();
+
+            $approvalsQuery = TimesheetApproval::on($conn)
+                ->whereBetween('work_date', [$from->toDateString(), $to->toDateString()]);
+            if ($employeeId > 0) {
+                $approvalsQuery->where('employee_id', $employeeId);
+            }
+            $approvals = $approvalsQuery->get();
+
+            $report = AdminTimesheetHoursReport::build(
+                $employees,
+                $from,
+                $to,
+                $approvals,
+                $status !== '' ? $status : null,
+            );
+
+            $shifts = collect($report['shifts']);
+            $stats = $report['stats'];
         } catch (\Throwable $e) {
             $ctx['tenantError'] = $e->getMessage();
         }
 
         return view('admin.reports', array_merge($ctx, [
             'section' => 'timesheet',
-            'rows' => $rows,
+            'shifts' => $shifts,
+            'stats' => $stats,
             'employeeOptions' => $employeeOptions,
             'periodLabel' => $this->periodLabel($from, $to, ''),
             'filters' => [

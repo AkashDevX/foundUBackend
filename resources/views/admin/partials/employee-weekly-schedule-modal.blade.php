@@ -81,8 +81,8 @@
                             </button>
                         </div>
                     </div>
-                    <button type="button" id="schedule-detail-edit" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-primary-dark">
-                        Edit
+                    <button type="button" id="schedule-detail-edit" class="rounded-xl border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text shadow-sm hover:bg-brand-surface">
+                        Edit shift
                     </button>
                 </div>
             </div>
@@ -103,8 +103,26 @@
             <input type="hidden" name="time_off_request_id" id="schedule-time-off-request-id">
 
             <div id="schedule-shift-fields" class="space-y-4">
-                <label class="block">
-                    <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Shift</span>
+                <div class="block">
+                    <div class="mb-1.5 flex items-center justify-between gap-2">
+                        <span class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Shift</span>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                id="schedule-open-edit-shift"
+                                class="hidden text-[11px] font-semibold text-brand-primary hover:text-brand-primary-dark hover:underline"
+                            >
+                                Edit shift details
+                            </button>
+                            <button
+                                type="button"
+                                id="schedule-open-create-shift"
+                                class="text-[11px] font-semibold text-brand-primary hover:text-brand-primary-dark hover:underline"
+                            >
+                                + New shift
+                            </button>
+                        </div>
+                    </div>
                     <select name="shift_id" id="schedule-shift-template" class="w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/20">
                         <option value="">Select a shift…</option>
                         @foreach ($shiftTemplates as $shift)
@@ -117,7 +135,8 @@
                             </option>
                         @endforeach
                     </select>
-                </label>
+                    <!-- <p class="mt-1.5 text-[11px] text-brand-text-secondary">Not in the list? Create a shift here</p> -->
+                </div>
 
                 <label class="block">
                     <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Work location</span>
@@ -221,6 +240,48 @@
                 @endif
             @endforeach
             <input type="hidden" name="status" id="schedule-status-value">
+            <input type="hidden" name="notes" id="schedule-status-notes" value="">
+        </form>
+    </div>
+</div>
+
+<div
+    id="schedule-create-shift-modal"
+    class="fixed inset-0 z-[60] hidden items-center justify-center bg-brand-primary-dark/50 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="schedule-create-shift-title"
+>
+    <div class="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-brand-border bg-white shadow-2xl ring-1 ring-black/[0.06]">
+        <header class="shrink-0 border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-5 py-4">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Organization shift</p>
+                    <h2 id="schedule-create-shift-title" class="mt-1 text-lg font-bold text-brand-text">Create new shift</h2>
+                    <p id="schedule-create-shift-subtitle" class="mt-1 text-xs text-brand-text-secondary">Saved to organization setup, then selected for this employee and date.</p>
+                </div>
+                <button type="button" id="schedule-create-shift-close" class="shrink-0 rounded-xl border border-brand-border bg-white p-2 text-brand-text-secondary shadow-sm hover:bg-brand-surface hover:text-brand-text" aria-label="Close">
+                    <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+        </header>
+        <form id="schedule-create-shift-form" class="flex min-h-0 flex-1 flex-col" action="{{ route('admin.workforce.shifts.store') }}" method="post">
+            @csrf
+            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
+                <p id="schedule-create-shift-error" class="hidden rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"></p>
+                @include('admin.partials.shift-create-fields', [
+                    'idPrefix' => 'schedule-new-shift',
+                    'breaksFieldId' => 'schedule-new-shift-breaks',
+                ])
+            </div>
+            <div class="shrink-0 flex justify-end gap-2 border-t border-brand-border px-5 py-4">
+                <button type="button" id="schedule-create-shift-cancel" class="rounded-xl border border-brand-border bg-white px-4 py-2.5 text-sm font-semibold text-brand-text-secondary shadow-sm hover:bg-brand-surface">
+                    Cancel
+                </button>
+                <button type="submit" id="schedule-create-shift-submit" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-primary-dark">
+                    Create and select
+                </button>
+            </div>
         </form>
     </div>
 </div>
@@ -241,6 +302,27 @@
         const timeOffFields = document.getElementById('schedule-timeoff-fields');
         const shiftTemplateEl = document.getElementById('schedule-shift-template');
         const workLocationEl = document.getElementById('schedule-work-location');
+        const openCreateShiftButton = document.getElementById('schedule-open-create-shift');
+        const openEditShiftButton = document.getElementById('schedule-open-edit-shift');
+        const createShiftModal = document.getElementById('schedule-create-shift-modal');
+        const createShiftForm = document.getElementById('schedule-create-shift-form');
+        const createShiftError = document.getElementById('schedule-create-shift-error');
+        const createShiftSubmit = document.getElementById('schedule-create-shift-submit');
+        const createShiftTitle = document.getElementById('schedule-create-shift-title');
+        const createShiftSubtitle = document.getElementById('schedule-create-shift-subtitle');
+        const createShiftStoreUrl = @json(route('admin.workforce.shifts.store'));
+        const createShiftUpdateUrlTemplate = @json(route('admin.workforce.shifts.update', ['shift' => '__ID__']));
+        const shiftCatalog = @json($shiftCatalog ?? []);
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        /** @type {'create'|'edit'} */
+        let orgShiftModalMode = 'create';
+        let editingShiftId = '';
+        const shiftCatalogById = Object.create(null);
+        (Array.isArray(shiftCatalog) ? shiftCatalog : []).forEach((entry) => {
+            if (entry && entry.id != null) {
+                shiftCatalogById[String(entry.id)] = entry;
+            }
+        });
         const notesEl = document.getElementById('schedule-notes');
         const leaveTypeEl = document.getElementById('schedule-leave-type');
         const leaveHoursEl = document.getElementById('schedule-leave-hours');
@@ -273,6 +355,7 @@
         const clearStatusButton = document.getElementById('schedule-clear-status');
         const statusForm = document.getElementById('schedule-shift-status-form');
         const statusValueInput = document.getElementById('schedule-status-value');
+        const statusNotesInput = document.getElementById('schedule-status-notes');
         const statusBadge = document.getElementById('schedule-modal-status');
         const STATUS_LABELS = { {{ \App\Models\EmployeeScheduleShift::STATUS_SICK_CALL_OUT }}: 'Sick call out', {{ \App\Models\EmployeeScheduleShift::STATUS_NO_SHOW }}: 'No show' };
         const detailTimeRow = document.getElementById('schedule-detail-time-row');
@@ -477,7 +560,9 @@
                 detailNotesRow.classList.toggle('hidden', !showNotes);
                 const notesLabel = detailNotesRow.querySelector('dt');
                 if (notesLabel) {
-                    notesLabel.textContent = isTimeOff ? 'Reason' : 'Notes';
+                    notesLabel.textContent = isTimeOff
+                        ? 'Reason'
+                        : (payload.status ? 'Comment' : 'Notes');
                 }
             }
 
@@ -493,6 +578,10 @@
                 updateStatusUi(payload.status || '');
             } else {
                 updateStatusUi('');
+            }
+
+            if (detailEditButton) {
+                detailEditButton.textContent = isTimeOff ? 'Edit day off' : 'Edit shift';
             }
 
             showDetailsView();
@@ -533,6 +622,12 @@
             if (leaveTypeEl) leaveTypeEl.disabled = !isTimeOff;
             if (leaveHoursEl) leaveHoursEl.disabled = !isTimeOff;
 
+            if (isTimeOff) {
+                openEditShiftButton?.classList.add('hidden');
+            } else {
+                updateEditShiftButtonVisibility();
+            }
+
             const isEdit = entryTypeHidden.dataset.edit === '1';
             modeEl.textContent = isEdit ? 'Editing' : (isTimeOff ? 'Day off' : 'New shift');
             titleEl.textContent = isTimeOff
@@ -554,6 +649,7 @@
             if (leaveTypeEl) leaveTypeEl.value = '';
             updateLeaveBalanceUi();
             syncTimesFromShift();
+            updateEditShiftButtonVisibility();
             (shiftTemplateEl.value ? workLocationEl : shiftTemplateEl).focus();
         }
 
@@ -591,6 +687,7 @@
                 convertToShiftButton.dataset.defaultLocationId = payload.workLocationId || '';
             }
             syncTimesFromShift();
+            updateEditShiftButtonVisibility();
 
             if (isSuggestion) {
                 submitButton.textContent = 'Save to roster';
@@ -629,6 +726,7 @@
         }
 
         function closeModal() {
+            closeCreateShiftModal();
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             document.body.classList.remove('overflow-hidden');
@@ -644,6 +742,335 @@
             }
 
             closeModal();
+        }
+
+        function createShiftModalIsOpen() {
+            return Boolean(createShiftModal && !createShiftModal.classList.contains('hidden'));
+        }
+
+        function weekdayKeyFromIso(isoDate) {
+            if (!isoDate) return null;
+            const date = new Date(isoDate + 'T12:00:00');
+            if (Number.isNaN(date.getTime())) return null;
+            return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()] || null;
+        }
+
+        function resetCreateShiftBreaks(breaks) {
+            const list = createShiftForm?.querySelector('[data-shift-breaks-list]');
+            const template = createShiftForm?.querySelector('[data-shift-breaks-template]');
+            if (!list || !(template instanceof HTMLTemplateElement)) return;
+
+            list.innerHTML = '';
+            const rows = Array.isArray(breaks) && breaks.length > 0
+                ? breaks
+                : [{ label: '', minutes: '', paid: false }];
+
+            rows.forEach((breakRow) => {
+                const fragment = template.content.cloneNode(true);
+                const row = fragment.querySelector('[data-shift-breaks-row]');
+                if (!row) return;
+                const labelInput = row.querySelector('input[name*="[label]"]');
+                const minutesInput = row.querySelector('input[name*="[minutes]"]');
+                const paidSelect = row.querySelector('select[name*="[paid]"]');
+                if (labelInput instanceof HTMLInputElement) labelInput.value = breakRow.label || '';
+                if (minutesInput instanceof HTMLInputElement) {
+                    minutesInput.value = breakRow.minutes != null && breakRow.minutes !== ''
+                        ? String(breakRow.minutes)
+                        : '';
+                }
+                if (paidSelect instanceof HTMLSelectElement) {
+                    paidSelect.value = breakRow.paid ? '1' : '0';
+                }
+                list.appendChild(fragment);
+            });
+
+            list.querySelectorAll('[data-shift-breaks-row]').forEach((row, index) => {
+                row.querySelectorAll('input, select').forEach((field) => {
+                    const name = field.getAttribute('name');
+                    if (!name) return;
+                    field.setAttribute(
+                        'name',
+                        name.replace(/shift_breaks\[(?:\d+|__INDEX__)]/, 'shift_breaks[' + index + ']')
+                    );
+                });
+            });
+        }
+
+        function setCreateShiftError(message) {
+            if (!createShiftError) return;
+            const text = String(message || '').trim();
+            createShiftError.textContent = text;
+            createShiftError.classList.toggle('hidden', text === '');
+        }
+
+        function updateEditShiftButtonVisibility() {
+            const hasTemplate = Boolean(shiftTemplateEl?.value);
+            openEditShiftButton?.classList.toggle('hidden', !hasTemplate);
+        }
+
+        function setOrgShiftModalMode(mode, shiftId) {
+            orgShiftModalMode = mode;
+            editingShiftId = shiftId ? String(shiftId) : '';
+            const isEdit = mode === 'edit';
+            if (createShiftTitle) {
+                createShiftTitle.textContent = isEdit ? 'Edit shift details' : 'Create new shift';
+            }
+            if (createShiftSubtitle) {
+                createShiftSubtitle.textContent = isEdit
+                    ? 'Updates the organization shift template used by this schedule entry.'
+                    : 'Saved to organization setup, then selected for this employee and date.';
+            }
+            if (createShiftSubmit) {
+                createShiftSubmit.textContent = isEdit ? 'Save shift changes' : 'Create and select';
+            }
+            if (createShiftForm) {
+                createShiftForm.action = isEdit
+                    ? createShiftUpdateUrlTemplate.replace('__ID__', editingShiftId)
+                    : createShiftStoreUrl;
+            }
+        }
+
+        function fillOrgShiftForm(entry) {
+            if (!createShiftForm) return;
+            const nameInput = document.getElementById('schedule-new-shift-name');
+            const startInput = document.getElementById('schedule-new-shift-start');
+            const endInput = document.getElementById('schedule-new-shift-end');
+            const notesInput = document.getElementById('schedule-new-shift-notes');
+            if (nameInput instanceof HTMLInputElement) nameInput.value = entry?.name || '';
+            if (startInput instanceof HTMLInputElement) startInput.value = entry?.start_time || '';
+            if (endInput instanceof HTMLInputElement) endInput.value = entry?.end_time || '';
+            if (notesInput instanceof HTMLTextAreaElement || notesInput instanceof HTMLInputElement) {
+                notesInput.value = entry?.notes || '';
+            }
+
+            const selectedDays = Array.isArray(entry?.shift_days) ? entry.shift_days.map(String) : [];
+            createShiftForm.querySelectorAll('input[name="shift_days[]"]').forEach((input) => {
+                if (input instanceof HTMLInputElement) {
+                    input.checked = selectedDays.includes(input.value);
+                }
+            });
+
+            resetCreateShiftBreaks(entry?.breaks || []);
+        }
+
+        function openCreateShiftModal() {
+            if (!createShiftModal || !createShiftForm) return;
+            setOrgShiftModalMode('create', '');
+            createShiftForm.reset();
+            resetCreateShiftBreaks([]);
+            setCreateShiftError('');
+            const dayKey = weekdayKeyFromIso(dateHidden?.value || currentPayload?.scheduledDate || '');
+            createShiftForm.querySelectorAll('input[name="shift_days[]"]').forEach((input) => {
+                if (input instanceof HTMLInputElement) {
+                    input.checked = Boolean(dayKey) && input.value === dayKey;
+                }
+            });
+            createShiftModal.classList.remove('hidden');
+            createShiftModal.classList.add('flex');
+            document.getElementById('schedule-new-shift-name')?.focus();
+        }
+
+        function openEditShiftModal(templateId) {
+            if (!createShiftModal || !createShiftForm) return;
+            const id = String(templateId || shiftTemplateEl?.value || currentPayload?.shiftTemplateId || '');
+            const entry = shiftCatalogById[id];
+            if (!id || !entry) {
+                window.CruLynkDialog?.toastError?.('Select a shift first, or create a new one.');
+                return;
+            }
+
+            setOrgShiftModalMode('edit', id);
+            setCreateShiftError('');
+            fillOrgShiftForm(entry);
+            createShiftModal.classList.remove('hidden');
+            createShiftModal.classList.add('flex');
+            document.getElementById('schedule-new-shift-name')?.focus();
+        }
+
+        function closeCreateShiftModal() {
+            if (!createShiftModal) return;
+            createShiftModal.classList.add('hidden');
+            createShiftModal.classList.remove('flex');
+            setOrgShiftModalMode('create', '');
+        }
+
+        function selectCreatedShift(payload) {
+            if (!shiftTemplateEl || !payload || !payload.id) return;
+            const id = String(payload.id);
+            let option = Array.from(shiftTemplateEl.options).find((opt) => opt.value === id) || null;
+            if (!option) {
+                option = document.createElement('option');
+                option.value = id;
+                shiftTemplateEl.appendChild(option);
+            }
+            option.dataset.start = payload.start_time || '';
+            option.dataset.end = payload.end_time || '';
+            option.textContent = payload.option_label || payload.name || 'Shift';
+            shiftTemplateEl.value = id;
+            syncTimesFromShift();
+            updateEditShiftButtonVisibility();
+            workLocationEl?.focus();
+        }
+
+        function captureOrgShiftFormMeta() {
+            if (!createShiftForm) {
+                return { shift_days: [], breaks: [], notes: '' };
+            }
+            const shift_days = Array.from(createShiftForm.querySelectorAll('input[name="shift_days[]"]:checked'))
+                .map((input) => input.value)
+                .filter(Boolean);
+            const breaks = [];
+            createShiftForm.querySelectorAll('[data-shift-breaks-row]').forEach((row) => {
+                const label = row.querySelector('input[name*="[label]"]')?.value || '';
+                const minutes = row.querySelector('input[name*="[minutes]"]')?.value || '';
+                const paid = row.querySelector('select[name*="[paid]"]')?.value === '1';
+                if (label === '' && (minutes === '' || Number(minutes) <= 0)) {
+                    return;
+                }
+                breaks.push({
+                    label,
+                    minutes: minutes === '' ? '' : Number(minutes),
+                    paid,
+                });
+            });
+            const notesInput = document.getElementById('schedule-new-shift-notes');
+            return {
+                shift_days,
+                breaks,
+                notes: notesInput instanceof HTMLTextAreaElement || notesInput instanceof HTMLInputElement
+                    ? notesInput.value
+                    : '',
+            };
+        }
+
+        function upsertCatalogEntry(payload) {
+            if (!payload?.id) return;
+            const id = String(payload.id);
+            const existing = shiftCatalogById[id] || {};
+            shiftCatalogById[id] = {
+                ...existing,
+                ...payload,
+                id: Number(payload.id),
+                shift_days: Array.isArray(payload.shift_days) ? payload.shift_days : (existing.shift_days || []),
+                breaks: Array.isArray(payload.breaks) ? payload.breaks : (existing.breaks || []),
+                notes: payload.notes != null ? payload.notes : (existing.notes || ''),
+                employee_count: payload.employee_count != null
+                    ? Number(payload.employee_count)
+                    : (existing.employee_count || 0),
+                schedule_count: payload.schedule_count != null
+                    ? Number(payload.schedule_count)
+                    : (existing.schedule_count || 0),
+            };
+        }
+
+        function sharedShiftWarningText(entry) {
+            const name = entry?.name || 'this shift';
+            const id = entry?.id != null ? String(entry.id) : editingShiftId || '—';
+            const employees = Number(entry?.employee_count || 0);
+            const schedules = Number(entry?.schedule_count || 0);
+            const usageParts = [];
+            if (employees > 0) {
+                usageParts.push(employees === 1 ? '1 employee' : employees + ' employees');
+            }
+            if (schedules > 0) {
+                usageParts.push(schedules === 1 ? '1 schedule entry' : schedules + ' schedule entries');
+            }
+            const usage = usageParts.length > 0
+                ? ' Currently used by ' + usageParts.join(' and ') + '.'
+                : '';
+
+            return 'Editing shift ID ' + id + ' ("' + name + '") updates the shared template for every employee who has this shift — not only the person on this screen.'
+                + usage
+                + ' Continue only if you intend that change.';
+        }
+
+        async function confirmSharedShiftEdit(entry) {
+            const dialog = window.CruLynkDialog;
+            if (dialog && typeof dialog.confirm === 'function') {
+                return dialog.confirm({
+                    title: 'Shared shift change',
+                    text: sharedShiftWarningText(entry),
+                    confirmText: 'Update shared shift',
+                    cancelText: 'Go back',
+                    icon: 'warning',
+                    danger: true,
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                });
+            }
+            return window.confirm(sharedShiftWarningText(entry));
+        }
+
+        async function submitCreateShift(event) {
+            event.preventDefault();
+            if (!createShiftForm) return;
+
+            setCreateShiftError('');
+            const isEdit = orgShiftModalMode === 'edit' && editingShiftId !== '';
+            if (isEdit) {
+                const entry = shiftCatalogById[editingShiftId] || { id: editingShiftId, name: document.getElementById('schedule-new-shift-name')?.value || 'this shift' };
+                const confirmed = await confirmSharedShiftEdit(entry);
+                if (!confirmed) {
+                    return;
+                }
+            }
+
+            if (createShiftSubmit) {
+                createShiftSubmit.disabled = true;
+            }
+
+            try {
+                const url = isEdit
+                    ? createShiftUpdateUrlTemplate.replace('__ID__', editingShiftId)
+                    : createShiftStoreUrl;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken,
+                    },
+                    credentials: 'same-origin',
+                    body: new FormData(createShiftForm),
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (!response.ok) {
+                    const firstError = data.errors
+                        ? Object.values(data.errors).flat()[0]
+                        : (data.message || (isEdit ? 'Could not update the shift.' : 'Could not create the shift.'));
+                    setCreateShiftError(firstError);
+                    window.CruLynkDialog?.toastError?.(firstError);
+                    return;
+                }
+
+                upsertCatalogEntry({ ...data, ...captureOrgShiftFormMeta() });
+                selectCreatedShift(data);
+                closeCreateShiftModal();
+
+                if (isEdit) {
+                    window.CruLynkDialog?.toastSuccess?.(
+                        data.times_changed
+                            ? 'Shared shift updated. Schedule times were synced where this shift is used.'
+                            : 'Shared shift details updated.'
+                    );
+                    window.location.reload();
+                    return;
+                }
+
+                window.CruLynkDialog?.toastSuccess?.('Shift created and selected for this employee.');
+            } catch (error) {
+                const fallback = isEdit
+                    ? 'Could not update the shift. Please try again.'
+                    : 'Could not create the shift. Please try again.';
+                setCreateShiftError(fallback);
+                window.CruLynkDialog?.toastError?.(fallback);
+            } finally {
+                if (createShiftSubmit) {
+                    createShiftSubmit.disabled = false;
+                }
+            }
         }
 
         function payloadFromTrigger(el) {
@@ -674,30 +1101,10 @@
             el.addEventListener('click', () => openModal(payloadFromTrigger(el)));
         });
 
-        document.getElementById('schedule-create-shift')?.addEventListener('click', () => {
-            openEditForm({
-                shiftId: '',
-                employeePublicId: '',
-                employeeName: 'Pick an employee from the grid',
-                dayLabel: '',
-                scheduledDate: @json($redirectQuery['week'] ?? ''),
-                entryType: TYPE_SHIFT,
-                shiftTemplateId: '',
-                workLocationId: '',
-                notes: '',
-                isSuggestion: '0',
-                timeRange: '',
-                durationLabel: '',
-                blockTitle: '',
-                blockSubtitle: '',
-                blockMeta: '',
-                leaveTypeId: '',
-                leaveHours: '',
-                leaveTypeName: '',
-            }, false);
+        shiftTemplateEl.addEventListener('change', () => {
+            syncTimesFromShift();
+            updateEditShiftButtonVisibility();
         });
-
-        shiftTemplateEl.addEventListener('change', syncTimesFromShift);
         leaveTypeEl?.addEventListener('change', updateLeaveBalanceUi);
 
         form.addEventListener('submit', (event) => {
@@ -727,10 +1134,55 @@
         });
 
         detailMenu?.querySelectorAll('[data-status-action]').forEach((button) => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', async () => {
                 if (!currentPayload || !currentPayload.shiftId) return;
+
+                const status = button.dataset.statusAction || '';
+                const isClearing = status === '';
+                let notes = '';
+
+                if (!isClearing) {
+                    const statusLabel = STATUS_LABELS[status] || 'status';
+                    const dialog = window.CruLynkDialog;
+                    const existingNotes = (currentPayload.notes || '').trim();
+
+                    if (dialog && typeof dialog.promptNote === 'function') {
+                        const note = await dialog.promptNote({
+                            title: 'Mark as ' + statusLabel + '?',
+                            text: (currentPayload.employeeName || 'Employee') + ' · ' + (currentPayload.dayLabel || formatDateLabel(currentPayload.scheduledDate)),
+                            inputLabel: 'Comment (optional)',
+                            inputPlaceholder: 'e.g. Worked 2 hours before calling in sick',
+                            inputValue: existingNotes,
+                            confirmText: 'Mark ' + statusLabel.toLowerCase(),
+                            cancelText: 'Cancel',
+                            danger: status === STATUS_NO_SHOW,
+                        });
+
+                        if (note === null) {
+                            closeDetailMenu();
+                            return;
+                        }
+
+                        notes = note;
+                    } else {
+                        const fallback = window.prompt(
+                            'Comment (optional) for ' + statusLabel.toLowerCase() + ':',
+                            existingNotes
+                        );
+                        if (fallback === null) {
+                            closeDetailMenu();
+                            return;
+                        }
+                        notes = fallback.trim();
+                    }
+                }
+
+                closeDetailMenu();
                 statusForm.action = statusUrlTemplate.replace('__ID__', currentPayload.shiftId);
-                statusValueInput.value = button.dataset.statusAction || '';
+                statusValueInput.value = status;
+                if (statusNotesInput) {
+                    statusNotesInput.value = notes;
+                }
                 statusForm.requestSubmit();
             });
         });
@@ -748,7 +1200,12 @@
         detailDeleteButton?.addEventListener('click', () => deleteForm.requestSubmit());
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
         document.addEventListener('keydown', (e) => {
-            if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+            if (e.key !== 'Escape') return;
+            if (createShiftModalIsOpen()) {
+                closeCreateShiftModal();
+                return;
+            }
+            if (modal.classList.contains('hidden')) return;
             if (detailMenu && !detailMenu.classList.contains('hidden')) {
                 closeDetailMenu();
                 return;
@@ -762,33 +1219,14 @@
                 convertToShiftButton.dataset.defaultLocationId
             );
         });
+        openCreateShiftButton?.addEventListener('click', openCreateShiftModal);
+        openEditShiftButton?.addEventListener('click', () => openEditShiftModal(shiftTemplateEl?.value || ''));
+        createShiftForm?.addEventListener('submit', submitCreateShift);
+        document.getElementById('schedule-create-shift-close')?.addEventListener('click', closeCreateShiftModal);
+        document.getElementById('schedule-create-shift-cancel')?.addEventListener('click', closeCreateShiftModal);
+        createShiftModal?.addEventListener('click', (e) => {
+            if (e.target === createShiftModal) closeCreateShiftModal();
+        });
 
-        // Deep-link from the "Time off requests" inbox: auto-open the modal prefilled as a
-        // day off for the requested date/employee, tagged with the originating request id so
-        // saving marks it approved.
-        const openTimeOff = @json($openTimeOffRequest ?? null);
-        if (openTimeOff && openTimeOff.id) {
-            openEditForm({
-                shiftId: '',
-                employeePublicId: openTimeOff.employee_public_id || '',
-                employeeName: openTimeOff.employee_name || 'Employee',
-                dayLabel: '',
-                scheduledDate: openTimeOff.requested_date || '',
-                entryType: TYPE_TIME_OFF,
-                shiftTemplateId: '',
-                workLocationId: '',
-                notes: openTimeOff.reason || '',
-                isSuggestion: '0',
-                timeRange: '',
-                durationLabel: '',
-                blockTitle: '',
-                blockSubtitle: '',
-                blockMeta: '',
-                leaveTypeId: '',
-                leaveHours: '',
-                leaveTypeName: '',
-            }, false);
-            if (timeOffRequestIdInput) timeOffRequestIdInput.value = String(openTimeOff.id);
-        }
     })();
 </script>
