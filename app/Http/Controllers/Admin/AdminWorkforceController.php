@@ -11,6 +11,7 @@ use App\Models\Shift;
 use App\Models\WorkLocation;
 use App\Support\AdminWeeklySchedule;
 use App\Support\ShiftBreaks;
+use App\Support\WorkforceShifts;
 use Illuminate\Support\Str;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -491,87 +492,43 @@ class AdminWorkforceController extends Controller
         return redirect()->back()->with('status', 'Work location updated.');
     }
 
-    public function storeShift(Request $request): RedirectResponse
+    public function storeShift(Request $request): RedirectResponse|JsonResponse
     {
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $company = $portalUser->company()->firstOrFail();
         $conn = $company->tenant_connection;
 
-        $data = $request->validate([
-            'shift_name' => ['required', 'string', 'max:160'],
-            'shift_start_time' => ['required', 'date_format:H:i'],
-            'shift_end_time' => ['required', 'date_format:H:i'],
-            'shift_days' => ['nullable', 'array'],
-            'shift_days.*' => ['string', 'in:mon,tue,wed,thu,fri,sat,sun'],
-            'shift_breaks' => ['nullable', 'array', 'max:8'],
-            'shift_breaks.*.label' => ['nullable', 'string', 'max:80'],
-            'shift_breaks.*.minutes' => ['nullable', 'integer', 'min:1', 'max:480'],
-            'shift_breaks.*.paid' => ['nullable'],
-            'shift_notes' => ['nullable', 'string', 'max:2000'],
-        ]);
+        $shift = WorkforceShifts::createOnConnection($conn, $request);
 
-        $breakPayload = $this->normalizeShiftBreaksPayload($request);
-
-        Shift::on($conn)->create([
-            'name' => $data['shift_name'],
-            'start_time' => $data['shift_start_time'],
-            'end_time' => $data['shift_end_time'],
-            'shift_days' => $this->normalizeShiftDays($data['shift_days'] ?? null),
-            'breaks' => $breakPayload['breaks'],
-            'breaks_summary' => $breakPayload['breaks_summary'],
-            'notes' => $data['shift_notes'] ?? null,
-            'is_active' => true,
-        ]);
+        if ($request->expectsJson()) {
+            return response()->json(WorkforceShifts::optionPayload($shift));
+        }
 
         return redirect()->back()->with('status', 'Shift created.');
     }
 
-    public function updateShift(Request $request, int $shift): RedirectResponse
+    public function updateShift(Request $request, int $shift): RedirectResponse|JsonResponse
     {
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $company = $portalUser->company()->firstOrFail();
         $conn = $company->tenant_connection;
 
-        $data = $request->validate([
-            'shift_name' => ['required', 'string', 'max:160'],
-            'shift_start_time' => ['required', 'date_format:H:i'],
-            'shift_end_time' => ['required', 'date_format:H:i'],
-            'shift_days' => ['nullable', 'array'],
-            'shift_days.*' => ['string', 'in:mon,tue,wed,thu,fri,sat,sun'],
-            'shift_breaks' => ['nullable', 'array', 'max:8'],
-            'shift_breaks.*.label' => ['nullable', 'string', 'max:80'],
-            'shift_breaks.*.minutes' => ['nullable', 'integer', 'min:1', 'max:480'],
-            'shift_breaks.*.paid' => ['nullable'],
-            'shift_notes' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        $breakPayload = $this->normalizeShiftBreaksPayload($request);
-
         $target = Shift::on($conn)->whereKey($shift)->firstOrFail();
-        $previousStart = $target->start_time instanceof \Carbon\CarbonInterface
-            ? $target->start_time->format('H:i')
-            : null;
-        $previousEnd = $target->end_time instanceof \Carbon\CarbonInterface
-            ? $target->end_time->format('H:i')
-            : null;
+        $result = WorkforceShifts::updateOnConnection($conn, $target, $request);
+        /** @var Shift $updated */
+        $updated = $result['shift'];
 
-        $target->forceFill([
-            'name' => $data['shift_name'],
-            'start_time' => $data['shift_start_time'],
-            'end_time' => $data['shift_end_time'],
-            'shift_days' => $this->normalizeShiftDays($data['shift_days'] ?? null),
-            'breaks' => $breakPayload['breaks'],
-            'breaks_summary' => $breakPayload['breaks_summary'],
-            'notes' => $data['shift_notes'] ?? null,
-        ])->save();
+        if ($request->expectsJson()) {
+            $catalog = WorkforceShifts::catalogForConnection($conn, collect([$updated]));
+            $entry = $catalog[0] ?? WorkforceShifts::catalogEntry($updated);
 
-        $timesChanged = $previousStart !== $data['shift_start_time']
-            || $previousEnd !== $data['shift_end_time'];
-
-        if ($timesChanged) {
-            AdminWeeklySchedule::syncTemplateTimesToSchedule($conn, $target);
+            return response()->json([
+                ...$entry,
+                'times_changed' => $result['times_changed'],
+                'schedule_rows_synced' => $result['schedule_rows_synced'],
+            ]);
         }
 
         return redirect()->back()->with('status', 'Shift updated.');

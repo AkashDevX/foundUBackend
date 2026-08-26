@@ -3,9 +3,9 @@
 namespace Tests\Unit;
 
 use App\Models\Employee;
-use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
+use App\Models\TimeOffRequest;
 use App\Support\AdminDashboardNotifications;
 use App\Support\DisplayTimezone;
 use Carbon\Carbon;
@@ -167,33 +167,40 @@ class AdminDashboardNotificationsTest extends TestCase
         $this->assertStringContainsString('birthday today', $items[0]['message']);
     }
 
-    public function test_pending_leave_notification(): void
+    public function test_pending_time_off_request_notification(): void
     {
         $employee = new Employee([
-            'public_id' => 'emp-leave',
-            'full_legal_name' => 'Leave Request',
-            'email' => 'leave@example.com',
+            'public_id' => 'emp-time-off',
+            'full_legal_name' => 'Mobile Requester',
+            'email' => 'mobile@example.com',
         ]);
-        $employee->id = 10;
+        $employee->id = 11;
 
-        $leave = new EmployeeLeaveRecord([
-            'employee_id' => 10,
-            'leave_type' => EmployeeLeaveRecord::TYPE_ANNUAL,
-            'leave_date' => '2026-07-15',
-            'hours' => 8,
-            'status' => EmployeeLeaveRecord::STATUS_PENDING,
+        $request = new TimeOffRequest([
+            'employee_id' => 11,
+            'requested_date' => '2026-07-20',
+            'reason' => 'Family event',
+            'status' => TimeOffRequest::STATUS_PENDING,
         ]);
-        $leave->id = 3;
-        $leave->setRelation('employee', $employee);
+        $request->id = 42;
+        $request->setRelation('employee', $employee);
 
-        $items = $this->invokePrivate('pendingLeaveItems', [
-            new Collection([$leave]),
-            static fn (Employee $e): string => '/employee/'.$e->public_id,
+        $items = $this->invokePrivate('pendingTimeOffItems', [
+            new Collection([$request]),
             static fn (Employee $e): string => (string) $e->full_legal_name,
         ]);
 
         $this->assertCount(1, $items);
-        $this->assertStringContainsString('pending annual leave', $items[0]['message']);
+        $this->assertStringContainsString('pending time off', $items[0]['message']);
+        $this->assertStringContainsString('Mobile Requester', $items[0]['message']);
+        $this->assertStringContainsString('/admin', $items[0]['url']);
+        $this->assertStringContainsString('open_time_off_request=42', $items[0]['url']);
+        $this->assertStringNotContainsString('weekly-schedule', $items[0]['url']);
+        $this->assertSame(42, $items[0]['time_off_review']['id']);
+        $this->assertSame('emp-time-off', $items[0]['time_off_review']['employee_public_id']);
+        $this->assertSame('Family event', $items[0]['time_off_review']['reason']);
+        $this->assertStringContainsString('/admin/time-off-requests/42/approve', $items[0]['time_off_review']['approve_url']);
+        $this->assertStringContainsString('/admin/time-off-requests/42/reject', $items[0]['time_off_review']['reject_url']);
     }
 
     /**

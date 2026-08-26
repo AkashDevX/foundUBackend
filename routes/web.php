@@ -82,6 +82,8 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::delete('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'destroyShift'])->name('admin.employees.weekly-schedule.shifts.destroy');
     Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/status', [AdminWeeklyScheduleController::class, 'markShiftStatus'])->name('admin.employees.weekly-schedule.shifts.status');
     Route::post('/admin/employees/weekly-schedule/fill-from-assignments', [AdminWeeklyScheduleController::class, 'fillFromAssignments'])->name('admin.employees.weekly-schedule.fill-from-assignments');
+    Route::post('/admin/time-off-requests/{timeOffRequest}/approve', [AdminWeeklyScheduleController::class, 'approvePendingTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.approve');
+    Route::post('/admin/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.reject');
     Route::post('/admin/employees/weekly-schedule/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.time-off-requests.reject');
     Route::get('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'index'])->name('admin.employees.tasks');
     Route::post('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'store'])->name('admin.employees.tasks.store');
