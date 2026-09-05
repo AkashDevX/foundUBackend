@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ChatFaq;
 use App\Models\Department;
 use App\Models\JobTitle;
 use App\Models\LeaveType;
@@ -102,6 +103,11 @@ class AdminWorkforceController extends Controller
         return $this->renderSection($request, 'leave-types');
     }
 
+    public function chatFaqs(Request $request): View
+    {
+        return $this->renderSection($request, 'chat-faqs');
+    }
+
     /**
      * Normalize a free-text leave code into a stable machine key.
      */
@@ -125,6 +131,7 @@ class AdminWorkforceController extends Controller
         $locations = WorkLocation::on($conn)->orderBy('name')->get();
         $shifts = Shift::on($conn)->orderBy('name')->get();
         $leaveTypes = LeaveType::on($conn)->orderBy('sort_order')->orderBy('name')->get();
+        $chatFaqs = ChatFaq::on($conn)->orderBy('sort_order')->orderBy('id')->get();
 
         return view('admin.workforce', [
             'company' => $company,
@@ -133,11 +140,31 @@ class AdminWorkforceController extends Controller
             'workLocations' => $locations,
             'shifts' => $shifts,
             'leaveTypes' => $leaveTypes,
+            'chatFaqs' => $chatFaqs,
+            'chatFaqIcons' => ChatFaq::allowedIcons(),
             'mapDefaultLat' => config('workforce.default_map_lat'),
             'mapDefaultLng' => config('workforce.default_map_lng'),
             'mapDefaultZoom' => config('workforce.default_map_zoom'),
             'section' => $section,
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseFaqKeywords(?string $input): array
+    {
+        if (! is_string($input) || trim($input) === '') {
+            return [];
+        }
+
+        return collect(preg_split('/[,;]+/', $input) ?: [])
+            ->map(fn ($part) => Str::of((string) $part)->trim()->lower()->toString())
+            ->filter(fn ($part) => $part !== '')
+            ->unique()
+            ->values()
+            ->take(20)
+            ->all();
     }
 
     /**
@@ -602,5 +629,67 @@ class AdminWorkforceController extends Controller
         ])->save();
 
         return redirect()->back()->with('status', 'Leave type updated.');
+    }
+
+    public function storeChatFaq(Request $request): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'faq_label' => ['required', 'string', 'max:80'],
+            'faq_icon' => ['required', 'string', 'in:'.implode(',', ChatFaq::allowedIcons())],
+            'faq_question' => ['required', 'string', 'max:255'],
+            'faq_answer' => ['required', 'string', 'max:5000'],
+            'faq_keywords' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $nextSort = (int) ChatFaq::on($conn)->max('sort_order') + 1;
+
+        ChatFaq::on($conn)->create([
+            'label' => $data['faq_label'],
+            'icon' => $data['faq_icon'],
+            'question' => $data['faq_question'],
+            'answer' => $data['faq_answer'],
+            'keywords' => $this->parseFaqKeywords($data['faq_keywords'] ?? null),
+            'sort_order' => $nextSort,
+            'is_active' => true,
+            'created_by' => $portalUser->name ?: $portalUser->email,
+        ]);
+
+        return redirect()->back()->with('status', 'FAQ created.');
+    }
+
+    public function updateChatFaq(Request $request, int $chatFaq): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'faq_label' => ['required', 'string', 'max:80'],
+            'faq_icon' => ['required', 'string', 'in:'.implode(',', ChatFaq::allowedIcons())],
+            'faq_question' => ['required', 'string', 'max:255'],
+            'faq_answer' => ['required', 'string', 'max:5000'],
+            'faq_keywords' => ['nullable', 'string', 'max:500'],
+            'faq_sort_order' => ['nullable', 'integer', 'min:0', 'max:9999'],
+            'faq_is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $target = ChatFaq::on($conn)->whereKey($chatFaq)->firstOrFail();
+        $target->forceFill([
+            'label' => $data['faq_label'],
+            'icon' => $data['faq_icon'],
+            'question' => $data['faq_question'],
+            'answer' => $data['faq_answer'],
+            'keywords' => $this->parseFaqKeywords($data['faq_keywords'] ?? null),
+            'sort_order' => isset($data['faq_sort_order']) ? (int) $data['faq_sort_order'] : $target->sort_order,
+            'is_active' => $request->boolean('faq_is_active'),
+        ])->save();
+
+        return redirect()->back()->with('status', 'FAQ updated.');
     }
 }

@@ -80,6 +80,7 @@
                         <a href="{{ route('admin.workforce.work-locations') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.work-locations') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work locations</a>
                         <a href="{{ route('admin.workforce.shifts') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.shifts') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Shifts</a>
                         <a href="{{ route('admin.workforce.leave-types') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.leave-types') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Leave types</a>
+                        <a href="{{ route('admin.workforce.chat-faqs') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.chat-faqs') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Chat help FAQs</a>
                         <a href="{{ route('admin.payroll.rates') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.rates*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Award rates</a>
                         <a href="{{ route('admin.payroll.holidays') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.holidays*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Public holidays</a>
                     </div>
@@ -105,6 +106,16 @@
                         <a href="{{ route('admin.employees.tasks') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.tasks*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Tasks</a>
                         <a href="{{ route('admin.training.index') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.training*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Training</a>
                     </div>
+
+                    <a href="{{ route('admin.messages.index') }}" class="{{ request()->routeIs('admin.messages*') ? $navActive : $navInactive }}" @if(request()->routeIs('admin.messages*')) aria-current="page" @endif>
+                        @if(request()->routeIs('admin.messages*'))
+                            <span class="absolute inset-y-2 left-0 w-1 rounded-r-full bg-brand-primary-light" aria-hidden="true"></span>
+                        @endif
+                        <span class="{{ request()->routeIs('admin.messages*') ? 'ml-1' : '' }} flex size-9 items-center justify-center rounded-lg bg-white/10 text-white">
+                            <svg class="size-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>
+                        </span>
+                        <span>Messages</span>
+                    </a>
 
                     <button type="button" id="payroll-time-nav-toggle" class="{{ $payrollActive ? $navActive : $navInactive }} w-full" @if($payrollActive) aria-current="page" @endif aria-expanded="{{ $payrollActive ? 'true' : 'false' }}">
                         @if($payrollActive)

@@ -8,7 +8,7 @@
 
 @push('scripts')
     @vite(['resources/js/workforce.js'])
-    @if (in_array($section, ['departments', 'job-titles', 'work-locations', 'shifts', 'leave-types'], true))
+    @if (in_array($section, ['departments', 'job-titles', 'work-locations', 'shifts', 'leave-types', 'chat-faqs'], true))
         <script>
             (function () {
                 function normalize(value) {
@@ -55,6 +55,115 @@
                 bindListSearch('data-work-location-search', 'data-work-location-filter', 'data-work-location-list', 'data-work-location-item', 'data-work-location-empty');
                 bindListSearch('data-shift-search', 'data-shift-filter', 'data-shift-list', 'data-shift-item', 'data-shift-empty');
                 bindListSearch('data-leave-type-search', 'data-leave-type-filter', 'data-leave-type-list', 'data-leave-type-item', 'data-leave-type-empty');
+                bindListSearch('data-chat-faq-search', 'data-chat-faq-filter', 'data-chat-faq-list', 'data-chat-faq-item', 'data-chat-faq-empty');
+
+                document.querySelectorAll('[data-faq-icon-picker]').forEach(function (picker) {
+                    var dropdown = picker.querySelector('[data-faq-icon-dropdown]');
+                    var trigger = picker.querySelector('[data-faq-icon-trigger]');
+                    var menu = picker.querySelector('[data-faq-icon-menu]');
+                    var chevron = picker.querySelector('[data-faq-icon-chevron]');
+                    var valueInput = picker.querySelector('[data-faq-icon-value]');
+                    var badgeSvg = picker.querySelector('[data-faq-icon-selected-svg]');
+                    var badgeText = picker.querySelector('[data-faq-icon-selected-text]');
+                    if (!dropdown || !trigger || !menu || !valueInput) {
+                        return;
+                    }
+
+                    function placeMenu() {
+                        var rect = trigger.getBoundingClientRect();
+                        var width = Math.max(rect.width, 280);
+                        var left = Math.min(rect.left, window.innerWidth - width - 12);
+                        left = Math.max(12, left);
+                        var top = rect.bottom + 8;
+                        var maxHeight = Math.min(280, window.innerHeight - top - 16);
+                        if (maxHeight < 160 && rect.top > 200) {
+                            top = Math.max(12, rect.top - Math.min(280, rect.top - 12) - 8);
+                            maxHeight = Math.min(280, rect.top - 20);
+                        }
+                        menu.style.position = 'fixed';
+                        menu.style.left = left + 'px';
+                        menu.style.top = top + 'px';
+                        menu.style.width = width + 'px';
+                        menu.style.right = 'auto';
+                        menu.style.marginTop = '0';
+                        var scroller = menu.querySelector('.max-h-56');
+                        if (scroller) {
+                            scroller.style.maxHeight = Math.max(120, maxHeight - 40) + 'px';
+                        }
+                    }
+
+                    function setOpen(open) {
+                        if (open) {
+                            placeMenu();
+                            menu.classList.remove('hidden');
+                        } else {
+                            menu.classList.add('hidden');
+                        }
+                        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+                        if (chevron) {
+                            chevron.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+                        }
+                    }
+
+                    function selectOption(option) {
+                        var value = option.getAttribute('data-value') || '';
+                        var label = option.getAttribute('data-label') || value;
+                        valueInput.value = value;
+                        if (badgeText) {
+                            badgeText.textContent = label;
+                        }
+                        if (badgeSvg) {
+                            var optionSvg = option.querySelector('svg');
+                            if (optionSvg) {
+                                badgeSvg.innerHTML = optionSvg.innerHTML;
+                            }
+                        }
+                        picker.querySelectorAll('[data-faq-icon-option]').forEach(function (btn) {
+                            var active = btn === option;
+                            btn.setAttribute('aria-selected', active ? 'true' : 'false');
+                            btn.classList.toggle('border-brand-primary/40', active);
+                            btn.classList.toggle('bg-brand-primary/[0.08]', active);
+                            var badge = btn.querySelector('[data-faq-icon-option-badge]');
+                            if (badge) {
+                                badge.classList.toggle('!bg-brand-primary', active);
+                                badge.classList.toggle('!text-white', active);
+                            }
+                        });
+                        setOpen(false);
+                    }
+
+                    trigger.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setOpen(menu.classList.contains('hidden'));
+                    });
+
+                    picker.querySelectorAll('[data-faq-icon-option]').forEach(function (option) {
+                        option.addEventListener('click', function (event) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectOption(option);
+                        });
+                    });
+
+                    document.addEventListener('click', function (event) {
+                        if (!dropdown.contains(event.target) && !menu.contains(event.target)) {
+                            setOpen(false);
+                        }
+                    });
+
+                    document.addEventListener('keydown', function (event) {
+                        if (event.key === 'Escape') {
+                            setOpen(false);
+                        }
+                    });
+
+                    window.addEventListener('resize', function () {
+                        if (!menu.classList.contains('hidden')) {
+                            placeMenu();
+                        }
+                    });
+                });
             })();
         </script>
     @endif
@@ -68,6 +177,8 @@
         /** @var \Illuminate\Support\Collection<int, \App\Models\WorkLocation> $workLocations */
         /** @var \Illuminate\Support\Collection<int, \App\Models\Shift> $shifts */
         /** @var \Illuminate\Support\Collection<int, \App\Models\LeaveType> $leaveTypes */
+        /** @var \Illuminate\Support\Collection<int, \App\Models\ChatFaq> $chatFaqs */
+        /** @var list<string> $chatFaqIcons */
         /** @var float $mapDefaultLat */
         /** @var float $mapDefaultLng */
         /** @var int $mapDefaultZoom */
@@ -1020,6 +1131,191 @@
                 </div>
                 <div data-leave-type-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
                     No leave types match your search.
+                </div>
+            </div>
+        </section>
+        @endif
+
+        @if ($section === 'chat-faqs')
+        {{-- Chat help FAQs --}}
+        @php
+            $toggleLabel = 'flex cursor-pointer items-center gap-2.5 rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm font-semibold text-brand-text shadow-sm transition hover:border-brand-primary/40 [&:has(input:checked)]:border-brand-primary [&:has(input:checked)]:bg-brand-primary/[0.06]';
+            $chatFaqs = $chatFaqs ?? collect();
+            $chatFaqIcons = $chatFaqIcons ?? \App\Support\ChatFaqIcons::names();
+            $faqIconSvg = static fn (?string $name): string => \App\Support\ChatFaqIcons::svgMarkup((string) ($name ?: 'help-circle'));
+            $faqIconLabel = static fn (?string $name): string => \App\Support\ChatFaqIcons::label((string) ($name ?: 'help-circle'));
+        @endphp
+        <section class="flex min-h-[32rem] flex-col overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
+            <header class="shrink-0 border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-6 py-5 sm:px-7">
+                <div class="flex items-start gap-3">
+                    <span class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
+                        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $faqIconSvg('help-circle') !!}</svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 class="text-base font-bold tracking-tight text-brand-text">Chat help FAQs</h2>
+                        <p class="mt-1 text-sm text-brand-text-secondary">Questions shown in the mobile app Chat Help screen. Add or edit them without shipping a new app build. Turn off Active to hide a FAQ from the app.</p>
+                    </div>
+                </div>
+            </header>
+            <div class="shrink-0 border-b border-brand-border px-6 py-6 sm:px-7">
+                <form method="post" action="{{ route('admin.workforce.chat-faqs.store') }}" class="space-y-4">
+                    @csrf
+                    <div class="{{ $row }}">
+                        <label for="faq-label" class="{{ $lbl }}">Short label</label>
+                        <input id="faq-label" name="faq_label" required maxlength="80" value="{{ old('faq_label') }}" class="{{ $in }}" placeholder="e.g. Site safety" autocomplete="off" />
+                    </div>
+                    @include('admin.partials.chat-faq-icon-picker', [
+                        'selected' => old('faq_icon', 'help-circle'),
+                        'inputId' => 'faq-icon',
+                        'fieldName' => 'faq_icon',
+                        'lbl' => $lbl,
+                    ])
+                    <div class="{{ $row }}">
+                        <label for="faq-question" class="{{ $lbl }}">Question</label>
+                        <input id="faq-question" name="faq_question" required maxlength="255" value="{{ old('faq_question') }}" class="{{ $in }}" placeholder="What employees tap to ask" autocomplete="off" />
+                    </div>
+                    <div class="{{ $row }}">
+                        <label for="faq-answer" class="{{ $lbl }}">Answer</label>
+                        <textarea id="faq-answer" name="faq_answer" required rows="4" maxlength="5000" class="{{ $in }} min-h-[7rem] resize-y" placeholder="LynkBot will speak this answer">{{ old('faq_answer') }}</textarea>
+                        @error('faq_answer')
+                            <p class="text-sm font-medium text-red-700">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div class="{{ $row }}">
+                        <label for="faq-keywords" class="{{ $lbl }}">Keywords (optional)</label>
+                        <input id="faq-keywords" name="faq_keywords" maxlength="500" value="{{ old('faq_keywords') }}" class="{{ $in }}" placeholder="Comma-separated, e.g. safety, ppe, hazard" autocomplete="off" />
+                    </div>
+                    <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-3 text-sm font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                        Add FAQ
+                    </button>
+                </form>
+            </div>
+            <div class="min-h-0 flex-1 overflow-auto bg-gradient-to-b from-brand-surface/25 to-transparent px-4 py-4 sm:px-6 sm:py-5" data-chat-faq-search>
+                @if ($chatFaqs->isNotEmpty())
+                    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-text-secondary">Saved FAQs</h3>
+                            <span class="rounded-full bg-brand-primary/12 px-2.5 py-0.5 text-[10px] font-bold tabular-nums text-brand-primary">{{ $chatFaqs->count() }}</span>
+                        </div>
+                        <div class="relative w-full sm:max-w-xs">
+                            <input
+                                type="text"
+                                data-chat-faq-filter
+                                class="{{ $in }} pe-9"
+                                placeholder="Search by label, question, or keywords…"
+                                autocomplete="off"
+                                aria-label="Search FAQs"
+                            >
+                            <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-secondary/70">
+                                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                            </span>
+                        </div>
+                    </div>
+                @endif
+                <div data-chat-faq-list>
+                @forelse ($chatFaqs as $faq)
+                    @php
+                        $kw = is_array($faq->keywords) ? implode(', ', $faq->keywords) : '';
+                        $faqSearch = strtolower(trim(
+                            ($faq->label ?? '').' '.
+                            ($faq->question ?? '').' '.
+                            ($faq->answer ?? '').' '.
+                            ($faq->icon ?? '').' '.
+                            $faqIconLabel($faq->icon).' '.
+                            $kw.' '.
+                            ($faq->is_active ? 'active' : 'inactive').' '.
+                            ($faq->id ?? '')
+                        ));
+                    @endphp
+                    <article class="{{ str_replace('overflow-hidden ', 'overflow-visible ', $savedCard) }} mb-4 last:mb-0 {{ $faq->is_active ? '' : 'opacity-70' }}" data-chat-faq-item data-search="{{ $faqSearch }}">
+                        <div class="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-primary to-brand-primary/50 opacity-90" aria-hidden="true"></div>
+                        <div class="relative flex gap-4 pl-2">
+                            <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-brand-primary/12 text-brand-primary shadow-inner ring-1 ring-brand-primary/10">
+                                <svg class="size-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $faqIconSvg($faq->icon) !!}</svg>
+                            </div>
+                            <div class="min-w-0 flex-1 text-sm">
+                                <div class="flex flex-wrap items-center gap-2 gap-y-1">
+                                    <h3 class="text-base font-bold leading-snug text-brand-text">{{ $faq->label }}</h3>
+                                    <span class="inline-flex items-center gap-1 rounded-lg border border-brand-border/80 bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-brand-text-secondary shadow-sm">
+                                        <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $faqIconSvg($faq->icon) !!}</svg>
+                                        {{ $faqIconLabel($faq->icon) }}
+                                    </span>
+                                    @unless ($faq->is_active)
+                                        <span class="inline-flex items-center rounded-lg bg-brand-text-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-text-secondary">Inactive</span>
+                                    @endunless
+                                </div>
+                                <p class="mt-1.5 font-medium text-brand-text">{{ $faq->question }}</p>
+                                <p class="mt-2 text-xs leading-relaxed text-brand-text-secondary line-clamp-3">{{ $faq->answer }}</p>
+                                @if ($kw !== '')
+                                    <p class="mt-2 text-[11px] font-medium text-brand-text-secondary">Keywords: {{ $kw }}</p>
+                                @endif
+                                <p class="mt-1 text-[11px] font-medium text-brand-text-secondary">Order {{ $faq->sort_order }} · ID {{ $faq->id }}</p>
+                            </div>
+                        </div>
+                        <details class="group/faq-edit relative mt-4 overflow-visible rounded-xl border border-brand-border/90 bg-white/85 shadow-sm ring-1 ring-black/[0.03] open:shadow-md">
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-brand-primary transition hover:bg-white/60 [&::-webkit-details-marker]:hidden">
+                                <span>Edit FAQ</span>
+                                <svg class="size-4 shrink-0 text-brand-primary/70 transition group-open/faq-edit:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                            </summary>
+                            <div class="border-t border-brand-border bg-white/90 px-4 py-5 sm:px-6">
+                                <form method="post" action="{{ route('admin.workforce.chat-faqs.update', ['chatFaq' => $faq->id]) }}" class="space-y-4">
+                                    @csrf
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="faq-edit-label-{{ $faq->id }}" class="{{ $lbl }} sm:pt-2.5">Short label</label>
+                                        <input id="faq-edit-label-{{ $faq->id }}" name="faq_label" required maxlength="80" value="{{ $faq->label }}" class="{{ $in }}" autocomplete="off" />
+                                    </div>
+                                    <div class="space-y-1.5">
+                                        @include('admin.partials.chat-faq-icon-picker', [
+                                            'selected' => $faq->icon ?: 'help-circle',
+                                            'inputId' => 'faq-edit-icon-'.$faq->id,
+                                            'fieldName' => 'faq_icon',
+                                            'lbl' => $lbl,
+                                        ])
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="faq-edit-question-{{ $faq->id }}" class="{{ $lbl }} sm:pt-2.5">Question</label>
+                                        <input id="faq-edit-question-{{ $faq->id }}" name="faq_question" required maxlength="255" value="{{ $faq->question }}" class="{{ $in }}" autocomplete="off" />
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="faq-edit-answer-{{ $faq->id }}" class="{{ $lbl }} sm:pt-2.5">Answer</label>
+                                        <textarea id="faq-edit-answer-{{ $faq->id }}" name="faq_answer" required rows="4" maxlength="5000" class="{{ $in }} min-h-[7rem] resize-y">{{ $faq->answer }}</textarea>
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="faq-edit-keywords-{{ $faq->id }}" class="{{ $lbl }} sm:pt-2.5">Keywords</label>
+                                        <input id="faq-edit-keywords-{{ $faq->id }}" name="faq_keywords" maxlength="500" value="{{ $kw }}" class="{{ $in }}" placeholder="Comma-separated" autocomplete="off" />
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <label for="faq-edit-sort-{{ $faq->id }}" class="{{ $lbl }} sm:pt-2.5">Sort order</label>
+                                        <input id="faq-edit-sort-{{ $faq->id }}" name="faq_sort_order" type="number" min="0" max="9999" value="{{ $faq->sort_order }}" class="{{ $in }}" />
+                                    </div>
+                                    <div class="{{ $wfGrid }}">
+                                        <span class="{{ $lbl }} sm:pt-2.5">Status</span>
+                                        <label class="{{ $toggleLabel }}">
+                                            <input type="checkbox" name="faq_is_active" value="1" class="size-4 rounded border-brand-border text-brand-primary focus:ring-brand-primary/30" @checked($faq->is_active) />
+                                            <span>Active (shown in app)</span>
+                                        </label>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-end gap-2 border-t border-brand-border pt-4">
+                                        <button type="submit" class="rounded-xl bg-brand-primary px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                                            Save changes
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </details>
+                    </article>
+                @empty
+                    <div class="rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-12 text-center">
+                        <span class="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-surface text-brand-text-secondary/80" aria-hidden="true">
+                            <svg class="size-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">{!! $faqIconSvg('help-circle') !!}</svg>
+                        </span>
+                        <p class="mt-4 text-sm font-semibold text-brand-text">No FAQs yet</p>
+                        <p class="mt-1 text-xs text-brand-text-secondary">Add a question above — it will appear in the mobile Chat Help screen.</p>
+                    </div>
+                @endforelse
+                </div>
+                <div data-chat-faq-empty class="hidden rounded-2xl border border-dashed border-brand-border bg-white/60 px-6 py-10 text-center text-sm text-brand-text-secondary">
+                    No FAQs match your search.
                 </div>
             </div>
         </section>

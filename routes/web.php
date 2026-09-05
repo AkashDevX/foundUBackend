@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
+use App\Http\Controllers\Admin\AdminMessagesController;
 use App\Http\Controllers\Admin\AdminTrainingController;
 use App\Http\Controllers\Admin\AdminPayrollController;
 use App\Http\Controllers\Admin\AdminWeeklyScheduleController;
@@ -45,6 +46,7 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/workforce/work-locations', [AdminWorkforceController::class, 'workLocations'])->name('admin.workforce.work-locations');
     Route::get('/admin/workforce/shifts', [AdminWorkforceController::class, 'shifts'])->name('admin.workforce.shifts');
     Route::get('/admin/workforce/leave-types', [AdminWorkforceController::class, 'leaveTypes'])->name('admin.workforce.leave-types');
+    Route::get('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'chatFaqs'])->name('admin.workforce.chat-faqs');
     Route::post('/admin/workforce/departments', [AdminWorkforceController::class, 'storeDepartment'])->name('admin.workforce.departments.store');
     Route::post('/admin/workforce/departments/{department}', [AdminWorkforceController::class, 'updateDepartment'])->name('admin.workforce.departments.update');
     Route::post('/admin/workforce/job-titles', [AdminWorkforceController::class, 'storeJobTitle'])->name('admin.workforce.job-titles.store');
@@ -55,6 +57,8 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/workforce/shifts/{shift}', [AdminWorkforceController::class, 'updateShift'])->name('admin.workforce.shifts.update');
     Route::post('/admin/workforce/leave-types', [AdminWorkforceController::class, 'storeLeaveType'])->name('admin.workforce.leave-types.store');
     Route::post('/admin/workforce/leave-types/{leaveType}', [AdminWorkforceController::class, 'updateLeaveType'])->name('admin.workforce.leave-types.update');
+    Route::post('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'storeChatFaq'])->name('admin.workforce.chat-faqs.store');
+    Route::post('/admin/workforce/chat-faqs/{chatFaq}', [AdminWorkforceController::class, 'updateChatFaq'])->name('admin.workforce.chat-faqs.update');
     Route::post('/admin/workforce/geocode/reverse', [AdminWorkforceController::class, 'reverseGeocode'])
         ->middleware('throttle:120,1')
         ->name('admin.workforce.geocode.reverse');
@@ -127,6 +131,23 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::delete('/admin/payroll/holidays/{holiday}', [AdminPayrollController::class, 'destroyHoliday'])->name('admin.payroll.holidays.destroy');
     Route::get('/admin/terms', [AdminTermsController::class, 'edit'])->name('admin.terms.edit');
     Route::put('/admin/terms', [AdminTermsController::class, 'update'])->name('admin.terms.update');
+
+    Route::get('/admin/messages', [AdminMessagesController::class, 'index'])->name('admin.messages.index');
+    Route::post('/admin/messages/direct', [AdminMessagesController::class, 'storeDirect'])->name('admin.messages.direct.store');
+    Route::post('/admin/messages/groups', [AdminMessagesController::class, 'storeGroup'])->name('admin.messages.groups.store');
+    Route::post('/admin/messages/reports/{report}/resolve', [AdminMessagesController::class, 'resolveReport'])
+        ->whereNumber('report')
+        ->name('admin.messages.reports.resolve');
+    Route::get('/admin/messages/{conversation}', [AdminMessagesController::class, 'show'])
+        ->where(['conversation' => '[0-9]+'])
+        ->name('admin.messages.show');
+    Route::post('/admin/messages/{conversation}/send', [AdminMessagesController::class, 'send'])
+        ->where(['conversation' => '[0-9]+'])
+        ->name('admin.messages.send');
+    Route::get('/admin/messages/attachments/{message}', [AdminMessagesController::class, 'attachment'])
+        ->where(['message' => '[0-9]+'])
+        ->name('admin.messages.attachment');
+
     Route::get('/admin/reports', [AdminReportsController::class, 'index'])->name('admin.reports');
     Route::get('/admin/reports/payroll', [AdminReportsController::class, 'payroll'])->name('admin.reports.payroll');
     Route::get('/admin/reports/paysheet', [AdminReportsController::class, 'paysheet'])->name('admin.reports.paysheet');

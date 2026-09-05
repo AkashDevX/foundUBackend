@@ -19,6 +19,7 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/storage/app/firebase/
 /vendor
 
 # Local SQLite (use MySQL for full tenant flows in development)

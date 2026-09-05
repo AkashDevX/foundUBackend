@@ -220,13 +220,7 @@ final class AdminDashboardNotifications
         //     'Incident reporting is not set up yet.',
         // );
 
-        // $sections[] = self::section(
-        //     'messages',
-        //     'New messages from employees',
-        //     [],
-        //     true,
-        //     'Employee messaging is not set up yet.',
-        // );
+        $sections[] = self::messagingSection($company, $conn);
 
         // $sections[] = self::section(
         //     'training_renewals',
@@ -298,6 +292,53 @@ final class AdminDashboardNotifications
             'unavailable' => $unavailable,
             'unavailable_reason' => $unavailableReason,
         ];
+    }
+
+    /**
+     * @return array{
+     *     key: string,
+     *     title: string,
+     *     items: list<array{message: string, url: string|null, severity: string, sort_at: int}>,
+     *     total_count: int,
+     *     unavailable: bool,
+     *     unavailable_reason: string|null,
+     * }
+     */
+    private static function messagingSection(Company $company, string $conn): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::connection($conn)->hasTable('conversations')) {
+            return self::section(
+                'messages',
+                'New messages from employees',
+                [],
+                true,
+                'Run messaging migrations to enable this section.',
+            );
+        }
+
+        $previous = \Illuminate\Support\Facades\DB::getDefaultConnection();
+        \Illuminate\Support\Facades\DB::setDefaultConnection($conn);
+
+        try {
+            $service = app(\App\Services\MessagingService::class);
+            $unread = $service->unreadAdminConversationCount();
+        } finally {
+            \Illuminate\Support\Facades\DB::setDefaultConnection($previous);
+        }
+
+        $items = [];
+        if ($unread > 0) {
+            $items[] = [
+                'message' => $unread === 1
+                    ? '1 conversation has unread employee messages'
+                    : "{$unread} conversations have unread employee messages",
+                'url' => route('admin.messages.index'),
+                'severity' => 'info',
+                'sort_at' => time(),
+            ];
+        }
+
+        return self::section('messages', 'New messages from employees', $items);
     }
 
     /**

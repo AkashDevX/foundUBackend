@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'platform.api' => \App\Http\Middleware\EnsurePlatformApiRequest::class,
             'portal.tenant' => \App\Http\Middleware\EnsureTenantPortalUser::class,
             'portal.platform' => \App\Http\Middleware\EnsurePlatformPortalUser::class,
+            'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

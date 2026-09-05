@@ -10,13 +10,10 @@ use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
 use App\Models\TimeClockEntry;
 use App\Models\TimesheetApproval;
-<<<<<<< HEAD
 use App\Models\TrainingModule;
 use App\Support\AdminTraining;
-=======
 use App\Support\AdminTimesheetHoursReport;
 use App\Support\DisplayTimezone;
->>>>>>> origin/main
 use App\Support\PayrollLineTotals;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;

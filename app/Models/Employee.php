@@ -82,6 +82,7 @@ use Laravel\Sanctum\HasApiTokens;
     'hired_at',
     'email_verified_at',
     'last_login_at',
+    'messaging_disabled_at',
     'profile_metadata',
 ])]
 #[Hidden(['password', 'remember_token', 'bank_account_number'])]
@@ -383,6 +384,7 @@ class Employee extends Model
             'assignment_effective_from' => 'date',
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'messaging_disabled_at' => 'datetime',
             'weekly_availability_json' => 'array',
             'id_documents_json' => 'array',
             'licences_json' => 'array',

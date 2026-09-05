@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\V1\RequestTimeOffController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
+use App\Http\Controllers\Api\V1\DeviceTokenController;
+use App\Http\Controllers\Api\V1\MessagingController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
@@ -48,6 +50,12 @@ Route::prefix('v1')->group(function () {
      */
     Route::post('/request-organization', RequestOrganizationController::class)
         ->middleware(['platform.api', 'throttle:10,1']);
+
+    // Signed attachment open (no Bearer token). Tenant comes from ?company= in the signed URL.
+    Route::get('/messaging/attachments/{message}/open', [MessagingController::class, 'openSignedAttachment'])
+        ->middleware(['signed', 'throttle:60,1'])
+        ->where(['message' => '[0-9]+'])
+        ->name('api.v1.messaging.attachments.open');
 });
 
 Route::middleware('tenant')->prefix('v1')->group(function () {
@@ -108,6 +116,35 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::post('/time-clock/break-end', BreakEndEmployeeController::class);
         Route::post('/time-clock/auto-clock-out', AutoClockOutEmployeeController::class);
         Route::get('/payroll', \App\Http\Controllers\Api\V1\EmployeePayrollController::class);
+
+        Route::post('/device-token', [DeviceTokenController::class, 'store']);
+        Route::delete('/device-token', [DeviceTokenController::class, 'destroy']);
+
+        Route::get('/messaging/faqs', [MessagingController::class, 'faqs']);
+        Route::get('/messaging/directory', [MessagingController::class, 'directory']);
+        Route::get('/messaging/conversations', [MessagingController::class, 'conversations']);
+        Route::post('/messaging/conversations/direct', [MessagingController::class, 'openDirect']);
+        Route::post('/messaging/conversations/groups', [MessagingController::class, 'createGroup']);
+        Route::post('/messaging/conversations/{conversation}/members', [MessagingController::class, 'updateMembers'])
+            ->where(['conversation' => '[0-9]+']);
+        Route::get('/messaging/conversations/{conversation}/messages', [MessagingController::class, 'messages'])
+            ->where(['conversation' => '[0-9]+']);
+        Route::post('/messaging/conversations/{conversation}/messages', [MessagingController::class, 'sendMessage'])
+            ->where(['conversation' => '[0-9]+']);
+        Route::get('/messaging/attachments/{message}', [MessagingController::class, 'downloadAttachment'])
+            ->where(['message' => '[0-9]+']);
+        Route::get('/messaging/attachments/{message}/link', [MessagingController::class, 'attachmentOpenLink'])
+            ->where(['message' => '[0-9]+']);
+        Route::get('/messaging/blocks', [MessagingController::class, 'blocks']);
+        Route::post('/messaging/blocks', [MessagingController::class, 'block']);
+        Route::delete('/messaging/blocks/{employeeId}', [MessagingController::class, 'unblock'])
+            ->where(['employeeId' => '[0-9]+']);
+        Route::get('/messaging/policy', [MessagingController::class, 'policy']);
+        Route::post('/messaging/policy/accept', [MessagingController::class, 'acceptPolicy']);
+        Route::post('/messaging/messages/{message}/report', [MessagingController::class, 'reportMessage'])
+            ->where(['message' => '[0-9]+']);
+        Route::post('/messaging/conversations/{conversation}/report', [MessagingController::class, 'reportConversation'])
+            ->where(['conversation' => '[0-9]+']);
     });
 
     Route::get('/tenant/context', function () {

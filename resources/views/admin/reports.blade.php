@@ -86,11 +86,8 @@
         <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
-<<<<<<< HEAD
     <div class="mx-auto {{ ($section ?? '') === 'training' ? 'max-w-6xl' : 'max-w-4xl' }}">
-=======
     <div class="mx-auto {{ $section === 'timesheet' ? 'max-w-5xl' : 'max-w-4xl' }}">
->>>>>>> origin/main
         {{-- Filters (screen only) --}}
         <form method="GET" action="{{ route('admin.reports.'.$section) }}" class="report-toolbar mb-5 overflow-visible rounded-2xl border border-brand-border bg-white p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex items-center gap-2">

@@ -334,11 +334,7 @@ class TimeClockService
                 );
             } else {
                 $location = $sessionLocation;
-<<<<<<< HEAD
-                if (! $location instanceof WorkLocation) {
-=======
                 if (!$location instanceof WorkLocation) {
->>>>>>> origin/main
                     throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
                 }
                 $geofence = $this->evaluateSessionGeofence(

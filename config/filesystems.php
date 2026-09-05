@@ -58,6 +58,13 @@ return [
             'report' => false,
         ],
 
+        'chat_attachments' => [
+            'driver' => 'local',
+            'root' => storage_path('app/chat_attachments'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
