@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
+use App\Support\PayrollLineTotals;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -51,7 +52,7 @@ class EmployeePayrollController extends Controller
                 'fortnight_end' => $latestRun->fortnight_end?->toDateString(),
                 'generated_at' => $latestRun->generated_at?->toIso8601String(),
                 'lines' => $lines,
-                'gross_total' => round(array_sum(array_column($lines, 'amount')), 2),
+                'gross_total' => PayrollLineTotals::summarize($lines)['gross_pay'],
             ],
         ]);
     }

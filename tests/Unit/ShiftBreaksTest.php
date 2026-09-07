@@ -37,6 +37,19 @@ class ShiftBreaksTest extends TestCase
         $this->assertSame(30, ShiftBreaks::paidMinutesTotal($breaks));
     }
 
+    public function test_fingerprint_is_stable_for_equivalent_breaks(): void
+    {
+        $a = ShiftBreaks::fingerprint([
+            ['label' => 'Lunch', 'minutes' => '30', 'paid' => '0'],
+        ]);
+        $b = ShiftBreaks::fingerprint([
+            ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+        ]);
+
+        $this->assertSame($a, $b);
+        $this->assertNotSame($a, ShiftBreaks::fingerprint([]));
+    }
+
     public function test_break_pay_adjustment_keeps_paid_and_deducts_unpaid_plus_excess(): void
     {
         $breaks = [

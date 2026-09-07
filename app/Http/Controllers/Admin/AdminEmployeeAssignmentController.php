@@ -13,7 +13,6 @@ use App\Models\JobTitle;
 use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\RegistrationPicklistItem;
-use App\Models\Shift;
 use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
 use App\Models\WorkLocation;
@@ -24,6 +23,7 @@ use App\Support\AdminTimesheetApproval;
 use App\Support\AdminWeeklyAvailability;
 use App\Support\AdminWeeklySchedule;
 use App\Support\DisplayTimezone;
+use App\Support\EmployeeJobTitles;
 use App\Support\FoundUProfileMapper;
 use App\Support\PayrollEmployeeRates;
 use App\Support\RegistrationDisplay;
@@ -492,7 +492,6 @@ class AdminEmployeeAssignmentController extends Controller
      *     employees: \Illuminate\Support\Collection<int, Employee>,
      *     departments: \Illuminate\Support\Collection,
      *     workLocations: \Illuminate\Support\Collection,
-     *     shifts: \Illuminate\Support\Collection,
      *     timesheetApprovals: \Illuminate\Support\Collection<int, TimesheetApproval>,
      * }
      */
@@ -536,7 +535,6 @@ class AdminEmployeeAssignmentController extends Controller
             'employees' => $employees,
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
-            'shifts' => Shift::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'timesheetApprovals' => $timesheetApprovals,
         ];
     }
@@ -627,6 +625,9 @@ class AdminEmployeeAssignmentController extends Controller
             'allowance_amount' => ['nullable', 'array'],
             'allowance_amount.*' => ['nullable', 'numeric', 'min:0', 'max:99999'],
             'job_title_id' => ['nullable', 'integer'],
+            'job_title_ids' => ['nullable', 'array'],
+            'job_title_ids.*' => ['integer'],
+            'primary_job_title_id' => ['nullable', 'integer'],
             'department_id' => ['nullable', 'integer'],
             'profile_photo' => ['nullable', 'file', 'max:15360'],
             'police_check' => ['nullable', 'file', 'max:15360'],
@@ -652,8 +653,12 @@ class AdminEmployeeAssignmentController extends Controller
             'id_document_type.*' => ['nullable', 'string', 'max:255'],
             'licence_type_row' => ['nullable', 'array'],
             'licence_type_row.*' => ['nullable', 'string', 'max:255'],
+            'licence_expiry_row' => ['nullable', 'array'],
+            'licence_expiry_row.*' => ['nullable', 'string', 'max:32'],
             'insurance_type_row' => ['nullable', 'array'],
             'insurance_type_row.*' => ['nullable', 'string', 'max:255'],
+            'insurance_expiry_row' => ['nullable', 'array'],
+            'insurance_expiry_row.*' => ['nullable', 'string', 'max:32'],
         ]);
 
         $email = (string) $data['email'];
@@ -711,17 +716,20 @@ class AdminEmployeeAssignmentController extends Controller
             return null;
         };
 
+        $jobTitleIds = $request->input('job_title_ids');
+        if (! is_array($jobTitleIds)) {
+            // Backward compatible: single select still posted as job_title_id.
+            $legacyId = $nullableInt($request->input('job_title_id'));
+            $jobTitleIds = $legacyId !== null ? [$legacyId] : [];
+        }
+        $primaryJobTitleId = $nullableInt($request->input('primary_job_title_id'))
+            ?? $nullableInt($request->input('job_title_id'));
+
         $departmentId = $nullableInt($request->input('department_id'));
         $this->assertBelongsToTenant($conn, 'departments', $departmentId);
         $departmentName = $departmentId === null
             ? null
             : Department::on($conn)->whereKey($departmentId)->value('name');
-
-        $jobTitleId = $nullableInt($request->input('job_title_id'));
-        $this->assertBelongsToTenant($conn, 'job_titles', $jobTitleId);
-        $jobTitleName = $jobTitleId === null
-            ? null
-            : JobTitle::on($conn)->whereKey($jobTitleId)->value('name');
 
         $fill = collect($data)
             ->only([
@@ -745,8 +753,6 @@ class AdminEmployeeAssignmentController extends Controller
                 'weekly_availability_summary' => $weeklySummary,
                 'department_id' => $departmentId,
                 'department' => $departmentName,
-                'job_title_id' => $jobTitleId,
-                'job_title' => $jobTitleName,
             ])
             ->all();
 
@@ -784,10 +790,12 @@ class AdminEmployeeAssignmentController extends Controller
             $fill['payroll_allowances_json'] = $allowances === [] ? null : $allowances;
         }
 
-        $employee->forceFill([
-            'employment_type' => $fill['employment_type'] ?? null,
-            'award_level' => $fill['award_level'] ?? null,
-        ]);
+        if ($request->exists('employment_type') || $request->exists('award_level')) {
+            $employee->forceFill([
+                'employment_type' => $fill['employment_type'] ?? $employee->employment_type,
+                'award_level' => $fill['award_level'] ?? $employee->award_level,
+            ]);
+        }
         $mergedRates = PayrollEmployeeRates::fromRequest(
             (array) ($data['payroll_rates'] ?? []),
             $conn,
@@ -808,6 +816,9 @@ class AdminEmployeeAssignmentController extends Controller
         }
 
         $employee->forceFill($fill)->save();
+
+        EmployeeJobTitles::sync($conn, $employee, $jobTitleIds, $primaryJobTitleId);
+        $employee->refresh();
 
         $this->applyJsonRowPicklistFields($request, $employee);
         $this->applyJsonRowExpiryFields($request, $employee);
@@ -1077,48 +1088,59 @@ class AdminEmployeeAssignmentController extends Controller
         $this->assertBelongsToTenant($conn, 'departments', $data['department_id'] ?? null);
         $this->assertBelongsToTenant($conn, 'work_locations', $data['work_location_id'] ?? null);
 
-        $assignmentShifts = collect($data['assignment_shifts'] ?? [])
-            ->map(static function (array $row) use ($nullableInt): ?array {
-                $shiftId = $nullableInt($row['shift_id'] ?? null);
-                if ($shiftId === null) {
-                    return null;
-                }
+        // Assignment forms no longer edit default hours; only sync when the field is posted.
+        $syncAssignmentShifts = $request->exists('assignment_shifts');
+        $assignmentShifts = collect();
 
-                $breakMinutes = $row['unpaid_break_minutes'] ?? null;
+        if ($syncAssignmentShifts) {
+            $assignmentShifts = collect($data['assignment_shifts'] ?? [])
+                ->map(static function (array $row) use ($nullableInt): ?array {
+                    $shiftId = $nullableInt($row['shift_id'] ?? null);
+                    if ($shiftId === null) {
+                        return null;
+                    }
 
-                return [
-                    'shift_id' => $shiftId,
-                    'unpaid_break_minutes' => $breakMinutes === null || $breakMinutes === '' ? 0 : (int) $breakMinutes,
-                ];
-            })
-            ->filter()
-            ->values();
+                    $breakMinutes = $row['unpaid_break_minutes'] ?? null;
 
-        foreach ($assignmentShifts as $row) {
-            $this->assertBelongsToTenant($conn, 'shifts', $row['shift_id']);
+                    return [
+                        'shift_id' => $shiftId,
+                        'unpaid_break_minutes' => $breakMinutes === null || $breakMinutes === '' ? 0 : (int) $breakMinutes,
+                    ];
+                })
+                ->filter()
+                ->values();
+
+            foreach ($assignmentShifts as $row) {
+                $this->assertBelongsToTenant($conn, 'shifts', $row['shift_id']);
+            }
         }
 
-        $primaryShiftId = $assignmentShifts->first()['shift_id'] ?? null;
-
-        $employee->forceFill([
+        $fill = [
             'department_id' => $data['department_id'] ?? null,
             'work_location_id' => $data['work_location_id'] ?? null,
-            'shift_id' => $primaryShiftId,
             'assignment_effective_from' => $data['assignment_effective_from'] ?? null,
             'assignment_notes' => $data['assignment_notes'] ?? null,
-        ])->save();
+        ];
 
-        EmployeeAssignmentShift::on($conn)
-            ->where('employee_id', $employee->id)
-            ->delete();
+        if ($syncAssignmentShifts) {
+            $fill['shift_id'] = $assignmentShifts->first()['shift_id'] ?? null;
+        }
 
-        foreach ($assignmentShifts as $index => $row) {
-            EmployeeAssignmentShift::on($conn)->create([
-                'employee_id' => $employee->id,
-                'shift_id' => $row['shift_id'],
-                'unpaid_break_minutes' => $row['unpaid_break_minutes'],
-                'sort_order' => $index,
-            ]);
+        $employee->forceFill($fill)->save();
+
+        if ($syncAssignmentShifts) {
+            EmployeeAssignmentShift::on($conn)
+                ->where('employee_id', $employee->id)
+                ->delete();
+
+            foreach ($assignmentShifts as $index => $row) {
+                EmployeeAssignmentShift::on($conn)->create([
+                    'employee_id' => $employee->id,
+                    'shift_id' => $row['shift_id'],
+                    'unpaid_break_minutes' => $row['unpaid_break_minutes'],
+                    'sort_order' => $index,
+                ]);
+            }
         }
     }
 
@@ -1228,7 +1250,11 @@ class AdminEmployeeAssignmentController extends Controller
             if ($id === '' || ! array_key_exists($id, $submitted)) {
                 continue;
             }
-            $iso = RegistrationDisplay::toNullableIsoDate($submitted[$id]);
+            $raw = $submitted[$id];
+            if (is_string($raw) && in_array($raw, RegistrationDisplay::allowedStorageDateFormats(), true)) {
+                continue;
+            }
+            $iso = RegistrationDisplay::toNullableIsoDate($raw);
             if ($iso === null) {
                 unset($rows[$i]['expiry'], $rows[$i]['expiry_date']);
                 continue;

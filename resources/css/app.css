@@ -197,3 +197,31 @@
     border-radius: 9999px;
     animation: wf-map-spin 0.65s linear infinite;
 }
+
+/* Dashboard workflow cards — collapsed by default; expand details only on hover/focus */
+.workflow-card-details {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows 200ms ease,
+        opacity 160ms ease;
+}
+
+.workflow-card-details > * {
+    overflow: hidden;
+    min-height: 0;
+}
+
+.workflow-card:hover .workflow-card-details,
+.workflow-card:focus-within .workflow-card-details {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .workflow-card:focus-within .workflow-card-details {
+        grid-template-rows: 1fr;
+        opacity: 1;
+    }
+}

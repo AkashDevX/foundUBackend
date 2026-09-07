@@ -57,6 +57,10 @@ class AdminReportsController extends Controller
 
             $lineTotals = PayrollRunLine::on($conn)
                 ->whereIn('payroll_run_id', $runModels->pluck('id')->all())
+                ->whereNotIn('rate_type', [
+                    \App\Support\PayrollRateTypes::SICK_LEAVE_ACCRUAL,
+                    \App\Support\PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL,
+                ])
                 ->selectRaw('payroll_run_id, SUM(amount) as total_amount, SUM(hours) as total_hours, COUNT(DISTINCT employee_id) as employee_count')
                 ->groupBy('payroll_run_id')
                 ->get()

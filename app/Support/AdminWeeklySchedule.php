@@ -44,6 +44,198 @@ final class AdminWeeklySchedule
     }
 
     /**
+     * Safety cap for explicit Ends dates on interval recurrence (e.g. Repeat for one year).
+     */
+    private const EXPLICIT_UNTIL_HORIZON_YEARS = 1;
+
+    /**
+     * Calendar dates to book for Sling-style recurrence.
+     *
+     * - never: the start date only
+     * - every_week … every_8_weeks: selected weekdays on that interval through Ends (12-week default; until honored up to 1 year)
+     * - weekly (legacy): selected weekdays through until
+     *
+     * @param  mixed  $days
+     * @return list<string>
+     */
+    public static function recurrenceDates(
+        string $startDate,
+        string $mode,
+        mixed $days = null,
+        ?string $untilDate = null,
+        int $maxWeeks = 12,
+    ): array {
+        $start = Carbon::parse($startDate)->startOfDay();
+        $normalizedMode = strtolower(trim($mode));
+        $maxWeeks = max(1, $maxWeeks);
+
+        if ($normalizedMode === '' || $normalizedMode === 'never') {
+            return [$start->toDateString()];
+        }
+
+        if ($normalizedMode === 'weekly') {
+            $dayKeys = WorkforceShifts::normalizeDays($days);
+            if ($dayKeys !== null && $dayKeys !== []) {
+                return self::recurrenceDatesForWeekdays($start, $dayKeys, $untilDate, $maxWeeks);
+            }
+
+            $normalizedMode = 'every_week';
+        }
+
+        if ($normalizedMode === 'ongoing' || $normalizedMode === 'no_end_date') {
+            $normalizedMode = 'every_week';
+        }
+
+        $interval = self::recurrenceWeekInterval($normalizedMode);
+        if ($interval < 1) {
+            return [$start->toDateString()];
+        }
+
+        $dayKeys = WorkforceShifts::normalizeDays($days);
+        if ($dayKeys === null || $dayKeys === []) {
+            $map = [0 => 'sun', 1 => 'mon', 2 => 'tue', 3 => 'wed', 4 => 'thu', 5 => 'fri', 6 => 'sat'];
+            $dayKeys = [$map[$start->dayOfWeek] ?? 'mon'];
+        }
+
+        if (is_string($untilDate) && $untilDate !== '') {
+            $until = Carbon::parse($untilDate)->startOfDay();
+            $maxUntil = $start->copy()->addYears(self::EXPLICIT_UNTIL_HORIZON_YEARS);
+            if ($until->gt($maxUntil)) {
+                $until = $maxUntil;
+            }
+        } else {
+            $until = $start->copy()->addWeeks($maxWeeks);
+        }
+
+        if ($until->lt($start)) {
+            $until = $start->copy();
+        }
+
+        return self::recurrenceDatesForInterval($start, $dayKeys, $interval, $until);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function recurrenceModeOptions(): array
+    {
+        return [
+            'never' => 'Never',
+            'every_week' => 'Every week',
+            'every_2_weeks' => 'Every 2 weeks',
+            'every_3_weeks' => 'Every 3 weeks',
+            'every_4_weeks' => 'Every 4 weeks',
+            'every_5_weeks' => 'Every 5 weeks',
+            'every_6_weeks' => 'Every 6 weeks',
+            'every_7_weeks' => 'Every 7 weeks',
+            'every_8_weeks' => 'Every 8 weeks',
+        ];
+    }
+
+    public static function recurrenceModeLabel(string $mode): string
+    {
+        $options = self::recurrenceModeOptions();
+        $key = strtolower(trim($mode));
+        if ($key === 'ongoing' || $key === 'no_end_date') {
+            return $options['every_week'];
+        }
+
+        return $options[$key] ?? ($key === 'weekly' ? 'Every week' : 'This date only');
+    }
+
+    /**
+     * @param  list<string>  $dayKeys
+     * @return list<string>
+     */
+    private static function recurrenceDatesForWeekdays(
+        CarbonInterface $start,
+        array $dayKeys,
+        ?string $untilDate,
+        int $maxWeeks,
+    ): array {
+        $weekEnd = $start->copy()->startOfWeek(Carbon::MONDAY)->addDays(6);
+        $until = is_string($untilDate) && $untilDate !== ''
+            ? Carbon::parse($untilDate)->startOfDay()
+            : $weekEnd;
+        $max = $start->copy()->addWeeks(max(1, $maxWeeks));
+        if ($until->gt($max)) {
+            $until = $max;
+        }
+        if ($until->lt($start)) {
+            $until = $start->copy();
+        }
+
+        return self::recurrenceDatesForInterval($start, $dayKeys, 1, $until);
+    }
+
+    /**
+     * @param  list<string>  $dayKeys
+     * @return list<string>
+     */
+    private static function recurrenceDatesForInterval(
+        CarbonInterface $start,
+        array $dayKeys,
+        int $interval,
+        CarbonInterface $until,
+    ): array {
+        $allowed = array_values(array_unique($dayKeys));
+        $map = ['sun' => 0, 'mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5, 'sat' => 6];
+        $startWeek = $start->copy()->startOfWeek(Carbon::MONDAY);
+        $interval = max(1, $interval);
+        $dates = [];
+
+        foreach ($allowed as $key) {
+            if (! isset($map[$key])) {
+                continue;
+            }
+
+            $cursor = $start->copy();
+            $targetDow = $map[$key];
+            $delta = ($targetDow - $cursor->dayOfWeek + 7) % 7;
+            if ($delta > 0) {
+                $cursor->addDays($delta);
+            }
+
+            while ($cursor->lte($until)) {
+                if ($cursor->lt($start)) {
+                    $cursor->addWeek();
+                    continue;
+                }
+
+                $week = $cursor->copy()->startOfWeek(Carbon::MONDAY);
+                $weeksDiff = (int) $startWeek->diffInWeeks($week, false);
+                if ($weeksDiff >= 0 && $weeksDiff % $interval === 0) {
+                    $dates[] = $cursor->toDateString();
+                    $cursor->addWeeks($interval);
+                    continue;
+                }
+
+                $cursor->addWeek();
+            }
+        }
+
+        $dates = array_values(array_unique($dates));
+        sort($dates);
+
+        return $dates === [] ? [$start->toDateString()] : $dates;
+    }
+
+    private static function recurrenceWeekInterval(string $mode): int
+    {
+        return match ($mode) {
+            'every_week', 'weekly' => 1,
+            'every_2_weeks' => 2,
+            'every_3_weeks' => 3,
+            'every_4_weeks' => 4,
+            'every_5_weeks' => 5,
+            'every_6_weeks' => 6,
+            'every_7_weeks' => 7,
+            'every_8_weeks' => 8,
+            default => 0,
+        };
+    }
+
+    /**
      * @return list<array{
      *     key: string,
      *     date: CarbonInterface,
@@ -312,7 +504,11 @@ final class AdminWeeklySchedule
 
         $locationName = trim((string) ($entry->workLocation?->name ?? ''));
         $departmentName = trim((string) ($entry->department?->name ?? ''));
-        $shiftName = trim((string) ($entry->shiftTemplate?->name ?? ''));
+        $template = $entry->shiftTemplate;
+        $breaks = $template instanceof Shift ? $template->normalizedBreaks() : [];
+        $breaksLabel = ShiftBreaks::summaryFrom($breaks) ?? '';
+        $notes = $entry->notes !== null ? trim((string) $entry->notes) : '';
+        $subtitle = $breaksLabel !== '' ? $breaksLabel : $notes;
 
         return [
             'id' => $entry->id,
@@ -323,9 +519,10 @@ final class AdminWeeklySchedule
             'duration_label' => AdminTimeClockDisplay::formatDuration($durationSeconds),
             'duration_seconds' => $durationSeconds,
             'title' => $jobTitle,
-            'subtitle' => $shiftName !== '' ? $shiftName : 'Scheduled shift',
+            'subtitle' => $subtitle,
             'meta' => trim(collect([$departmentName, $locationName])->filter()->join(' · ')),
-            'palette' => self::paletteForSeed((int) ($entry->work_location_id ?? $entry->department_id ?? $employee->id ?? 0)),
+            'palette' => self::paletteForJobTitle($entry->jobTitle) ?? self::paletteForSeed((int) ($entry->work_location_id ?? $entry->department_id ?? $employee->id ?? 0)),
+            'accent_color' => $entry->jobTitle?->accentColor(),
             'scheduled_date' => $entry->scheduled_date?->toDateString(),
             'employee_public_id' => $employee->public_id,
             'start_time' => self::storedTimeToHm($entry->start_time),
@@ -335,6 +532,9 @@ final class AdminWeeklySchedule
             'department_id' => $entry->department_id,
             'work_location_id' => $entry->work_location_id,
             'notes' => $entry->notes,
+            'breaks' => $breaks,
+            'breaks_label' => $breaksLabel,
+            'recurrence_label' => 'This date only',
             'status' => $entry->status,
             'status_label' => EmployeeScheduleShift::statusLabel($entry->status),
         ];
@@ -358,6 +558,8 @@ final class AdminWeeklySchedule
             $breakLabel = $unpaidBreakMinutes > 0
                 ? AdminTimeClockDisplay::formatDuration(max(0, $durationSeconds - ($unpaidBreakMinutes * 60))).' paid'
                 : AdminTimeClockDisplay::formatDuration($durationSeconds);
+            $breaks = $shift->normalizedBreaks();
+            $breaksSummary = ShiftBreaks::summaryFrom($breaks) ?? '';
 
             $blocks[] = [
                 'id' => null,
@@ -368,7 +570,7 @@ final class AdminWeeklySchedule
                 'duration_label' => $breakLabel,
                 'duration_seconds' => $durationSeconds,
                 'title' => self::employeeJobTitle($employee),
-                'subtitle' => $shift->name ?: 'From assignment',
+                'subtitle' => $breaksSummary,
                 'meta' => trim(collect([
                     $employee->assignedDepartment?->name,
                     $employee->workLocation?->name,
@@ -384,6 +586,9 @@ final class AdminWeeklySchedule
                 'department_id' => $employee->department_id,
                 'work_location_id' => $employee->work_location_id,
                 'notes' => null,
+                'breaks' => $breaks,
+                'breaks_label' => $breaksSummary,
+                'recurrence_label' => self::templateDaysLabel($shift),
             ];
         }
 
@@ -781,6 +986,23 @@ final class AdminWeeklySchedule
         return $shiftDays === [] || in_array($dayKey, $shiftDays, true);
     }
 
+    private static function templateDaysLabel(Shift $shift): string
+    {
+        $shiftDays = is_array($shift->shift_days) ? $shift->shift_days : [];
+        if ($shiftDays === []) {
+            return 'Every day';
+        }
+
+        $map = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
+        $labels = collect($shiftDays)
+            ->map(static fn ($key) => $map[$key] ?? null)
+            ->filter()
+            ->values()
+            ->all();
+
+        return $labels === [] ? 'Every day' : implode(', ', $labels);
+    }
+
     private static function shiftTimeRangeLabel(Shift $shift): string
     {
         return self::formatStoredTime($shift->start_time).' – '.self::formatStoredTime($shift->end_time);
@@ -861,6 +1083,27 @@ final class AdminWeeklySchedule
         }
 
         return ((int) $matches[1] * 60) + (int) $matches[2];
+    }
+
+    /**
+     * @return array{bg: string, border: string, text: string, accent: string}|null
+     */
+    private static function paletteForJobTitle(?\App\Models\JobTitle $title): ?array
+    {
+        if ($title === null) {
+            return null;
+        }
+
+        $hex = strtolower($title->accentColor());
+        // Map title colour into the nearest fixed card palette by hue bucket.
+        $map = [
+            '#d35400' => 4, '#c0392b' => 4, '#8e44ad' => 3, '#6c3483' => 3,
+            '#2471a3' => 1, '#1a5276' => 1, '#148f77' => 5, '#1e8449' => 0,
+            '#b7950b' => 2, '#7d6608' => 2, '#003d7a' => 1, '#0052a2' => 1,
+        ];
+        $index = $map[$hex] ?? (abs(crc32($hex)) % count(self::CARD_PALETTES));
+
+        return self::CARD_PALETTES[$index];
     }
 
     /**

@@ -38,45 +38,76 @@ class AdminWeeklyScheduleController extends Controller
         $context = $this->scheduleContext($request);
         $conn = $context['conn'];
         $data = $this->validatedShiftPayload($request, $conn);
-
-        /** @var Employee $employee */
-        $employee = Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
+        $employees = $this->employeesForShiftPayload($data, $conn);
 
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $reviewedBy = $portalUser->name ?: $portalUser->email;
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
-            $data = $this->applyEmployeeShiftDefaults($data, $employee, $conn);
-            $this->clearTimeOffForDay($conn, (int) $employee->id, $data['scheduled_date']);
-            $this->cancelApprovedTimeOffRequestsForDay(
-                $conn,
-                (int) $employee->id,
+            $data = $this->resolveScheduleShiftTemplate($data, $conn);
+            $dates = AdminWeeklySchedule::recurrenceDates(
                 $data['scheduled_date'],
-                $reviewedBy,
+                (string) ($data['recurrence'] ?? 'never'),
+                $data['shift_days'] ?? null,
+                $data['recurrence_until'] ?? null,
             );
-        } else {
+
+            $created = 0;
+            foreach ($employees as $employee) {
+                $created += $this->createRecurringShiftEntries(
+                    $conn,
+                    $employee,
+                    $data,
+                    $dates,
+                    $portalUser->name,
+                    $reviewedBy,
+                );
+            }
+
+            $employeeCount = $employees->count();
+            if ($employeeCount > 1) {
+                $message = sprintf(
+                    '%d shift(s) saved across %d employees.',
+                    $created,
+                    $employeeCount,
+                );
+            } else {
+                $message = $created === 1
+                    ? 'Shift saved to the weekly schedule.'
+                    : sprintf('%d shifts saved to the weekly schedule.', $created);
+            }
+
+            return $this->redirectBack($request, $message);
+        }
+
+        $created = 0;
+        foreach ($employees as $index => $employee) {
+            $this->assertLeaveTypeAllowedForEmployee($conn, $employee, $data);
+
             $this->clearShiftsForDay($conn, (int) $employee->id, $data['scheduled_date']);
             $this->clearTimeOffForDay($conn, (int) $employee->id, $data['scheduled_date']);
+
+            /** @var EmployeeScheduleShift $entry */
+            $entry = EmployeeScheduleShift::on($conn)->create($this->scheduleEntryAttributes($data, $employee, $portalUser->name));
+            $this->syncTimeOffLeaveRecord($conn, $entry, $data, $employee, $reviewedBy);
+
+            if ($index === 0 && ! empty($data['time_off_request_id'])) {
+                $this->approveTimeOffRequest(
+                    $conn,
+                    (int) $data['time_off_request_id'],
+                    $employee,
+                    $entry,
+                    $reviewedBy,
+                );
+            }
+
+            $created++;
         }
 
-        /** @var EmployeeScheduleShift $entry */
-        $entry = EmployeeScheduleShift::on($conn)->create($this->scheduleEntryAttributes($data, $employee, $portalUser->name));
-        $this->syncTimeOffLeaveRecord($conn, $entry, $data, $employee, $reviewedBy);
-
-        if ($data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF && ! empty($data['time_off_request_id'])) {
-            $this->approveTimeOffRequest(
-                $conn,
-                (int) $data['time_off_request_id'],
-                $employee,
-                $entry,
-                $reviewedBy,
-            );
-        }
-
-        $message = $data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF
+        $message = $created === 1
             ? 'Day off saved to the weekly schedule.'
-            : 'Shift saved to the weekly schedule.';
+            : sprintf('%d day-off entries saved to the weekly schedule.', $created);
 
         return $this->redirectBack($request, $message);
     }
@@ -224,7 +255,18 @@ class AdminWeeklyScheduleController extends Controller
         $wasTimeOff = $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF;
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
-            $data = $this->applyEmployeeShiftDefaults($data, $employee, $conn);
+            $data = $this->resolveScheduleShiftTemplate($data, $conn);
+            $originalDate = $entry->scheduled_date instanceof \Carbon\CarbonInterface
+                ? $entry->scheduled_date->toDateString()
+                : (string) $entry->scheduled_date;
+            if ($data['scheduled_date'] !== $originalDate) {
+                $this->assertDateAvailable(
+                    $conn,
+                    (int) $employee->id,
+                    $data['scheduled_date'],
+                    exceptId: (int) $entry->id,
+                );
+            }
             // Keep this row when converting day-off → shift; only remove other day-off rows.
             $this->clearTimeOffForDay(
                 $conn,
@@ -244,9 +286,8 @@ class AdminWeeklyScheduleController extends Controller
 
         $entry->fill($this->scheduleEntryAttributes($data, $employee));
 
-        // Day-off reason must not carry over when converting to a scheduled shift.
+        // Day-off reason must not carry over when converting to a scheduled shift unless the form sent notes.
         if ($wasTimeOff && $data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
-            $entry->notes = null;
             $entry->status = null;
         }
 
@@ -395,7 +436,7 @@ class AdminWeeklyScheduleController extends Controller
         $weekEnd = $weekStart->copy()->addDays(6);
 
         $employees = $this->filteredEmployeesQuery($request, $conn)
-            ->with(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate'])
+            ->with(['assignedDepartment', 'assignedJobTitle', 'jobTitles', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate'])
             ->get();
 
         $scheduleEntries = EmployeeScheduleShift::on($conn)
@@ -440,6 +481,7 @@ class AdminWeeklyScheduleController extends Controller
             'leaveBalances' => AdminWeeklySchedule::leaveBalancesForEmployees($conn, $employees),
             'employees' => Employee::on($conn)
                 ->where('employment_status', 'active')
+                ->with(['assignedJobTitle', 'jobTitles'])
                 ->orderBy('full_legal_name')
                 ->get(['id', 'public_id', 'full_legal_name', 'email', 'job_title_id', 'department_id', 'work_location_id', 'shift_id']),
             'filters' => [
@@ -491,51 +533,212 @@ class AdminWeeklyScheduleController extends Controller
     {
         $data = $request->validate([
             'employee_public_id' => ['required', 'string'],
+            'employee_public_ids' => ['nullable', 'array', 'max:100'],
+            'employee_public_ids.*' => ['string'],
             'scheduled_date' => ['required', 'date'],
             'entry_type' => ['required', Rule::in([EmployeeScheduleShift::TYPE_SHIFT, EmployeeScheduleShift::TYPE_TIME_OFF])],
-            'shift_id' => ['nullable', 'integer', 'required_if:entry_type,'.EmployeeScheduleShift::TYPE_SHIFT],
+            'shift_id' => ['nullable', 'integer'],
             'work_location_id' => ['nullable', 'integer', 'required_if:entry_type,'.EmployeeScheduleShift::TYPE_SHIFT],
-            'start_time' => ['nullable', 'date_format:H:i'],
-            'end_time' => ['nullable', 'date_format:H:i'],
+            'job_title_id' => ['nullable', 'integer'],
+            'start_time' => ['nullable', 'date_format:H:i', 'required_if:entry_type,'.EmployeeScheduleShift::TYPE_SHIFT],
+            'end_time' => ['nullable', 'date_format:H:i', 'required_if:entry_type,'.EmployeeScheduleShift::TYPE_SHIFT],
             'notes' => ['nullable', 'string', 'max:500'],
+            'shift_breaks' => ['nullable', 'array', 'max:8'],
+            'shift_breaks.*.label' => ['nullable', 'string', 'max:80'],
+            'shift_breaks.*.minutes' => ['nullable', 'integer', 'min:1', 'max:480'],
+            'shift_breaks.*.paid' => ['nullable'],
+            'recurrence' => ['nullable', Rule::in([
+                'never',
+                'every_week',
+                'every_2_weeks',
+                'every_3_weeks',
+                'every_4_weeks',
+                'every_5_weeks',
+                'every_6_weeks',
+                'every_7_weeks',
+                'every_8_weeks',
+                'weekly',
+            ])],
+            'shift_days' => ['nullable', 'array'],
+            'shift_days.*' => ['string', Rule::in(WorkforceShifts::allowedDays())],
+            'recurrence_until' => ['nullable', 'date'],
             'leave_type_id' => ['nullable', 'integer'],
             'leave_hours' => ['nullable', 'numeric', 'min:0.25', 'max:24', 'required_with:leave_type_id'],
             'time_off_request_id' => ['nullable', 'integer'],
         ]);
 
-        /** @var Employee $employee */
-        $employee = Employee::on($conn)->where('public_id', $data['employee_public_id'])->firstOrFail();
-
-        if (($employee->employment_status ?? '') !== 'active') {
-            throw ValidationException::withMessages([
-                'employee_public_id' => 'Schedule entries can only be managed for active employees.',
-            ]);
-        }
+        $employees = $this->employeesForShiftPayload($data, $conn);
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
-            $this->assertBelongsToTenant($conn, 'shifts', $data['shift_id'] ?? null);
             $this->assertBelongsToTenant($conn, 'work_locations', $data['work_location_id'] ?? null);
-        } elseif (! empty($data['leave_type_id'])) {
-            $leaveTypeId = (int) $data['leave_type_id'];
-
-            $isActiveType = LeaveType::on($conn)
-                ->where('id', $leaveTypeId)
-                ->where('is_active', true)
-                ->exists();
-
-            $isEntitled = EmployeeLeaveEntitlement::on($conn)
-                ->where('employee_id', $employee->id)
-                ->where('leave_type_id', $leaveTypeId)
-                ->exists();
-
-            if (! $isActiveType || ! $isEntitled) {
-                throw ValidationException::withMessages([
-                    'leave_type_id' => 'This employee is not entitled to the selected leave type.',
-                ]);
+            foreach ($employees as $employee) {
+                $this->assertJobTitleAllowedForEmployee($conn, $employee, $data['job_title_id'] ?? null);
+            }
+        } else {
+            foreach ($employees as $employee) {
+                $this->assertLeaveTypeAllowedForEmployee($conn, $employee, $data);
             }
         }
 
         return $data;
+    }
+
+    private function assertJobTitleAllowedForEmployee(string $conn, Employee $employee, mixed $jobTitleId): void
+    {
+        if ($jobTitleId === null || $jobTitleId === '') {
+            return;
+        }
+
+        $id = (int) $jobTitleId;
+        if ($id <= 0) {
+            return;
+        }
+
+        $this->assertBelongsToTenant($conn, 'job_titles', $id);
+
+        $employee->loadMissing('jobTitles');
+        $allowed = $employee->jobTitles->contains(fn ($jt) => (int) $jt->id === $id)
+            || (int) $employee->job_title_id === $id;
+
+        if (! $allowed) {
+            throw ValidationException::withMessages([
+                'job_title_id' => 'Pick a job title assigned to this employee.',
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return \Illuminate\Support\Collection<int, Employee>
+     */
+    private function employeesForShiftPayload(array $data, string $conn)
+    {
+        $publicIds = collect($data['employee_public_ids'] ?? [])
+            ->push($data['employee_public_id'] ?? '')
+            ->map(static fn ($id): string => trim((string) $id))
+            ->filter(static fn (string $id): bool => $id !== '')
+            ->unique()
+            ->values();
+
+        if ($publicIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'employee_public_id' => 'Select at least one employee.',
+            ]);
+        }
+
+        $employees = Employee::on($conn)
+            ->whereIn('public_id', $publicIds->all())
+            ->get()
+            ->keyBy('public_id');
+
+        $ordered = $publicIds->map(function (string $publicId) use ($employees) {
+            /** @var Employee|null $employee */
+            $employee = $employees->get($publicId);
+
+            if ($employee === null) {
+                throw ValidationException::withMessages([
+                    'employee_public_ids' => 'One or more selected employees could not be found.',
+                ]);
+            }
+
+            if (($employee->employment_status ?? '') !== 'active') {
+                throw ValidationException::withMessages([
+                    'employee_public_ids' => 'Schedule entries can only be managed for active employees.',
+                ]);
+            }
+
+            return $employee;
+        });
+
+        return $ordered->values();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function assertLeaveTypeAllowedForEmployee(string $conn, Employee $employee, array $data): void
+    {
+        if (($data['entry_type'] ?? '') !== EmployeeScheduleShift::TYPE_TIME_OFF || empty($data['leave_type_id'])) {
+            return;
+        }
+
+        $leaveTypeId = (int) $data['leave_type_id'];
+
+        $isActiveType = LeaveType::on($conn)
+            ->where('id', $leaveTypeId)
+            ->where('is_active', true)
+            ->exists();
+
+        $isEntitled = EmployeeLeaveEntitlement::on($conn)
+            ->where('employee_id', $employee->id)
+            ->where('leave_type_id', $leaveTypeId)
+            ->exists();
+
+        if (! $isActiveType || ! $isEntitled) {
+            $name = AdminWeeklySchedule::employeeDisplayName($employee);
+            throw ValidationException::withMessages([
+                'leave_type_id' => $name.' is not entitled to the selected leave type.',
+            ]);
+        }
+    }
+
+    /**
+     * @param  list<string>  $dates
+     * @param  array<string, mixed>  $data
+     */
+    private function createRecurringShiftEntries(
+        string $conn,
+        Employee $employee,
+        array $data,
+        array $dates,
+        ?string $createdBy,
+        string $reviewedBy,
+    ): int {
+        if ($dates === []) {
+            return 0;
+        }
+
+        $firstDate = $dates[0];
+        $this->clearTimeOffForDay($conn, (int) $employee->id, $firstDate);
+        $this->cancelApprovedTimeOffRequestsForDay(
+            $conn,
+            (int) $employee->id,
+            $firstDate,
+            $reviewedBy,
+        );
+
+        $occupied = EmployeeScheduleShift::on($conn)
+            ->where('employee_id', $employee->id)
+            ->whereIn('scheduled_date', $dates)
+            ->pluck('scheduled_date')
+            ->map(static fn ($date) => $date instanceof \DateTimeInterface ? $date->format('Y-m-d') : (string) $date)
+            ->flip()
+            ->all();
+
+        $now = now();
+        $rows = [];
+        foreach ($dates as $index => $date) {
+            if ($index > 0 && isset($occupied[$date])) {
+                continue;
+            }
+
+            $attributes = $this->scheduleEntryAttributes(
+                [...$data, 'scheduled_date' => $date],
+                $employee,
+                $createdBy,
+            );
+            $rows[] = [
+                ...$attributes,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        foreach (array_chunk($rows, 250) as $chunk) {
+            EmployeeScheduleShift::on($conn)->insert($chunk);
+        }
+
+        return count($rows);
     }
 
     /**
@@ -549,7 +752,9 @@ class AdminWeeklyScheduleController extends Controller
             'employee_id' => $employee->id,
             'scheduled_date' => $data['scheduled_date'],
             'entry_type' => $data['entry_type'],
-            'job_title_id' => $employee->job_title_id,
+            'job_title_id' => ! empty($data['job_title_id'])
+                ? (int) $data['job_title_id']
+                : $employee->job_title_id,
             'department_id' => $employee->department_id,
         ];
 
@@ -564,7 +769,6 @@ class AdminWeeklyScheduleController extends Controller
                 'leave_type_id' => ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null,
             ];
         } else {
-            // Do not overwrite notes — status comments (sick call out / no show) live here.
             $attributes = [
                 ...$attributes,
                 'start_time' => $data['start_time'],
@@ -572,6 +776,7 @@ class AdminWeeklyScheduleController extends Controller
                 'shift_id' => $data['shift_id'],
                 'work_location_id' => $data['work_location_id'],
                 'leave_type_id' => null,
+                'notes' => isset($data['notes']) && trim((string) $data['notes']) !== '' ? trim((string) $data['notes']) : null,
             ];
         }
 
@@ -583,21 +788,46 @@ class AdminWeeklyScheduleController extends Controller
     }
 
     /**
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    private function applyEmployeeShiftDefaults(array $data, Employee $employee, string $conn): array
+    private function resolveScheduleShiftTemplate(array $data, string $conn): array
     {
-        /** @var Shift $shift */
-        $shift = Shift::on($conn)->findOrFail($data['shift_id']);
+        $shift = WorkforceShifts::findOrCreateForSchedule(
+            $conn,
+            (string) $data['start_time'],
+            (string) $data['end_time'],
+            $data['shift_days'] ?? null,
+            $data['shift_breaks'] ?? null,
+        );
 
-        if ($shift->start_time instanceof \Carbon\CarbonInterface) {
-            $data['start_time'] = $shift->start_time->format('H:i');
-        }
-        if ($shift->end_time instanceof \Carbon\CarbonInterface) {
-            $data['end_time'] = $shift->end_time->format('H:i');
-        }
+        $data['shift_id'] = $shift->id;
 
         return $data;
+    }
+
+    private function dayIsOccupied(string $conn, int $employeeId, string $scheduledDate, ?int $exceptId = null): bool
+    {
+        $query = EmployeeScheduleShift::on($conn)
+            ->where('employee_id', $employeeId)
+            ->where('scheduled_date', $scheduledDate);
+
+        if ($exceptId !== null) {
+            $query->where('id', '!=', $exceptId);
+        }
+
+        return $query->exists();
+    }
+
+    private function assertDateAvailable(string $conn, int $employeeId, string $scheduledDate, ?int $exceptId = null): void
+    {
+        if (! $this->dayIsOccupied($conn, $employeeId, $scheduledDate, $exceptId)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'scheduled_date' => 'This employee already has an entry on that date.',
+        ]);
     }
 
     private function clearTimeOffForDay(

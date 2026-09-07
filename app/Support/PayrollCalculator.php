@@ -15,6 +15,7 @@ final class PayrollCalculator
      * @param  Collection<int, TimeClockEntry>  $entries
      * @param  Collection<int, \App\Models\PublicHoliday>  $publicHolidays
      * @param  array<string, float>  $rates
+     * @param  Collection<int, \App\Models\EmployeeScheduleShift>|null  $scheduleShifts
      * @return array{
      *     lines: list<array{rate_type: string, label: string, hours: float, rate: float, amount: float}>,
      *     total_hours: float,
@@ -26,6 +27,404 @@ final class PayrollCalculator
      * }
      */
     public static function calculateForEmployee(
+        Employee $employee,
+        Collection $entries,
+        Collection $publicHolidays,
+        array $rates,
+        CarbonInterface $fortnightStart,
+        CarbonInterface $fortnightEnd,
+        ?Collection $scheduleShifts = null,
+    ): array {
+        if (PayrollEmployeeRates::employeeUsesTitleWages($employee, $scheduleShifts)) {
+            return self::calculateWithTitleWages(
+                $employee,
+                $entries,
+                $rates,
+                $fortnightStart,
+                $fortnightEnd,
+                $scheduleShifts ?? collect(),
+            );
+        }
+
+        return self::calculateWithAwardRates(
+            $employee,
+            $entries,
+            $publicHolidays,
+            $rates,
+            $fortnightStart,
+            $fortnightEnd,
+        );
+    }
+
+    /**
+     * Pay clocked hours at the scheduled (or primary) job title’s single wage.
+     *
+     * @param  Collection<int, TimeClockEntry>  $entries
+     * @param  array<string, float>  $rates
+     * @param  Collection<int, \App\Models\EmployeeScheduleShift>  $scheduleShifts
+     * @return array{
+     *     lines: list<array{rate_type: string, label: string, hours: float, rate: float, amount: float}>,
+     *     total_hours: float,
+     *     total_amount: float,
+     *     sick_leave_accrued: float,
+     *     annual_leave_accrued: float,
+     *     sick_leave_accrued_amount: float,
+     *     annual_leave_accrued_amount: float,
+     * }
+     */
+    private static function calculateWithTitleWages(
+        Employee $employee,
+        Collection $entries,
+        array $rates,
+        CarbonInterface $fortnightStart,
+        CarbonInterface $fortnightEnd,
+        Collection $scheduleShifts,
+    ): array {
+        $tz = DisplayTimezone::name();
+        $sessions = self::extractSessions($entries, $fortnightStart, $fortnightEnd, $tz);
+        $employee->loadMissing(['assignedJobTitle', 'jobTitles']);
+
+        /** @var array<string, array{label: string, rate: float, hours: float}> $buckets */
+        $buckets = [];
+
+        foreach ($sessions as $session) {
+            foreach (self::allocatePaidSecondsByWage($employee, $session, $scheduleShifts, $rates) as $slice) {
+                if ($slice['seconds'] <= 0) {
+                    continue;
+                }
+
+                $key = $slice['key'];
+                if (! isset($buckets[$key])) {
+                    $buckets[$key] = [
+                        'label' => $slice['label'],
+                        'rate' => $slice['rate'],
+                        'hours' => 0.0,
+                    ];
+                }
+                $buckets[$key]['hours'] += $slice['seconds'] / 3600;
+            }
+        }
+
+        $lines = [];
+        $sort = 0;
+        foreach ($buckets as $key => $bucket) {
+            $hours = round($bucket['hours'], 2);
+            if ($hours <= 0) {
+                continue;
+            }
+            $amount = round($hours * $bucket['rate'], 2);
+            $lines[] = [
+                'rate_type' => $key,
+                'label' => $bucket['label'],
+                'hours' => $hours,
+                'rate' => $bucket['rate'],
+                'amount' => $amount,
+                'sort_order' => $sort++,
+            ];
+        }
+
+        foreach (self::parseAllowances($employee) as $allowance) {
+            $amount = round((float) $allowance['amount'], 2);
+            if ($amount <= 0) {
+                continue;
+            }
+            $lines[] = [
+                'rate_type' => PayrollRateTypes::ALLOWANCE,
+                'label' => (string) $allowance['name'],
+                'hours' => 0,
+                'rate' => $amount,
+                'amount' => $amount,
+                'sort_order' => $sort++,
+            ];
+        }
+
+        $workedHours = round(array_sum(array_map(
+            static fn (array $line): float => $line['rate_type'] === PayrollRateTypes::ALLOWANCE ? 0.0 : (float) $line['hours'],
+            $lines
+        )), 2);
+        $totalAmount = round(array_sum(array_column($lines, 'amount')), 2);
+
+        $ordinaryRate = PayrollEmployeeRates::ordinaryHourlyRateForEmployee($employee, $rates, $fortnightEnd);
+        $sickAccrued = self::accrueLeaveHours($workedHours, (float) config('payroll.sick_leave_hours_per_worked', 35));
+        $annualAccrued = self::accrueLeaveHours($workedHours, (float) config('payroll.annual_leave_hours_per_worked', 35));
+        $sickAccruedAmount = round($sickAccrued * $ordinaryRate, 2);
+        $annualAccruedAmount = round($annualAccrued * $ordinaryRate, 2);
+
+        if ($sickAccrued > 0) {
+            $lines[] = [
+                'rate_type' => PayrollRateTypes::SICK_LEAVE_ACCRUAL,
+                'label' => PayrollRateTypes::label(PayrollRateTypes::SICK_LEAVE_ACCRUAL),
+                'hours' => $sickAccrued,
+                'rate' => $ordinaryRate,
+                'amount' => $sickAccruedAmount,
+                'sort_order' => $sort++,
+            ];
+        }
+
+        if ($annualAccrued > 0) {
+            $lines[] = [
+                'rate_type' => PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL,
+                'label' => PayrollRateTypes::label(PayrollRateTypes::ANNUAL_LEAVE_ACCRUAL),
+                'hours' => $annualAccrued,
+                'rate' => $ordinaryRate,
+                'amount' => $annualAccruedAmount,
+                'sort_order' => $sort++,
+            ];
+        }
+
+        return [
+            'lines' => $lines,
+            'total_hours' => $workedHours,
+            'total_amount' => $totalAmount,
+            'sick_leave_accrued' => $sickAccrued,
+            'annual_leave_accrued' => $annualAccrued,
+            'sick_leave_accrued_amount' => $sickAccruedAmount,
+            'annual_leave_accrued_amount' => $annualAccruedAmount,
+        ];
+    }
+
+    /**
+     * Split paid seconds across overlapping scheduled titles. Unmatched time uses the primary wage if it is in force.
+     *
+     * @param  array{
+     *     clock_in: CarbonInterface,
+     *     clock_out: CarbonInterface,
+     *     unpaid_break_intervals?: list<array{start: CarbonInterface, end: CarbonInterface}>,
+     * }  $session
+     * @param  Collection<int, \App\Models\EmployeeScheduleShift>  $scheduleShifts
+     * @param  array<string, float>  $rates
+     * @return list<array{key: string, label: string, rate: float, seconds: int}>
+     */
+    private static function allocatePaidSecondsByWage(Employee $employee, array $session, Collection $scheduleShifts, array $rates): array
+    {
+        $paid = self::paidIntervals($session);
+        if ($paid === []) {
+            return [];
+        }
+
+        $windows = self::shiftWindowsOverlappingSession($employee, $session, $scheduleShifts);
+        /** @var array<string, array{key: string, label: string, rate: float, seconds: int}> $slices */
+        $slices = [];
+
+        foreach ($paid as $interval) {
+            $cuts = [$interval['start']->getTimestamp(), $interval['end']->getTimestamp()];
+            foreach ($windows as $window) {
+                $startTs = $window['start']->getTimestamp();
+                $endTs = $window['end']->getTimestamp();
+                if ($startTs > $interval['start']->getTimestamp() && $startTs < $interval['end']->getTimestamp()) {
+                    $cuts[] = $startTs;
+                }
+                if ($endTs > $interval['start']->getTimestamp() && $endTs < $interval['end']->getTimestamp()) {
+                    $cuts[] = $endTs;
+                }
+            }
+            $cuts = array_values(array_unique($cuts));
+            sort($cuts);
+
+            for ($i = 0; $i < count($cuts) - 1; $i++) {
+                $sliceStart = $cuts[$i];
+                $sliceEnd = $cuts[$i + 1];
+                $seconds = $sliceEnd - $sliceStart;
+                if ($seconds <= 0) {
+                    continue;
+                }
+
+                $at = $interval['start']->copy()->setTimestamp($sliceStart);
+                $matched = null;
+                $bestOverlap = -1;
+                foreach ($windows as $window) {
+                    if ($window['start']->getTimestamp() > $sliceStart || $window['end']->getTimestamp() < $sliceEnd) {
+                        continue;
+                    }
+                    $overlap = min($window['end']->getTimestamp(), $session['clock_out']->getTimestamp())
+                        - max($window['start']->getTimestamp(), $session['clock_in']->getTimestamp());
+                    if ($overlap > $bestOverlap) {
+                        $bestOverlap = $overlap;
+                        $matched = $window['title'];
+                    }
+                }
+
+                $wage = self::wageBucketForSlice($employee, $matched, $at, $rates);
+                if (! isset($slices[$wage['key']])) {
+                    $slices[$wage['key']] = $wage + ['seconds' => 0];
+                }
+                $slices[$wage['key']]['seconds'] += $seconds;
+            }
+        }
+
+        return array_values($slices);
+    }
+
+    /**
+     * @param  array{
+     *     clock_in: CarbonInterface,
+     *     clock_out: CarbonInterface,
+     *     unpaid_break_intervals?: list<array{start: CarbonInterface, end: CarbonInterface}>,
+     * }  $session
+     * @return list<array{start: CarbonInterface, end: CarbonInterface}>
+     */
+    private static function paidIntervals(array $session): array
+    {
+        $intervals = [[
+            'start' => $session['clock_in']->copy(),
+            'end' => $session['clock_out']->copy(),
+        ]];
+
+        foreach ($session['unpaid_break_intervals'] ?? [] as $break) {
+            $intervals = self::subtractInterval($intervals, $break['start'], $break['end']);
+        }
+
+        return array_values(array_filter(
+            $intervals,
+            static fn (array $interval): bool => $interval['end']->gt($interval['start'])
+        ));
+    }
+
+    /**
+     * @param  list<array{start: CarbonInterface, end: CarbonInterface}>  $intervals
+     * @return list<array{start: CarbonInterface, end: CarbonInterface}>
+     */
+    private static function subtractInterval(array $intervals, CarbonInterface $cutStart, CarbonInterface $cutEnd): array
+    {
+        $out = [];
+        foreach ($intervals as $interval) {
+            $start = $interval['start'];
+            $end = $interval['end'];
+            if ($cutEnd->lte($start) || $cutStart->gte($end)) {
+                $out[] = $interval;
+
+                continue;
+            }
+            if ($cutStart->gt($start)) {
+                $out[] = ['start' => $start->copy(), 'end' => $cutStart->copy()];
+            }
+            if ($cutEnd->lt($end)) {
+                $out[] = ['start' => $cutEnd->copy(), 'end' => $end->copy()];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array{clock_in: CarbonInterface, clock_out: CarbonInterface}  $session
+     * @param  Collection<int, \App\Models\EmployeeScheduleShift>  $scheduleShifts
+     * @return list<array{start: CarbonInterface, end: CarbonInterface, title: ?\App\Models\JobTitle}>
+     */
+    private static function shiftWindowsOverlappingSession(Employee $employee, array $session, Collection $scheduleShifts): array
+    {
+        $tz = DisplayTimezone::name();
+        $windows = [];
+
+        foreach ($scheduleShifts as $shift) {
+            if ($shift->entry_type !== \App\Models\EmployeeScheduleShift::TYPE_SHIFT) {
+                continue;
+            }
+            $date = $shift->scheduled_date?->toDateString();
+            $startHm = self::storedTimeToHm($shift->start_time);
+            $endHm = self::storedTimeToHm($shift->end_time);
+            if ($date === null || $startHm === null || $endHm === null) {
+                continue;
+            }
+
+            $shiftStart = Carbon::parse($date.' '.$startHm, $tz);
+            $shiftEnd = Carbon::parse($date.' '.$endHm, $tz);
+            if ($shiftEnd->lte($shiftStart)) {
+                $shiftEnd->addDay();
+            }
+            if ($shiftEnd->lte($session['clock_in']) || $shiftStart->gte($session['clock_out'])) {
+                continue;
+            }
+
+            $windows[] = [
+                'start' => $shiftStart,
+                'end' => $shiftEnd,
+                'title' => self::titleFromScheduleShift($employee, $shift),
+            ];
+        }
+
+        return $windows;
+    }
+
+    /**
+     * @param  array<string, float>  $rates
+     * @return array{key: string, label: string, rate: float}
+     */
+    private static function wageBucketForSlice(Employee $employee, ?\App\Models\JobTitle $matched, CarbonInterface $at, array $rates): array
+    {
+        if ($matched !== null && $matched->wageAppliesOn($at)) {
+            return [
+                'key' => 'job_title_'.$matched->id,
+                'label' => $matched->name ?: 'Job title wage',
+                'rate' => (float) $matched->hourly_wage,
+            ];
+        }
+
+        if ($matched === null) {
+            $primary = $employee->assignedJobTitle;
+            if ($primary !== null && $primary->wageAppliesOn($at)) {
+                return [
+                    'key' => 'job_title_'.$primary->id,
+                    'label' => $primary->name ?: 'Primary title wage',
+                    'rate' => (float) $primary->hourly_wage,
+                ];
+            }
+        }
+
+        unset($rates);
+
+        return [
+            'key' => 'wage_not_effective',
+            'label' => 'Wage not yet effective',
+            'rate' => 0.0,
+        ];
+    }
+
+    private static function titleFromScheduleShift(Employee $employee, \App\Models\EmployeeScheduleShift $shift): ?\App\Models\JobTitle
+    {
+        $shift->loadMissing('jobTitle');
+        if ($shift->jobTitle !== null) {
+            return $shift->jobTitle;
+        }
+
+        $titleId = (int) ($shift->job_title_id ?? 0);
+        if ($titleId <= 0) {
+            return null;
+        }
+
+        return $employee->jobTitles->firstWhere('id', $titleId)
+            ?? \App\Models\JobTitle::on($employee->getConnectionName())->find($titleId);
+    }
+
+    private static function storedTimeToHm(mixed $time): ?string
+    {
+        if ($time instanceof CarbonInterface) {
+            return $time->format('H:i');
+        }
+        if (is_string($time) && preg_match('/^(\d{1,2}):(\d{2})/', $time, $m) === 1) {
+            return sprintf('%02d:%02d', (int) $m[1], (int) $m[2]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Legacy multi-rate award classification (when titles have no hourly wage).
+     *
+     * @param  Collection<int, TimeClockEntry>  $entries
+     * @param  Collection<int, \App\Models\PublicHoliday>  $publicHolidays
+     * @param  array<string, float>  $rates
+     * @return array{
+     *     lines: list<array{rate_type: string, label: string, hours: float, rate: float, amount: float}>,
+     *     total_hours: float,
+     *     total_amount: float,
+     *     sick_leave_accrued: float,
+     *     annual_leave_accrued: float,
+     *     sick_leave_accrued_amount: float,
+     *     annual_leave_accrued_amount: float,
+     * }
+     */
+    private static function calculateWithAwardRates(
         Employee $employee,
         Collection $entries,
         Collection $publicHolidays,
@@ -145,7 +544,7 @@ final class PayrollCalculator
         $totalHours = round($totalMinutes / 60, 2);
         $totalAmount = round(array_sum(array_column($lines, 'amount')), 2);
 
-        $ordinaryRate = PayrollEmployeeRates::ordinaryHourlyRate($rates);
+        $ordinaryRate = PayrollEmployeeRates::ordinaryHourlyRateForEmployee($employee, $rates, $fortnightEnd);
         $sickAccrued = self::accrueLeaveHours($totalHours, (float) config('payroll.sick_leave_hours_per_worked', 35));
         $annualAccrued = self::accrueLeaveHours($totalHours, (float) config('payroll.annual_leave_hours_per_worked', 35));
         $sickAccruedAmount = round($sickAccrued * $ordinaryRate, 2);

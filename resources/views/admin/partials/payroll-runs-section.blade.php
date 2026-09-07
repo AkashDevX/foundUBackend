@@ -69,6 +69,9 @@
             </header>
 
             <div class="flex flex-wrap gap-3 border-b border-brand-border px-5 py-4 sm:px-6">
+                @if ($currentRun && $currentRun->status === 'finalized')
+                    <p class="text-sm text-brand-text-secondary">This fortnight is finalized. Totals below are recalculated from approved clock time and will not change the saved run or leave balances.</p>
+                @else
                 <form method="post" action="{{ route('admin.payroll.runs.generate') }}" class="inline">
                     @csrf
                     <input type="hidden" name="fortnight_start" value="{{ $fortnightStart }}" />
@@ -85,6 +88,7 @@
                         Generate &amp; finalize
                     </button>
                 </form>
+                @endif
                 <form method="post" action="{{ route('admin.payroll.runs.export') }}" class="inline">
                     @csrf
                     <input type="hidden" name="fortnight_start" value="{{ $fortnightStart }}" />
@@ -111,7 +115,7 @@
                     @if ($requireApprovedTimesheets ?? true)
                         <p class="mt-3 text-xs text-amber-900/90">Payroll only counts clock time from <strong>HR-approved</strong> weeks. A fortnight spans <strong>two</strong> Mon–Sun weeks — approve each week separately under <a href="{{ route('admin.employees.time-clock') }}" class="font-semibold underline">Time clock records → Timesheet approval</a>.</p>
                     @endif
-                    <p class="mt-2 text-xs text-amber-900/90">Set <strong>Employment type</strong> and <strong>Award level</strong> on each employee under their registration profile → Payroll Information.</p>
+                    <p class="mt-2 text-xs text-amber-900/90">Pay is hours from approved time clock records × the job title wage on that shift. Set the hourly wage on the job title, and pick that title on the weekly schedule.</p>
                 </div>
             @endif
 
@@ -149,7 +153,7 @@
                                     <td class="px-5 py-4 align-top text-xs">
                                         @if ($isPayable)
                                             <span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-800 ring-1 ring-emerald-200">Ready</span>
-                                            <p class="mt-1 text-brand-text-secondary">{{ PayrollRateTypes::employmentTypeLabel($emp->employment_type) }} · {{ PayrollRateTypes::awardLevelLabel($emp->award_level) }}</p>
+                                            <p class="mt-1 text-brand-text-secondary">{{ $emp->assignedJobTitle?->name ?: ($emp->job_title ?: 'Job title wage') }}{{ $emp->assignedJobTitle?->hasHourlyWage() ? ' · $'.$emp->assignedJobTitle->formattedWage().'/hr' : '' }}</p>
                                         @else
                                             <span class="inline-flex rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-900 ring-1 ring-amber-200">Blocked</span>
                                             <p class="mt-1 text-amber-900">{{ $skipped ?? 'No payable hours' }}</p>
@@ -168,23 +172,17 @@
                                         {{ $isPayable ? AdminPayroll::formatMoney((float) $row['total_amount']) : '—' }}
                                     </td>
                                     <td class="px-5 py-4 align-top">
-                                        @if ($isPayable && ! empty($row['lines']))
+                                        @php
+                                            $payLines = AdminPayroll::payableLines($row['lines'] ?? []);
+                                        @endphp
+                                        @if ($isPayable && $payLines !== [])
                                             <details class="group">
-                                                <summary class="cursor-pointer text-xs font-semibold text-brand-link hover:underline">View lines ({{ count($row['lines']) }})</summary>
+                                                <summary class="cursor-pointer text-xs font-semibold text-brand-link hover:underline">View lines ({{ count($payLines) }})</summary>
                                                 <ul class="mt-2 space-y-1 text-xs text-brand-text-secondary">
-                                                    @foreach ($row['lines'] as $line)
+                                                    @foreach ($payLines as $line)
                                                         <li class="flex justify-between gap-4 border-b border-brand-border/50 py-1 last:border-0">
                                                             <span>{{ $line['label'] }}</span>
-                                                            <span class="shrink-0 font-mono tabular-nums">
-                                                                @if (($line['hours'] ?? 0) > 0)
-                                                                    {{ number_format((float) $line['hours'], 2) }}h × {{ AdminPayroll::formatMoney((float) $line['rate']) }}
-                                                                @endif
-                                                                @if (($line['amount'] ?? 0) > 0)
-                                                                    = {{ AdminPayroll::formatMoney((float) $line['amount']) }}
-                                                                @elseif (($line['hours'] ?? 0) > 0 && ($line['rate'] ?? 0) == 0)
-                                                                    (accrual)
-                                                                @endif
-                                                            </span>
+                                                            <span class="shrink-0 font-mono tabular-nums">{{ AdminPayroll::formatPayLine($line) }}</span>
                                                         </li>
                                                     @endforeach
                                                 </ul>

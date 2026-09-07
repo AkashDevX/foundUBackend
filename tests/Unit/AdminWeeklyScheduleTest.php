@@ -35,6 +35,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('workLocation', $location);
         $employee->setRelation('assignedJobTitle', null);
         $employee->setRelation('assignedShift', null);
+        $employee->setRelation('assignmentShifts', new Collection());
 
         $entry = new EmployeeScheduleShift([
             'employee_id' => 10,
@@ -46,7 +47,12 @@ class AdminWeeklyScheduleTest extends TestCase
             'work_location_id' => 2,
         ]);
         $entry->id = 50;
-        $entry->setRelation('shiftTemplate', new Shift(['name' => 'Morning retail']));
+        $entry->setRelation('shiftTemplate', new Shift([
+            'name' => 'Morning retail',
+            'breaks' => [
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]));
         $entry->setRelation('jobTitle', null);
         $entry->setRelation('department', $department);
         $entry->setRelation('workLocation', $location);
@@ -67,7 +73,8 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertCount(1, $tuesdayBlocks);
         $this->assertSame(50, $tuesdayBlocks[0]['id']);
         $this->assertSame('shift', $tuesdayBlocks[0]['type']);
-        $this->assertSame('Morning retail', $tuesdayBlocks[0]['subtitle']);
+        $this->assertSame('30m unpaid Lunch', $tuesdayBlocks[0]['subtitle']);
+        $this->assertSame('This date only', $tuesdayBlocks[0]['recurrence_label']);
         $this->assertSame(['is_day_off' => false, 'blocks' => []], $row['cells']['mon']);
     }
 
@@ -85,6 +92,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
         $employee->setRelation('assignedShift', null);
+        $employee->setRelation('assignmentShifts', new Collection());
 
         $entry = new EmployeeScheduleShift([
             'employee_id' => 11,
@@ -133,6 +141,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('assignedDepartment', null);
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
+        $employee->setRelation('assignmentShifts', new Collection());
 
         $shiftEntry = new EmployeeScheduleShift([
             'employee_id' => 12,
@@ -192,6 +201,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('assignedDepartment', null);
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
+        $employee->setRelation('assignmentShifts', new Collection());
 
         $schedule = AdminWeeklySchedule::buildSchedule(
             new Collection([$employee]),
@@ -263,9 +273,85 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertCount(2, $mondayBlocks);
         $this->assertTrue($mondayBlocks[0]['is_suggestion']);
         $this->assertTrue($mondayBlocks[1]['is_suggestion']);
-        $this->assertSame('Morning', $mondayBlocks[0]['subtitle']);
-        $this->assertSame('Afternoon', $mondayBlocks[1]['subtitle']);
+        $this->assertSame('', $mondayBlocks[0]['subtitle']);
+        $this->assertSame('', $mondayBlocks[1]['subtitle']);
         $this->assertStringContainsString('30m unpaid break', $mondayBlocks[0]['meta']);
+    }
+
+    public function test_recurrence_dates_never_returns_the_start_date_only(): void
+    {
+        $this->assertSame(
+            ['2026-06-16'],
+            AdminWeeklySchedule::recurrenceDates('2026-06-16', 'never', ['mon', 'wed'], '2026-07-01')
+        );
+    }
+
+    public function test_recurrence_dates_every_week_repeats_same_weekday(): void
+    {
+        $dates = AdminWeeklySchedule::recurrenceDates('2026-06-16', 'every_week', ['tue'], '2026-07-07');
+
+        $this->assertSame(
+            ['2026-06-16', '2026-06-23', '2026-06-30', '2026-07-07'],
+            $dates
+        );
+    }
+
+    public function test_recurrence_dates_every_2_weeks_uses_fortnightly_interval(): void
+    {
+        $this->assertSame(
+            ['2026-06-16', '2026-06-30', '2026-07-14'],
+            AdminWeeklySchedule::recurrenceDates('2026-06-16', 'every_2_weeks', ['tue'], '2026-07-14')
+        );
+    }
+
+    public function test_recurrence_dates_every_week_uses_selected_days_and_ends(): void
+    {
+        $this->assertSame(
+            ['2026-06-16', '2026-06-18', '2026-06-23', '2026-06-25'],
+            AdminWeeklySchedule::recurrenceDates('2026-06-16', 'every_week', ['tue', 'thu'], '2026-06-25')
+        );
+    }
+
+    public function test_recurrence_dates_weekly_books_selected_weekdays_through_until(): void
+    {
+        $this->assertSame(
+            ['2026-06-16', '2026-06-18', '2026-06-19'],
+            AdminWeeklySchedule::recurrenceDates('2026-06-16', 'weekly', ['tue', 'thu', 'fri'], '2026-06-19')
+        );
+    }
+
+    public function test_recurrence_dates_weekly_defaults_to_end_of_week_and_caps_at_twelve_weeks(): void
+    {
+        $this->assertSame(
+            ['2026-06-17', '2026-06-19', '2026-06-21'],
+            AdminWeeklySchedule::recurrenceDates('2026-06-17', 'weekly', ['wed', 'fri', 'sun'])
+        );
+
+        $dates = AdminWeeklySchedule::recurrenceDates('2026-06-15', 'weekly', ['mon'], '2027-06-15');
+        $this->assertSame('2026-06-15', $dates[0]);
+        $this->assertSame('2026-09-07', $dates[array_key_last($dates)]);
+        $this->assertCount(13, $dates);
+    }
+
+    public function test_recurrence_mode_options_exclude_no_end_date(): void
+    {
+        $options = AdminWeeklySchedule::recurrenceModeOptions();
+
+        $this->assertSame([
+            'never',
+            'every_week',
+            'every_2_weeks',
+            'every_3_weeks',
+            'every_4_weeks',
+            'every_5_weeks',
+            'every_6_weeks',
+            'every_7_weeks',
+            'every_8_weeks',
+        ], array_keys($options));
+        $this->assertArrayNotHasKey('no_end_date', $options);
+        $this->assertArrayNotHasKey('this_week', $options);
+        $this->assertArrayNotHasKey('ongoing', $options);
+        $this->assertSame('Every week', AdminWeeklySchedule::recurrenceModeLabel('no_end_date'));
     }
 
     public function test_resolve_week_start_normalizes_to_monday(): void

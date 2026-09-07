@@ -23,10 +23,6 @@
 
         return e((string) $v);
     };
-    $bank = $e->bank_account_number;
-    $bankHasAccount = $bank !== null && trim((string) $bank) !== '';
-    $bankMasked = $bankHasAccount ? str_repeat('X', 10).substr((string) $bank, -4) : '—';
-
     $idDocRows = \App\Support\RegistrationDisplay::idDocumentRows($e->id_documents_json);
     $licenceRows = \App\Support\RegistrationDisplay::licenceRows($e->licences_json);
     $insuranceRows = \App\Support\RegistrationDisplay::insuranceRows($e->insurances_json);
@@ -94,23 +90,6 @@
         }
 
         return is_string($v) ? trim($v) : '';
-    };
-    $shiftTimes = static function (?\App\Models\Shift $s): string {
-        if ($s === null) {
-            return '—';
-        }
-        $st = $s->start_time instanceof \Carbon\CarbonInterface ? $s->start_time->format('g:i A') : '—';
-        $en = $s->end_time instanceof \Carbon\CarbonInterface ? $s->end_time->format('g:i A') : '—';
-
-        return $st.'–'.$en;
-    };
-    $shiftDays = static function (?\App\Models\Shift $s): string {
-        if ($s === null || ! is_array($s->shift_days) || $s->shift_days === []) {
-            return 'All days';
-        }
-        $map = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
-
-        return collect($s->shift_days)->map(fn ($d) => $map[$d] ?? null)->filter()->join(', ');
     };
     $dl = 'grid gap-4 border-b border-brand-border py-4 text-sm sm:grid-cols-[minmax(0,220px)_1fr] sm:items-center last:border-b-0';
     $dlStart = 'grid gap-4 border-b border-brand-border py-4 text-sm sm:grid-cols-[minmax(0,220px)_1fr] sm:items-start last:border-b-0';
@@ -273,27 +252,10 @@
             </div>
             <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-2">
                 <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Shifts</p>
-                @php
-                    $e->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
-                @endphp
-                @if ($e->assignmentShifts->isNotEmpty())
-                    <ul class="mt-3 space-y-3">
-                        @foreach ($e->assignmentShifts as $assignmentShift)
-                            @php $shift = $assignmentShift->shiftTemplate; @endphp
-                            <li class="rounded-lg border border-brand-border/80 bg-white px-3 py-2.5">
-                                <p class="text-sm font-semibold text-brand-text">{{ $line($shift?->name) }}</p>
-                                <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($shift) }} · Days: {{ $shiftDays($shift) }}</p>
-                                <p class="mt-1 text-xs text-brand-text-secondary">Unpaid break: {{ $assignmentShift->unpaid_break_minutes }} min</p>
-                            </li>
-                        @endforeach
-                    </ul>
-                @elseif ($e->assignedShift)
-                    <p class="mt-2 text-sm font-semibold text-brand-text">{{ $line($e->assignedShift->name) }}</p>
-                    <p class="mt-1 text-xs text-brand-text-secondary">{{ $shiftTimes($e->assignedShift) }}</p>
-                    <p class="mt-1 text-xs text-brand-text-secondary">Days: {{ $shiftDays($e->assignedShift) }}</p>
-                @else
-                    <p class="mt-2 text-sm font-semibold text-brand-text">—</p>
-                @endif
+                <p class="mt-2 text-sm text-brand-text-secondary">
+                    Schedule this employee on the
+                    <a href="{{ route('admin.employees.weekly-schedule') }}" class="font-semibold text-brand-primary hover:underline">weekly calendar</a>.
+                </p>
             </div>
             <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">
                 <p class="text-xs font-semibold uppercase tracking-wide text-brand-label">Effective / notes</p>
@@ -332,16 +294,6 @@
                         </div>
                     </div>
 
-                    @include('admin.partials.employee-assignment-shifts-fields', [
-                        'employee' => $e,
-                        'shifts' => $shifts,
-                        'shiftTimes' => $shiftTimes,
-                        'shiftDays' => $shiftDays,
-                        'selectClass' => 'mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25',
-                        'inputClass' => 'mt-2 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25',
-                        'wrapperClass' => '',
-                    ])
-
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wide text-brand-label">Assignment notes</label>
                         <textarea name="assignment_notes" rows="3" maxlength="5000" class="mt-2 w-full rounded-xl border border-brand-border px-3 py-2.5 text-sm shadow-inner focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/25" placeholder="Parking bay, supervisor, uniform, etc.">{{ old('assignment_notes', $e->assignment_notes) }}</textarea>
@@ -354,7 +306,7 @@
                 </form>
             </div>
         @else
-            <p class="text-sm text-brand-text-secondary">When this application is approved and active, you can assign department, location, and shift here.</p>
+            <p class="text-sm text-brand-text-secondary">When this application is approved and active, you can assign department and location here. Schedule shifts on the weekly calendar.</p>
         @endif
     </div>
 </section>

@@ -92,4 +92,36 @@ class AdminTimesheetApprovalTest extends TestCase
         $this->assertCount(1, $approvedRows);
         $this->assertSame(TimesheetApproval::STATUS_APPROVED, $approvedRows[0]['status']);
     }
+
+    public function test_break_punches_resolve_to_the_session_clock_in(): void
+    {
+        $start = Carbon::parse('2025-07-07 09:00:00', 'UTC');
+        $clockIn = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => $start,
+        ]);
+        $breakStart = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_BREAK_START,
+            'clocked_at' => $start->copy()->addHours(4),
+        ]);
+        $breakEnd = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_BREAK_END,
+            'clocked_at' => $start->copy()->addHours(4)->addMinutes(30),
+        ]);
+        $clockOut = new TimeClockEntry([
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => $start->copy()->addHours(8),
+        ]);
+        $clockIn->id = 11;
+        $breakStart->id = 12;
+        $breakEnd->id = 13;
+        $clockOut->id = 14;
+
+        $entries = new Collection([$clockIn, $breakStart, $breakEnd, $clockOut]);
+
+        $this->assertSame(11, AdminTimesheetApproval::resolveSessionClockInId($entries, $clockIn));
+        $this->assertSame(11, AdminTimesheetApproval::resolveSessionClockInId($entries, $breakStart));
+        $this->assertSame(11, AdminTimesheetApproval::resolveSessionClockInId($entries, $breakEnd));
+        $this->assertSame(11, AdminTimesheetApproval::resolveSessionClockInId($entries, $clockOut));
+    }
 }

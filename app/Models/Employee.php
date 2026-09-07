@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
@@ -99,6 +100,17 @@ class Employee extends Model
     public function assignedJobTitle(): BelongsTo
     {
         return $this->belongsTo(JobTitle::class, 'job_title_id');
+    }
+
+    /**
+     * All job titles this employee can be scheduled under.
+     */
+    public function jobTitles(): BelongsToMany
+    {
+        return $this->belongsToMany(JobTitle::class, 'employee_job_title')
+            ->withPivot(['is_primary'])
+            ->withTimestamps()
+            ->orderBy('name');
     }
 
     public function workLocation(): BelongsTo

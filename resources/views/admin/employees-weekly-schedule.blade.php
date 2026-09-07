@@ -38,6 +38,28 @@
             ];
         })->values();
 
+        $modalEmployees = $employees->map(static function ($employee): array {
+            $label = trim((string) ($employee->full_legal_name ?: $employee->email ?: ''));
+            $titles = $employee->relationLoaded('jobTitles') ? $employee->jobTitles : collect();
+            if ($titles->isEmpty() && $employee->assignedJobTitle) {
+                $titles = collect([$employee->assignedJobTitle]);
+            }
+
+            return [
+                'id' => $employee->public_id,
+                'label' => $label !== '' ? $label : 'Employee',
+                'job_title' => \App\Support\AdminWeeklySchedule::employeeJobTitle($employee),
+                'job_title_id' => $employee->job_title_id,
+                'work_location_id' => $employee->work_location_id,
+                'job_titles' => $titles->map(static fn ($jt) => [
+                    'id' => $jt->id,
+                    'name' => $jt->name,
+                    'wage' => $jt->hasHourlyWage() ? $jt->formattedWage() : null,
+                    'color' => $jt->accentColor(),
+                ])->values()->all(),
+            ];
+        })->values();
+
         $selectedEmployee = $filters['employee'] !== ''
             ? $employees->firstWhere('public_id', $filters['employee'])
             : null;
@@ -264,6 +286,9 @@
                                                     data-department-id="{{ $block['department_id'] ?? '' }}"
                                                     data-work-location-id="{{ $block['work_location_id'] ?? '' }}"
                                                     data-notes="{{ $block['notes'] ?? '' }}"
+                                                    data-breaks="{{ json_encode($block['breaks'] ?? []) }}"
+                                                    data-breaks-label="{{ $block['breaks_label'] ?? '' }}"
+                                                    data-recurrence-label="{{ $block['recurrence_label'] ?? 'This date only' }}"
                                                     data-is-suggestion="{{ $isSuggestion ? '1' : '0' }}"
                                                     data-time-range="{{ $block['time_range'] ?? '' }}"
                                                     data-duration-label="{{ $block['duration_label'] ?? '' }}"
@@ -307,12 +332,16 @@
                                                     data-shift-id=""
                                                     data-employee-public-id="{{ $row['employee_public_id'] }}"
                                                     data-employee-name="{{ $row['name'] }}"
+                                                    data-employee-initials="{{ $row['initials'] }}"
+                                                    data-block-title="{{ $row['job_title'] }}"
                                                     data-day-label="{{ $day['date']->format('l, j M Y') }}"
                                                     data-scheduled-date="{{ $day['date_string'] }}"
                                                     data-entry-type="{{ EmployeeScheduleShift::TYPE_SHIFT }}"
-                                                    data-shift-template-id="{{ $row['employee']->shift_id ?? '' }}"
+                                                    data-start-time=""
+                                                    data-end-time=""
                                                     data-work-location-id="{{ $row['employee']->work_location_id ?? '' }}"
                                                     data-notes=""
+                                                    data-breaks="[]"
                                                     data-is-suggestion="0"
                                                 >
                                                     + Add shift
@@ -325,6 +354,8 @@
                                                     data-shift-id=""
                                                     data-employee-public-id="{{ $row['employee_public_id'] }}"
                                                     data-employee-name="{{ $row['name'] }}"
+                                                    data-employee-initials="{{ $row['initials'] }}"
+                                                    data-block-title="{{ $row['job_title'] }}"
                                                     data-day-label="{{ $day['date']->format('l, j M Y') }}"
                                                     data-scheduled-date="{{ $day['date_string'] }}"
                                                     data-entry-type="{{ EmployeeScheduleShift::TYPE_TIME_OFF }}"
@@ -356,6 +387,7 @@
     @include('admin.partials.employee-weekly-schedule-modal', [
         'redirectQuery' => $redirectQuery,
         'workLocations' => $workLocations,
-        'shiftTemplates' => $shiftTemplates,
+        'modalEmployees' => $modalEmployees,
+        'leaveBalances' => $leaveBalances,
     ])
 @endsection

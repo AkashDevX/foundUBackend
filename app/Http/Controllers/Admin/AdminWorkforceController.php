@@ -4,12 +4,17 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Department;
+use App\Models\Employee;
 use App\Models\JobTitle;
 use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\WorkLocation;
 use App\Support\AdminWeeklySchedule;
+use App\Support\EmployeeJobTitles;
+use App\Support\JobTitleDefaults;
+use App\Support\PayrollAwardRateSeeder;
+use App\Support\PayrollRateTypes;
 use App\Support\ShiftBreaks;
 use App\Support\WorkforceShifts;
 use Illuminate\Support\Str;
@@ -17,7 +22,9 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\Rule;
 
 class AdminWorkforceController extends Controller
 {
@@ -84,7 +91,141 @@ class AdminWorkforceController extends Controller
 
     public function jobTitles(Request $request): View
     {
-        return $this->renderSection($request, 'job-titles');
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        PayrollAwardRateSeeder::ensureDefaults($conn);
+        JobTitleDefaults::ensureDefaults($conn);
+
+        $archived = $request->boolean('archived');
+
+        $jobTitles = JobTitle::on($conn)
+            ->withCount('assignedEmployees as employees_count')
+            ->where('is_active', ! $archived)
+            ->orderBy('name')
+            ->get();
+
+        $employees = Employee::on($conn)
+            ->where('employment_status', 'active')
+            ->orderBy('full_legal_name')
+            ->orderBy('first_name')
+            ->get(['id', 'full_legal_name', 'first_name', 'last_name', 'email']);
+
+        return view('admin.job-titles.index', [
+            'company' => $company,
+            'jobTitles' => $jobTitles,
+            'archived' => $archived,
+            'employees' => $employees,
+        ]);
+    }
+
+    public function showJobTitle(Request $request, int $jobTitle): View
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $title = JobTitle::on($conn)->withCount('assignedEmployees as employees_count')->whereKey($jobTitle)->firstOrFail();
+        $tab = (string) $request->query('tab', 'employees');
+        if (! in_array($tab, ['employees', 'settings', 'wages'], true)) {
+            $tab = 'employees';
+        }
+
+        $employees = collect();
+        $effectiveFrom = (string) config('payroll.default_rates_effective_from', '2025-07-01');
+        $siblingIds = JobTitle::on($conn)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->pluck('id')
+            ->all();
+        $currentIndex = array_search($title->id, $siblingIds, true);
+        $prevId = is_int($currentIndex) && $currentIndex > 0 ? $siblingIds[$currentIndex - 1] : null;
+        $nextId = is_int($currentIndex) && $currentIndex < count($siblingIds) - 1 ? $siblingIds[$currentIndex + 1] : null;
+
+        $assignableEmployees = collect();
+
+        if ($tab === 'employees') {
+            $employees = Employee::on($conn)
+                ->with('workLocation')
+                ->where(function ($q) use ($title) {
+                    $q->where('job_title_id', $title->id)
+                        ->orWhereHas('jobTitles', fn ($jq) => $jq->where('job_titles.id', $title->id));
+                })
+                ->orderBy('full_legal_name')
+                ->orderBy('first_name')
+                ->orderBy('last_name')
+                ->get();
+
+            $assignedIds = $employees->pluck('id');
+            $assignableEmployees = Employee::on($conn)
+                ->where('employment_status', 'active')
+                ->when($assignedIds->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $assignedIds))
+                ->orderBy('full_legal_name')
+                ->orderBy('first_name')
+                ->orderBy('last_name')
+                ->get(['id', 'full_legal_name', 'first_name', 'last_name', 'email']);
+        }
+
+        return view('admin.job-titles.show', [
+            'company' => $company,
+            'jobTitle' => $title,
+            'tab' => $tab,
+            'employees' => $employees,
+            'assignableEmployees' => $assignableEmployees,
+            'effectiveFrom' => $effectiveFrom,
+            'prevJobTitleId' => $prevId,
+            'nextJobTitleId' => $nextId,
+        ]);
+    }
+
+    public function assignJobTitleEmployees(Request $request, int $jobTitle): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $title = JobTitle::on($conn)->whereKey($jobTitle)->where('is_active', true)->firstOrFail();
+
+        $data = $request->validate([
+            'employee_ids' => ['required', 'array', 'min:1'],
+            'employee_ids.*' => ['integer'],
+        ]);
+
+        EmployeeJobTitles::attachToTitle($conn, $title, $data['employee_ids']);
+
+        return redirect()
+            ->route('admin.workforce.job-titles.show', ['jobTitle' => $title->id])
+            ->with('status', 'Employees added to this job title.');
+    }
+
+    public function archiveJobTitle(Request $request, int $jobTitle): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $target = JobTitle::on($conn)->whereKey($jobTitle)->firstOrFail();
+        $target->forceFill(['is_active' => false])->save();
+
+        return redirect()->route('admin.workforce.job-titles')->with('status', 'Job title archived.');
+    }
+
+    public function restoreJobTitle(Request $request, int $jobTitle): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $target = JobTitle::on($conn)->whereKey($jobTitle)->firstOrFail();
+        $target->forceFill(['is_active' => true])->save();
+
+        return redirect()->route('admin.workforce.job-titles', ['archived' => 1])->with('status', 'Job title restored.');
     }
 
     public function workLocations(Request $request): View
@@ -361,14 +502,44 @@ class AdminWorkforceController extends Controller
 
         $data = $request->validate([
             'job_title_name' => ['required', 'string', 'max:160'],
+            'hourly_wage' => ['required', 'numeric', 'min:0', 'max:9999.99'],
+            'wage_effective_from' => ['required', 'date'],
+            'color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'employee_ids' => ['nullable', 'array'],
+            'employee_ids.*' => ['integer'],
         ]);
 
-        JobTitle::on($conn)->create([
+        $color = strtolower($data['color']);
+        if (! in_array($color, array_map('strtolower', JobTitle::colorPalette()), true)) {
+            $color = JobTitle::colorPalette()[0];
+        }
+
+        $title = JobTitle::on($conn)->create([
             'name' => $data['job_title_name'],
+            'hourly_wage' => round((float) $data['hourly_wage'], 2),
+            'wage_effective_from' => $data['wage_effective_from'],
+            'color' => $color,
             'is_active' => true,
         ]);
 
-        return redirect()->back()->with('status', 'Job title created.');
+        $employeeIds = collect($data['employee_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($employeeIds->isNotEmpty()) {
+            $validIds = Employee::on($conn)->whereIn('id', $employeeIds)->pluck('id');
+            $now = now();
+            foreach ($validIds as $employeeId) {
+                DB::connection($conn)->table('employee_job_title')->updateOrInsert(
+                    ['employee_id' => $employeeId, 'job_title_id' => $title->id],
+                    ['is_primary' => false, 'created_at' => $now, 'updated_at' => $now]
+                );
+            }
+        }
+
+        return redirect()->route('admin.workforce.job-titles')->with('status', 'Job title created.');
     }
 
     public function updateJobTitle(Request $request, int $jobTitle): RedirectResponse
@@ -380,14 +551,43 @@ class AdminWorkforceController extends Controller
 
         $data = $request->validate([
             'job_title_name' => ['required', 'string', 'max:160'],
+            'color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ]);
 
+        $color = strtolower($data['color']);
+
         $target = JobTitle::on($conn)->whereKey($jobTitle)->firstOrFail();
+
         $target->forceFill([
             'name' => $data['job_title_name'],
+            'color' => $color,
         ])->save();
 
-        return redirect()->back()->with('status', 'Job title updated.');
+        return redirect()
+            ->route('admin.workforce.job-titles.show', ['jobTitle' => $target->id, 'tab' => 'settings'])
+            ->with('status', 'Job title updated.');
+    }
+
+    public function updateJobTitleRates(Request $request, int $jobTitle): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $target = JobTitle::on($conn)->whereKey($jobTitle)->firstOrFail();
+
+        $data = $request->validate([
+            'hourly_wage' => ['required', 'numeric', 'min:0', 'max:9999.99'],
+        ]);
+
+        $target->forceFill([
+            'hourly_wage' => round((float) $data['hourly_wage'], 2),
+        ])->save();
+
+        return redirect()
+            ->route('admin.workforce.job-titles.show', ['jobTitle' => $target->id, 'tab' => 'wages'])
+            ->with('status', 'Wage saved for '.$target->name.'.');
     }
 
     public function storeWorkLocation(Request $request): RedirectResponse

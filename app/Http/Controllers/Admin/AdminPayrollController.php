@@ -10,7 +10,6 @@ use App\Models\PayrollRun;
 use App\Models\PublicHoliday;
 use App\Models\TimesheetApproval;
 use App\Support\AdminPayroll;
-use App\Support\PayrollAwardRateSeeder;
 use App\Support\PayrollRateTypes;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -25,25 +24,9 @@ class AdminPayrollController extends Controller
         return redirect()->route('admin.payroll.runs');
     }
 
-    public function rates(Request $request): View
+    public function rates(Request $request): RedirectResponse
     {
-        $ctx = $this->pageContext($request);
-        PayrollAwardRateSeeder::ensureDefaults($ctx['connection']);
-
-        $effectiveFrom = (string) config('payroll.default_rates_effective_from', '2025-07-01');
-
-        $rates = PayrollAwardRate::on($ctx['connection'])
-            ->where('effective_from', $effectiveFrom)
-            ->orderBy('employment_type')
-            ->orderBy('award_level')
-            ->orderBy('rate_type')
-            ->get();
-
-        return view('admin.payroll', array_merge($ctx, [
-            'section' => 'rates',
-            'effectiveFrom' => $effectiveFrom,
-            'groupedRates' => AdminPayroll::groupRatesForDisplay($rates),
-        ]));
+        return redirect()->route('admin.workforce.job-titles');
     }
 
     public function updateRates(Request $request): RedirectResponse
@@ -85,7 +68,7 @@ class AdminPayrollController extends Controller
             }
         });
 
-        return redirect()->route('admin.payroll.rates')->with('status', 'Award rates saved.');
+        return redirect()->route('admin.workforce.job-titles')->with('status', 'Award rates saved.');
     }
 
     public function runs(Request $request): View
@@ -161,6 +144,13 @@ class AdminPayrollController extends Controller
         $fortnightStart = AdminPayroll::normalizeFortnightStart($data['fortnight_start']);
         $fortnightEnd = AdminPayroll::fortnightEndForStart($fortnightStart);
         $finalize = (bool) ($data['finalize'] ?? false);
+
+        $existingRun = PayrollRun::on($ctx['connection'])->where('fortnight_start', $fortnightStart)->first();
+        if ($existingRun !== null && $existingRun->status === PayrollRun::STATUS_FINALIZED) {
+            throw ValidationException::withMessages([
+                'fortnight_start' => 'This pay run is already finalized, so it cannot be generated again. Leave balances were already updated from the saved totals.',
+            ]);
+        }
 
         $employees = $this->loadPayrollEmployees($ctx['connection'], $fortnightStart, $fortnightEnd);
 
@@ -271,7 +261,7 @@ class AdminPayrollController extends Controller
             foreach (AdminPayroll::payableRows($previewRows) as $row) {
                 /** @var Employee $emp */
                 $emp = $row['employee'];
-                foreach ($row['lines'] as $line) {
+                foreach (AdminPayroll::payableLines($row['lines'] ?? []) as $line) {
                     fputcsv($out, [
                         $emp->full_legal_name ?: $emp->email,
                         $emp->email,
@@ -307,9 +297,14 @@ class AdminPayrollController extends Controller
                         ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
                         ->orderBy('clocked_at');
                 },
-                'scheduleShifts' => static function ($query) use ($fortnightStart, $fortnightEnd): void {
-                    $query->whereBetween('scheduled_date', [$fortnightStart, $fortnightEnd]);
+                'scheduleShifts' => static function ($query) use ($fortnightStart, $fortnightEnd, $tz): void {
+                    $scheduleFrom = \Carbon\Carbon::parse($fortnightStart, $tz)->subDay()->toDateString();
+                    $query->with('jobTitle')
+                        ->where('entry_type', \App\Models\EmployeeScheduleShift::TYPE_SHIFT)
+                        ->whereBetween('scheduled_date', [$scheduleFrom, $fortnightEnd]);
                 },
+                'assignedJobTitle',
+                'jobTitles',
                 'leaveRecords' => static function ($query) use ($fortnightStart, $fortnightEnd): void {
                     $query->where('status', 'pending')
                         ->whereBetween('leave_date', [$fortnightStart, $fortnightEnd]);

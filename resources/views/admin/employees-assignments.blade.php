@@ -14,24 +14,6 @@
         /** @var \Illuminate\Support\Collection<int, \App\Models\Employee> $employees */
         /** @var \Illuminate\Support\Collection<int, \App\Models\Department> $departments */
         /** @var \Illuminate\Support\Collection<int, \App\Models\WorkLocation> $workLocations */
-        /** @var \Illuminate\Support\Collection<int, \App\Models\Shift> $shifts */
-        $shiftTimes = static function (?\App\Models\Shift $s): string {
-            if ($s === null) {
-                return '—';
-            }
-            $st = $s->start_time instanceof \Carbon\CarbonInterface ? $s->start_time->format('g:i A') : '—';
-            $en = $s->end_time instanceof \Carbon\CarbonInterface ? $s->end_time->format('g:i A') : '—';
-
-            return $st.'-'.$en;
-        };
-        $shiftDays = static function (?\App\Models\Shift $s): string {
-            if ($s === null || ! is_array($s->shift_days) || $s->shift_days === []) {
-                return 'All days';
-            }
-            $map = ['mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu', 'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun'];
-
-            return collect($s->shift_days)->map(fn ($d) => $map[$d] ?? null)->filter()->join(', ');
-        };
         $searchIn = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/20';
     @endphp
 
@@ -76,9 +58,6 @@
                         'employee' => $employee,
                         'departments' => $departments,
                         'workLocations' => $workLocations,
-                        'shifts' => $shifts,
-                        'shiftTimes' => $shiftTimes,
-                        'shiftDays' => $shiftDays,
                     ])
                 </section>
             @empty

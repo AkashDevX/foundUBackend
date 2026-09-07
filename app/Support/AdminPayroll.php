@@ -117,7 +117,13 @@ final class AdminPayroll
                 continue;
             }
 
-            if (! in_array($employee->employment_type, PayrollRateTypes::employmentTypes(), true)) {
+            $scheduleShifts = $employee->scheduleShifts ?? collect();
+            $usesTitleWages = PayrollEmployeeRates::employeeUsesTitleWages($employee, $scheduleShifts);
+
+            // Job-title wages come from the clocked/scheduled title, not employment type or award level.
+            if (! $usesTitleWages
+                && (! in_array($employee->employment_type, PayrollRateTypes::employmentTypes(), true)
+                    || ! in_array($employee->award_level, PayrollRateTypes::awardLevels(), true))) {
                 $results[] = [
                     'employee' => $employee,
                     'total_hours' => 0,
@@ -125,21 +131,7 @@ final class AdminPayroll
                     'lines' => [],
                     'sick_leave_accrued' => 0,
                     'annual_leave_accrued' => 0,
-                    'skipped_reason' => 'Employment type not set',
-                ];
-
-                continue;
-            }
-
-            if (! in_array($employee->award_level, PayrollRateTypes::awardLevels(), true)) {
-                $results[] = [
-                    'employee' => $employee,
-                    'total_hours' => 0,
-                    'total_amount' => 0,
-                    'lines' => [],
-                    'sick_leave_accrued' => 0,
-                    'annual_leave_accrued' => 0,
-                    'skipped_reason' => 'Award level not set',
+                    'skipped_reason' => 'No job title wage — set an hourly wage on the job title for this shift',
                 ];
 
                 continue;
@@ -149,25 +141,19 @@ final class AdminPayroll
             $roster = PayrollRosterSummary::forEmployee($employee, $fortnightStart, $fortnightEnd);
             $leaveRecords = $employee->leaveRecords ?? collect();
 
-            $allEntriesInFortnight = ($employee->timeClockEntries ?? collect())
-                ->filter(static function (TimeClockEntry $entry) use ($rangeStart, $rangeEnd): bool {
-                    if ($entry->clocked_at === null) {
-                        return false;
-                    }
-
-                    $at = $entry->clocked_at->copy()->timezone(DisplayTimezone::name());
-
-                    return ! $at->lt($rangeStart) && ! $at->gt($rangeEnd);
-                })
+            // Keep the loader’s ±1 day buffer so a shift that crosses midnight or the
+            // fortnight boundary can still be paired, then clipped to this pay period.
+            $loadedEntries = ($employee->timeClockEntries ?? collect())
+                ->filter(static fn (TimeClockEntry $entry): bool => $entry->clocked_at !== null)
                 ->values();
 
-            $entries = $allEntriesInFortnight
-                ->filter(static function (TimeClockEntry $entry) use ($requireApproved, $approvalKeys, $employee, $allEntriesInFortnight): bool {
+            $entries = $loadedEntries
+                ->filter(static function (TimeClockEntry $entry) use ($requireApproved, $approvalKeys, $employee, $loadedEntries): bool {
                     if (! $requireApproved) {
                         return true;
                     }
 
-                    $clockInId = AdminTimesheetApproval::resolveSessionClockInId($allEntriesInFortnight, $entry);
+                    $clockInId = AdminTimesheetApproval::resolveSessionClockInId($loadedEntries, $entry);
                     if ($clockInId === null) {
                         return false;
                     }
@@ -186,9 +172,16 @@ final class AdminPayroll
                 $fortnightEnd,
             );
 
-            if ($entries->isEmpty() && $leaveLines === []) {
+            $overlappingSessions = PayrollCalculator::extractSessions(
+                $entries,
+                $rangeStart,
+                $rangeEnd,
+                $tz,
+            );
+
+            if ($overlappingSessions === [] && $leaveLines === []) {
                 $skippedReason = self::fortnightSkipReason(
-                    $allEntriesInFortnight,
+                    $loadedEntries,
                     $requireApproved,
                     $approvalKeys,
                     (int) $employee->id,
@@ -208,6 +201,7 @@ final class AdminPayroll
                 $rates,
                 $rangeStart,
                 $rangeEnd,
+                $scheduleShifts,
             );
 
             if ($calc['total_hours'] <= 0 && $leaveLines === []) {
@@ -228,13 +222,13 @@ final class AdminPayroll
             }
 
             $lines = $calc['lines'];
-            $totalAmount = (float) $calc['total_amount'];
             foreach ($leaveLines as $leaveLine) {
                 $lines[] = $leaveLine;
-                $totalAmount += (float) $leaveLine['amount'];
             }
 
             usort($lines, static fn (array $a, array $b): int => ($a['sort_order'] ?? 0) <=> ($b['sort_order'] ?? 0));
+
+            $totalAmount = PayrollLineTotals::summarize($lines)['gross_pay'];
 
             $results[] = self::previewRow(
                 $employee,
@@ -391,6 +385,10 @@ final class AdminPayroll
         $summaryByDay = AdminTimesheetApproval::groupEntriesByDay($entriesInFortnight);
 
         foreach ($summaryByDay as $workDate => $dayEntries) {
+            if ($workDate < $fortnightStart || $workDate > $fortnightEnd) {
+                continue;
+            }
+
             $sessionSummary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
             foreach ($sessionSummary['hours_by_entry_id'] as $session) {
                 $clockInId = (int) ($session['clock_in_id'] ?? 0);
@@ -426,6 +424,11 @@ final class AdminPayroll
         bool $finalize = false,
     ): PayrollRun {
         PayrollAwardRateSeeder::ensureDefaults($connection);
+
+        $existing = PayrollRun::on($connection)->where('fortnight_start', $fortnightStart)->first();
+        if ($existing !== null && $existing->status === PayrollRun::STATUS_FINALIZED) {
+            return $existing->fresh(['lines.employee']);
+        }
 
         /** @var PayrollRun $run */
         $run = PayrollRun::on($connection)->updateOrCreate(
@@ -515,5 +518,42 @@ final class AdminPayroll
     public static function formatMoney(float $amount): string
     {
         return '$'.number_format($amount, 2);
+    }
+
+    /**
+     * Payable lines only. Accrual valuation is not pay and must not appear on the printed amount.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     * @return list<array<string, mixed>>
+     */
+    public static function payableLines(array $lines): array
+    {
+        return array_values(array_filter($lines, static function (array $line): bool {
+            $isEarning = PayrollLineTotals::categoryFor((string) ($line['rate_type'] ?? '')) === 'earning';
+
+            return $isEarning && ((float) ($line['amount'] ?? 0) > 0 || (float) ($line['hours'] ?? 0) > 0);
+        }));
+    }
+
+    /**
+     * Printed hours × job-title wage = amount.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function formatPayLine(array $line): string
+    {
+        $hours = round((float) ($line['hours'] ?? 0), 2);
+        $rate = round((float) ($line['rate'] ?? 0), 2);
+        $amount = round((float) ($line['amount'] ?? 0), 2);
+
+        if ($hours > 0 && $rate > 0) {
+            return number_format($hours, 2).'h × '.self::formatMoney($rate).' = '.self::formatMoney($amount);
+        }
+
+        if ($amount > 0) {
+            return self::formatMoney($amount);
+        }
+
+        return number_format($hours, 2).'h';
     }
 }

@@ -22,7 +22,7 @@
             'name' => $expiryFieldName.'['.$doc['row_key'].']',
             'value' => old($expiryFieldName.'.'.$doc['row_key'], $expiryInput),
             'storageFormat' => 'Y-m-d',
-            'inputClass' => $editIn.' mb-3',
+            'inputClass' => ($nativeDateIn ?? $editIn).' mb-3',
         ])
     @elseif ($expiryDisplay)
         <p class="mb-3 text-sm text-brand-text-secondary">Expiry: <span class="font-medium text-brand-text">{{ $expiryDisplay }}</span></p>

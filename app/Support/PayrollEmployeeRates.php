@@ -3,7 +3,6 @@
 namespace App\Support;
 
 use App\Models\Employee;
-use App\Models\EmployeeScheduleShift;
 
 final class PayrollEmployeeRates
 {
@@ -76,5 +75,59 @@ final class PayrollEmployeeRates
     public static function ordinaryHourlyRate(array $rates): float
     {
         return (float) ($rates[PayrollRateTypes::WEEKDAY_ORDINARY] ?? 0);
+    }
+
+    /**
+     * Prefer primary job title wage when it is in force on $asOf; otherwise award ordinary rate.
+     *
+     * @param  array<string, float>  $rates
+     */
+    public static function ordinaryHourlyRateForEmployee(Employee $employee, array $rates, ?\Carbon\CarbonInterface $asOf = null): float
+    {
+        $title = self::primaryTitle($employee);
+        $asOf = $asOf ?? DisplayTimezone::now();
+        if ($title !== null && $title->wageAppliesOn($asOf)) {
+            return (float) $title->hourly_wage;
+        }
+
+        return self::ordinaryHourlyRate($rates);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, \App\Models\EmployeeScheduleShift>|null  $scheduleShifts
+     */
+    public static function employeeUsesTitleWages(Employee $employee, ?\Illuminate\Support\Collection $scheduleShifts = null): bool
+    {
+        $primary = self::primaryTitle($employee);
+        if ($primary !== null && $primary->hasHourlyWage()) {
+            return true;
+        }
+
+        if ($employee->relationLoaded('jobTitles') || $employee->exists) {
+            $employee->loadMissing('jobTitles');
+            if ($employee->jobTitles->contains(static fn ($jt) => $jt->hasHourlyWage())) {
+                return true;
+            }
+        }
+
+        foreach ($scheduleShifts ?? [] as $shift) {
+            $shift->loadMissing('jobTitle');
+            if ($shift->jobTitle !== null && $shift->jobTitle->hasHourlyWage()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function primaryTitle(Employee $employee): ?\App\Models\JobTitle
+    {
+        if (! $employee->relationLoaded('assignedJobTitle') && ! $employee->exists) {
+            return null;
+        }
+
+        $employee->loadMissing('assignedJobTitle');
+
+        return $employee->assignedJobTitle;
     }
 }
