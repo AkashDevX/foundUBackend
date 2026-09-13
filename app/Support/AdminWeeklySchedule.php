@@ -7,6 +7,7 @@ use App\Models\EmployeeAssignmentShift;
 use App\Models\EmployeeLeaveEntitlement;
 use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
+use App\Models\JobTitle;
 use App\Models\LeaveType;
 use App\Models\Shift;
 use Carbon\Carbon;
@@ -55,7 +56,6 @@ final class AdminWeeklySchedule
      * - every_week … every_8_weeks: selected weekdays on that interval through Ends (12-week default; until honored up to 1 year)
      * - weekly (legacy): selected weekdays through until
      *
-     * @param  mixed  $days
      * @return list<string>
      */
     public static function recurrenceDates(
@@ -115,6 +115,82 @@ final class AdminWeeklySchedule
     }
 
     /**
+     * Decide how an edited shift's repeat rule should apply to other dates.
+     *
+     * @param  list<string>  $recurrenceDates
+     * @param  array<string, list<array{id: int, entry_type: string, matches_series: bool}>>  $existingByDate
+     * @return list<array{date: string, action: 'create'|'update'|'skip', entry_id: int|null}>
+     */
+    public static function planRecurrenceEditActions(
+        string $editedDate,
+        array $recurrenceDates,
+        array $existingByDate,
+    ): array {
+        $plan = [];
+
+        foreach ($recurrenceDates as $date) {
+            if ($date === $editedDate) {
+                continue;
+            }
+
+            $dayEntries = $existingByDate[$date] ?? [];
+            $hasTimeOff = false;
+            $matchId = null;
+            $hasOtherShift = false;
+
+            foreach ($dayEntries as $row) {
+                if (($row['entry_type'] ?? '') === EmployeeScheduleShift::TYPE_TIME_OFF) {
+                    $hasTimeOff = true;
+                    break;
+                }
+                if (($row['entry_type'] ?? '') === EmployeeScheduleShift::TYPE_SHIFT) {
+                    if (! empty($row['matches_series'])) {
+                        $matchId = (int) ($row['id'] ?? 0) ?: null;
+                    } else {
+                        $hasOtherShift = true;
+                    }
+                }
+            }
+
+            if ($hasTimeOff) {
+                $plan[] = ['date' => $date, 'action' => 'skip', 'entry_id' => null];
+                continue;
+            }
+
+            if ($matchId !== null) {
+                $plan[] = ['date' => $date, 'action' => 'update', 'entry_id' => $matchId];
+                continue;
+            }
+
+            if ($hasOtherShift || $dayEntries !== []) {
+                $plan[] = ['date' => $date, 'action' => 'skip', 'entry_id' => null];
+                continue;
+            }
+
+            $plan[] = ['date' => $date, 'action' => 'create', 'entry_id' => null];
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Series member dates that should be removed after a repeat-rule edit.
+     *
+     * @param  list<string>  $existingSeriesDates
+     * @param  list<string>  $newRecurrenceDates
+     * @return list<string>
+     */
+    public static function seriesDatesToRemove(array $existingSeriesDates, array $newRecurrenceDates): array
+    {
+        $keep = array_fill_keys($newRecurrenceDates, true);
+
+        return array_values(array_filter(
+            $existingSeriesDates,
+            static fn (string $date): bool => ! isset($keep[$date]),
+        ));
+    }
+
+    /**
      * @return array<string, string>
      */
     public static function recurrenceModeOptions(): array
@@ -141,6 +217,96 @@ final class AdminWeeklySchedule
         }
 
         return $options[$key] ?? ($key === 'weekly' ? 'Every week' : 'This date only');
+    }
+
+    /**
+     * Human-readable repeat summary for schedule cards / details.
+     *
+     * @param  list<string>|null  $days
+     */
+    public static function formatRecurrenceLabel(?string $mode, ?array $days = null, ?string $until = null): string
+    {
+        $normalized = strtolower(trim((string) $mode));
+        if ($normalized === '' || $normalized === 'never') {
+            return 'This date only';
+        }
+
+        $label = self::recurrenceModeLabel($normalized);
+        $dayKeys = WorkforceShifts::normalizeDays($days) ?? [];
+        if ($dayKeys !== []) {
+            $map = [
+                'mon' => 'Mon', 'tue' => 'Tue', 'wed' => 'Wed', 'thu' => 'Thu',
+                'fri' => 'Fri', 'sat' => 'Sat', 'sun' => 'Sun',
+            ];
+            $dayLabel = collect($dayKeys)
+                ->map(static fn (string $key): string => $map[$key] ?? strtoupper($key))
+                ->join(', ');
+            $label .= ' · '.$dayLabel;
+        }
+
+        if (is_string($until) && $until !== '') {
+            try {
+                $label .= ' · until '.Carbon::parse($until)->format('j M Y');
+            } catch (\Throwable) {
+                // keep mode/days only
+            }
+        }
+
+        return $label;
+    }
+
+    /**
+     * Normalize recurrence fields stored on each occurrence in a series.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{
+     *     recurrence_series_id: ?string,
+     *     recurrence_mode: ?string,
+     *     recurrence_starts: ?string,
+     *     recurrence_until: ?string,
+     *     recurrence_days: ?list<string>
+     * }
+     */
+    public static function recurrenceAttributesFromPayload(array $data, ?string $seriesId = null): array
+    {
+        $mode = strtolower(trim((string) ($data['recurrence'] ?? 'never')));
+        if ($mode === 'ongoing' || $mode === 'no_end_date' || $mode === 'weekly') {
+            $mode = 'every_week';
+        }
+
+        if ($mode === '' || $mode === 'never' || ! array_key_exists($mode, self::recurrenceModeOptions())) {
+            return [
+                'recurrence_series_id' => null,
+                'recurrence_mode' => null,
+                'recurrence_starts' => null,
+                'recurrence_until' => null,
+                'recurrence_days' => null,
+            ];
+        }
+
+        $starts = is_string($data['scheduled_date'] ?? null) && $data['scheduled_date'] !== ''
+            ? $data['scheduled_date']
+            : null;
+        if (is_string($data['recurrence_starts'] ?? null) && $data['recurrence_starts'] !== '') {
+            $starts = $data['recurrence_starts'];
+        }
+
+        $until = is_string($data['recurrence_until'] ?? null) && $data['recurrence_until'] !== ''
+            ? $data['recurrence_until']
+            : null;
+
+        $days = WorkforceShifts::normalizeDays($data['shift_days'] ?? null);
+        if ($days === null || $days === []) {
+            $days = null;
+        }
+
+        return [
+            'recurrence_series_id' => $seriesId ?: (is_string($data['recurrence_series_id'] ?? null) ? $data['recurrence_series_id'] : null),
+            'recurrence_mode' => $mode,
+            'recurrence_starts' => $starts,
+            'recurrence_until' => $until,
+            'recurrence_days' => $days,
+        ];
     }
 
     /**
@@ -199,6 +365,7 @@ final class AdminWeeklySchedule
             while ($cursor->lte($until)) {
                 if ($cursor->lt($start)) {
                     $cursor->addWeek();
+
                     continue;
                 }
 
@@ -207,6 +374,7 @@ final class AdminWeeklySchedule
                 if ($weeksDiff >= 0 && $weeksDiff % $interval === 0) {
                     $dates[] = $cursor->toDateString();
                     $cursor->addWeeks($interval);
+
                     continue;
                 }
 
@@ -329,12 +497,6 @@ final class AdminWeeklySchedule
                         $rowScheduledSeconds += $seconds;
                         $totalScheduledSeconds += $seconds;
                         $shiftCount++;
-                    }
-
-                    if ($blocks === []) {
-                        foreach (self::suggestedBlocksFromAssignment($employee, $day['key']) as $suggestion) {
-                            $blocks[] = $suggestion;
-                        }
                     }
                 }
 
@@ -509,6 +671,18 @@ final class AdminWeeklySchedule
         $breaksLabel = ShiftBreaks::summaryFrom($breaks) ?? '';
         $notes = $entry->notes !== null ? trim((string) $entry->notes) : '';
         $subtitle = $breaksLabel !== '' ? $breaksLabel : $notes;
+        $cover = self::coverDisplayForEntry($entry);
+        $recurrenceMode = is_string($entry->recurrence_mode) ? $entry->recurrence_mode : null;
+        $recurrenceDays = $entry->recurrence_days;
+        if (is_string($recurrenceDays) && $recurrenceDays !== '') {
+            $decoded = json_decode($recurrenceDays, true);
+            $recurrenceDays = is_array($decoded) ? $decoded : null;
+        }
+        if (! is_array($recurrenceDays)) {
+            $recurrenceDays = null;
+        }
+        $recurrenceUntil = $entry->recurrence_until?->toDateString();
+        $recurrenceStarts = $entry->recurrence_starts?->toDateString();
 
         return [
             'id' => $entry->id,
@@ -534,72 +708,175 @@ final class AdminWeeklySchedule
             'notes' => $entry->notes,
             'breaks' => $breaks,
             'breaks_label' => $breaksLabel,
-            'recurrence_label' => 'This date only',
+            'recurrence_label' => self::formatRecurrenceLabel($recurrenceMode, $recurrenceDays, $recurrenceUntil),
+            'recurrence_mode' => $recurrenceMode ?: 'never',
+            'recurrence_starts' => $recurrenceStarts,
+            'recurrence_until' => $recurrenceUntil,
+            'recurrence_days' => $recurrenceDays ?? [],
+            'recurrence_series_id' => $entry->recurrence_series_id,
             'status' => $entry->status,
             'status_label' => EmployeeScheduleShift::statusLabel($entry->status),
+            ...$cover,
         ];
     }
 
     /**
+     * Shifts marked sick call out / no show that still need someone to cover them.
+     *
+     * @param  Collection<int, EmployeeScheduleShift>  $scheduleEntries
      * @return list<array<string, mixed>>
      */
-    private static function suggestedBlocksFromAssignment(Employee $employee, string $dayKey): array
+    public static function uncoveredShiftCards(Collection $scheduleEntries): array
     {
-        $blocks = [];
+        return $scheduleEntries
+            ->filter(static function (EmployeeScheduleShift $entry): bool {
+                return $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT && $entry->needsCover();
+            })
+            ->sortBy(static function (EmployeeScheduleShift $entry): string {
+                $date = $entry->scheduled_date?->toDateString() ?? '';
+                $start = self::storedTimeToHm($entry->start_time) ?? '';
 
-        foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
-            $shift = $assignmentShift->shiftTemplate;
-            if (! $shift instanceof Shift || ! self::shiftRunsOnDay($shift, $dayKey)) {
-                continue;
-            }
+                return $date.' '.$start.' '.$entry->id;
+            })
+            ->values()
+            ->map(static function (EmployeeScheduleShift $entry): array {
+                $employee = $entry->relationLoaded('employee') ? $entry->employee : null;
+                $block = $employee instanceof Employee
+                    ? self::entryToBlock($entry, $employee)
+                    : [
+                        'id' => $entry->id,
+                        'time_range' => '',
+                        'duration_label' => '',
+                        'title' => '',
+                        'meta' => '',
+                        'notes' => $entry->notes,
+                        'status' => $entry->status,
+                        'status_label' => EmployeeScheduleShift::statusLabel($entry->status),
+                        'cover_status' => $entry->cover_status,
+                        'cover_status_label' => EmployeeScheduleShift::coverStatusLabel($entry->cover_status),
+                        'scheduled_date' => $entry->scheduled_date?->toDateString(),
+                        'employee_public_id' => '',
+                    ];
 
-            $durationSeconds = self::shiftDurationSeconds($shift);
-            $unpaidBreakMinutes = (int) ($assignmentShift->unpaid_break_minutes ?? 0);
-            $breakLabel = $unpaidBreakMinutes > 0
-                ? AdminTimeClockDisplay::formatDuration(max(0, $durationSeconds - ($unpaidBreakMinutes * 60))).' paid'
-                : AdminTimeClockDisplay::formatDuration($durationSeconds);
-            $breaks = $shift->normalizedBreaks();
-            $breaksSummary = ShiftBreaks::summaryFrom($breaks) ?? '';
+                $scheduledDate = is_string($block['scheduled_date'] ?? null) ? $block['scheduled_date'] : '';
 
-            $blocks[] = [
-                'id' => null,
-                'editable' => false,
-                'is_suggestion' => true,
-                'type' => 'suggestion',
-                'time_range' => self::shiftTimeRangeLabel($shift),
-                'duration_label' => $breakLabel,
-                'duration_seconds' => $durationSeconds,
-                'title' => self::employeeJobTitle($employee),
-                'subtitle' => $breaksSummary,
-                'meta' => trim(collect([
-                    $employee->assignedDepartment?->name,
-                    $employee->workLocation?->name,
-                    $unpaidBreakMinutes > 0 ? $unpaidBreakMinutes.'m unpaid break' : null,
-                ])->filter()->join(' · ')),
-                'palette' => self::paletteForSeed((int) ($employee->work_location_id ?? $employee->department_id ?? $employee->id ?? 0)),
-                'scheduled_date' => null,
-                'employee_public_id' => $employee->public_id,
-                'start_time' => $shift->start_time instanceof CarbonInterface ? $shift->start_time->format('H:i') : '09:00',
-                'end_time' => $shift->end_time instanceof CarbonInterface ? $shift->end_time->format('H:i') : '17:00',
-                'shift_id' => $shift->id,
-                'job_title_id' => $employee->job_title_id,
-                'department_id' => $employee->department_id,
-                'work_location_id' => $employee->work_location_id,
-                'notes' => null,
-                'breaks' => $breaks,
-                'breaks_label' => $breaksSummary,
-                'recurrence_label' => self::templateDaysLabel($shift),
-            ];
-        }
-
-        return $blocks;
+                return [
+                    'id' => $block['id'] ?? $entry->id,
+                    'employee_name' => $employee instanceof Employee ? self::employeeDisplayName($employee) : 'Employee',
+                    'employee_initials' => $employee instanceof Employee ? self::employeeInitials($employee) : '??',
+                    'employee_public_id' => $block['employee_public_id'] ?? ($employee?->public_id ?? ''),
+                    'day_label' => $entry->scheduled_date instanceof CarbonInterface
+                        ? $entry->scheduled_date->format('l, j M Y')
+                        : $scheduledDate,
+                    'scheduled_date' => $scheduledDate,
+                    'time_range' => $block['time_range'] ?? '',
+                    'duration_label' => $block['duration_label'] ?? '',
+                    'title' => $block['title'] ?? '',
+                    'meta' => $block['meta'] ?? '',
+                    'notes' => $block['notes'] ?? $entry->notes,
+                    'status' => $block['status'] ?? $entry->status,
+                    'status_label' => $block['status_label'] ?? EmployeeScheduleShift::statusLabel($entry->status),
+                    'cover_status' => $block['cover_status'] ?? $entry->cover_status,
+                    'cover_status_label' => $block['cover_status_label'] ?? EmployeeScheduleShift::coverStatusLabel($entry->cover_status),
+                    'start_time' => $block['start_time'] ?? self::storedTimeToHm($entry->start_time),
+                    'end_time' => $block['end_time'] ?? self::storedTimeToHm($entry->end_time),
+                    'job_title_id' => $block['job_title_id'] ?? $entry->job_title_id,
+                    'work_location_id' => $block['work_location_id'] ?? $entry->work_location_id,
+                    'shift_id' => $block['shift_id'] ?? $entry->shift_id,
+                    'department_id' => $block['department_id'] ?? $entry->department_id,
+                    'breaks' => $block['breaks'] ?? [],
+                    'breaks_label' => $block['breaks_label'] ?? '',
+                    'block_title' => $block['title'] ?? '',
+                    'block_subtitle' => $block['subtitle'] ?? '',
+                    'block_meta' => $block['meta'] ?? '',
+                ];
+            })
+            ->all();
     }
 
     /**
-     * @return Collection<int, EmployeeAssignmentShift>
+     * Same Mon–Sun calendar as the weekly roster, but only uncovered / unassigned shifts.
+     *
+     * @param  Collection<int, EmployeeScheduleShift>  $scheduleEntries
+     * @return array{
+     *     days: list<array<string, mixed>>,
+     *     rows: list<array<string, mixed>>,
+     *     stats: array<string, int|string>,
+     * }
      */
+    public static function uncoveredSchedule(Collection $scheduleEntries, CarbonInterface $weekStart): array
+    {
+        $uncovered = $scheduleEntries
+            ->filter(static function (EmployeeScheduleShift $entry): bool {
+                return $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT && $entry->needsCover();
+            })
+            ->values();
+
+        $employees = $uncovered
+            ->map(static function (EmployeeScheduleShift $entry): ?Employee {
+                $employee = $entry->relationLoaded('employee') ? $entry->employee : null;
+
+                return $employee instanceof Employee ? $employee : null;
+            })
+            ->filter()
+            ->unique(static fn (Employee $employee): int => (int) $employee->id)
+            ->sortBy(static fn (Employee $employee): string => mb_strtolower(self::employeeDisplayName($employee)))
+            ->values();
+
+        return self::buildSchedule($employees, $weekStart, $uncovered);
+    }
+
     /**
-     * Assignment shifts for schedule suggestions / clock-in eligibility.
+     * @return array{
+     *     cover_status: ?string,
+     *     cover_status_label: ?string,
+     *     covering_employee_name: string,
+     *     original_employee_name: string,
+     *     original_status: ?string,
+     *     original_status_label: ?string,
+     *     is_cover_shift: bool
+     * }
+     */
+    private static function coverDisplayForEntry(EmployeeScheduleShift $entry): array
+    {
+        $coveringName = '';
+        if ($entry->relationLoaded('coveringShift')) {
+            $coveringEmployee = $entry->coveringShift?->relationLoaded('employee')
+                ? $entry->coveringShift->employee
+                : null;
+            if ($coveringEmployee instanceof Employee) {
+                $coveringName = self::employeeDisplayName($coveringEmployee);
+            }
+        }
+
+        $originalName = '';
+        if ($entry->relationLoaded('originalEmployee')) {
+            $original = $entry->originalEmployee;
+            if ($original instanceof Employee) {
+                $originalName = self::employeeDisplayName($original);
+            }
+        }
+
+        $originalStatus = null;
+        if ($entry->relationLoaded('coveredFromShift')) {
+            $originalStatus = $entry->coveredFromShift?->status;
+        }
+
+        $isCoverShift = $entry->covered_from_shift_id !== null && (int) $entry->covered_from_shift_id > 0;
+
+        return [
+            'cover_status' => $entry->cover_status,
+            'cover_status_label' => EmployeeScheduleShift::coverStatusLabel($entry->cover_status),
+            'covering_employee_name' => $coveringName,
+            'original_employee_name' => $originalName,
+            'original_status' => $originalStatus,
+            'original_status_label' => EmployeeScheduleShift::statusLabel($originalStatus),
+            'is_cover_shift' => $isCoverShift,
+        ];
+    }
+
+    /**
+     * Assignment shifts for clock-in eligibility and optional fill-from-assignments.
      *
      * Prefer the multi-shift `assignmentShifts` relation; if that collection is empty,
      * fall back to the legacy `employees.shift_id` (`assignedShift`). Never short-circuit
@@ -757,9 +1034,10 @@ final class AdminWeeklySchedule
     }
 
     /**
-     * True when the employee's assignment shift(s) run on the given date's weekday — i.e. the
-     * weekly schedule would show a shift (concrete or suggestion) for that day. Read-only; does
-     * not create rows. Callers must separately treat a day-off (time_off) as "no shift".
+     * True when the employee's assignment shift(s) run on the given date's weekday.
+     * Read-only; does not create rows. Callers must separately treat a day-off (time_off)
+     * as "no shift". The weekly schedule no longer displays assignment suggestions — only
+     * saved / recurring schedule rows appear there.
      */
     public static function hasAssignmentShiftForDate(Employee $employee, CarbonInterface $date): bool
     {
@@ -782,8 +1060,8 @@ final class AdminWeeklySchedule
 
     /**
      * Create concrete employee_schedule_shifts row(s) for the given date from the employee's
-     * assignment shift(s), mirroring the schedule "suggestion" logic. No-op when a concrete
-     * shift already exists for the day or the day is marked as time off. Returns rows created.
+     * assignment shift(s). No-op when a concrete shift already exists for the day or the day
+     * is marked as time off. Returns rows created.
      */
     public static function materializeAssignmentShiftsForDate(Employee $employee, CarbonInterface $date): int
     {
@@ -840,23 +1118,65 @@ final class AdminWeeklySchedule
     /** The employee's assignment shift template that runs on the given date's weekday, if any. */
     public static function assignmentShiftForDate(Employee $employee, CarbonInterface $date): ?Shift
     {
+        return self::assignmentShiftForMoment($employee, $date);
+    }
+
+    /**
+     * Assignment template for the weekday, preferring the time slot that matches $moment.
+     */
+    public static function assignmentShiftForMoment(Employee $employee, CarbonInterface $moment): ?Shift
+    {
         $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
 
-        $dayKey = self::dayKeyForDate($date);
+        $dayKey = self::dayKeyForDate($moment);
+        $candidates = collect();
 
         foreach (self::assignmentShiftsForEmployee($employee) as $assignmentShift) {
             $shift = $assignmentShift->shiftTemplate;
             if ($shift instanceof Shift && self::shiftRunsOnDay($shift, $dayKey)) {
-                return $shift;
+                $candidates->push($shift);
             }
         }
 
-        return null;
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        if ($candidates->count() === 1) {
+            return $candidates->first();
+        }
+
+        // Reuse schedule-row picker by projecting templates onto temporary rows.
+        $projected = $candidates->map(static function (Shift $shift): EmployeeScheduleShift {
+            return new EmployeeScheduleShift([
+                'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+                'start_time' => $shift->start_time instanceof CarbonInterface
+                    ? $shift->start_time->format('H:i')
+                    : (is_string($shift->start_time) ? $shift->start_time : '09:00'),
+                'end_time' => $shift->end_time instanceof CarbonInterface
+                    ? $shift->end_time->format('H:i')
+                    : (is_string($shift->end_time) ? $shift->end_time : '17:00'),
+            ]);
+        });
+
+        $picked = TimeClockScheduledShift::pickBestForMoment($projected, $moment);
+        if (! $picked instanceof EmployeeScheduleShift) {
+            return $candidates->first();
+        }
+
+        $pickedStart = self::storedTimeToHm($picked->start_time);
+        $pickedEnd = self::storedTimeToHm($picked->end_time);
+
+        return $candidates->first(static function (Shift $shift) use ($pickedStart, $pickedEnd): bool {
+            return self::storedTimeToHm($shift->start_time) === $pickedStart
+                && self::storedTimeToHm($shift->end_time) === $pickedEnd;
+        }) ?? $candidates->first();
     }
 
     /**
-     * Read-only display times for the employee's shift on a date (mobile status pill).
+     * Read-only display times for the employee's shift on a date (mobile status pill / auto clock-out).
      * A concrete schedule row wins; otherwise the assignment shift that runs that weekday.
+     * When multiple shifts exist that day, the row matching $date's time-of-day is used.
      * Returns null on a day off or when there's no shift.
      *
      * @return array{start_time: string, end_time: string, start_label: string, end_label: string}|null
@@ -878,15 +1198,17 @@ final class AdminWeeklySchedule
             return null;
         }
 
+        $concreteShifts = $entries
+            ->filter(static fn (EmployeeScheduleShift $entry): bool => $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT)
+            ->values();
+
         /** @var EmployeeScheduleShift|null $concrete */
-        $concrete = $entries->first(
-            static fn (EmployeeScheduleShift $entry): bool => $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT
-        );
+        $concrete = TimeClockScheduledShift::pickBestForMoment($concreteShifts, $date);
         if ($concrete instanceof EmployeeScheduleShift) {
             return self::shiftTimesPayload($concrete->start_time, $concrete->end_time);
         }
 
-        $shift = self::assignmentShiftForDate($employee, $date);
+        $shift = self::assignmentShiftForMoment($employee, $date);
         if ($shift instanceof Shift) {
             return self::shiftTimesPayload($shift->start_time, $shift->end_time);
         }
@@ -908,7 +1230,7 @@ final class AdminWeeklySchedule
     }
 
     /**
-     * Mobile GET /api/v1/shifts/schedule — one employee's week view (published + assignment suggestions).
+     * Mobile GET /api/v1/shifts/schedule — one employee's week view (saved / recurring rows only).
      *
      * @return array<string, mixed>
      */
@@ -1088,7 +1410,7 @@ final class AdminWeeklySchedule
     /**
      * @return array{bg: string, border: string, text: string, accent: string}|null
      */
-    private static function paletteForJobTitle(?\App\Models\JobTitle $title): ?array
+    private static function paletteForJobTitle(?JobTitle $title): ?array
     {
         if ($title === null) {
             return null;

@@ -13,13 +13,15 @@ use App\Models\OrganizationPortalUser;
 use App\Models\Shift;
 use App\Models\TimeOffRequest;
 use App\Models\WorkLocation;
-use App\Support\AdminWeeklySchedule;
 use App\Support\AdminTimeOffRequestReview;
+use App\Support\AdminWeeklySchedule;
 use App\Support\PayrollEmployeeRates;
 use App\Support\WorkforceShifts;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -55,10 +57,11 @@ class AdminWeeklyScheduleController extends Controller
 
             $created = 0;
             foreach ($employees as $employee) {
+                $seriesData = $this->withRecurrenceSeries($data);
                 $created += $this->createRecurringShiftEntries(
                     $conn,
                     $employee,
-                    $data,
+                    $seriesData,
                     $dates,
                     $portalUser->name,
                     $reviewedBy,
@@ -256,7 +259,7 @@ class AdminWeeklyScheduleController extends Controller
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
             $data = $this->resolveScheduleShiftTemplate($data, $conn);
-            $originalDate = $entry->scheduled_date instanceof \Carbon\CarbonInterface
+            $originalDate = $entry->scheduled_date instanceof CarbonInterface
                 ? $entry->scheduled_date->toDateString()
                 : (string) $entry->scheduled_date;
             if ($data['scheduled_date'] !== $originalDate) {
@@ -284,6 +287,18 @@ class AdminWeeklyScheduleController extends Controller
             $this->clearShiftsForDay($conn, (int) $employee->id, $data['scheduled_date'], exceptId: (int) $entry->id);
         }
 
+        $previousFingerprint = $this->shiftSeriesFingerprint($entry);
+        $previousSeriesId = is_string($entry->recurrence_series_id) && $entry->recurrence_series_id !== ''
+            ? $entry->recurrence_series_id
+            : null;
+        $previousStarts = $entry->recurrence_starts instanceof CarbonInterface
+            ? $entry->recurrence_starts->toDateString()
+            : (is_string($entry->recurrence_starts) ? $entry->recurrence_starts : null);
+
+        if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
+            $data = $this->withRecurrenceSeries($data, $previousSeriesId, $previousStarts);
+        }
+
         $entry->fill($this->scheduleEntryAttributes($data, $employee));
 
         // Day-off reason must not carry over when converting to a scheduled shift unless the form sent notes.
@@ -302,9 +317,38 @@ class AdminWeeklyScheduleController extends Controller
             $entry->save();
         }
 
-        $message = $data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF
-            ? 'Day off updated.'
-            : 'Shift updated.';
+        $extraCreated = 0;
+        $extraUpdated = 0;
+        $extraDeleted = 0;
+        if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
+            [$extraCreated, $extraUpdated, $extraDeleted] = $this->applyRecurrenceOnUpdate(
+                $conn,
+                $entry,
+                $employee,
+                $data,
+                $previousFingerprint,
+                $previousSeriesId,
+                $createdBy,
+            );
+        }
+
+        if ($data['entry_type'] === EmployeeScheduleShift::TYPE_TIME_OFF) {
+            $message = 'Day off updated.';
+        } elseif ($extraCreated > 0 || $extraUpdated > 0 || $extraDeleted > 0) {
+            $parts = ['Shift updated'];
+            if ($extraUpdated > 0) {
+                $parts[] = sprintf('%d related shift(s) updated', $extraUpdated);
+            }
+            if ($extraCreated > 0) {
+                $parts[] = sprintf('%d shift(s) added', $extraCreated);
+            }
+            if ($extraDeleted > 0) {
+                $parts[] = sprintf('%d shift(s) removed', $extraDeleted);
+            }
+            $message = implode('; ', $parts).'.';
+        } else {
+            $message = 'Shift updated.';
+        }
 
         return $this->redirectBack($request, $message);
     }
@@ -318,7 +362,7 @@ class AdminWeeklyScheduleController extends Controller
         $entry = EmployeeScheduleShift::on($conn)->findOrFail($scheduleShift);
         $wasTimeOff = $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF;
         $employeeId = (int) $entry->employee_id;
-        $scheduledDate = $entry->scheduled_date instanceof \Carbon\CarbonInterface
+        $scheduledDate = $entry->scheduled_date instanceof CarbonInterface
             ? $entry->scheduled_date->toDateString()
             : (string) $entry->scheduled_date;
 
@@ -327,6 +371,7 @@ class AdminWeeklyScheduleController extends Controller
         $reviewedBy = $portalUser?->name ?: $portalUser?->email;
 
         $this->deletePendingLeaveRecord($conn, $entry);
+        $this->detachShiftCoverOnDelete($conn, $entry);
         $entry->delete();
 
         if ($wasTimeOff) {
@@ -349,6 +394,8 @@ class AdminWeeklyScheduleController extends Controller
                 EmployeeScheduleShift::STATUS_NO_SHOW,
             ])],
             'notes' => ['nullable', 'string', 'max:500'],
+            'cover_action' => ['nullable', Rule::in(EmployeeScheduleShift::coverActionValues())],
+            'cover_employee_public_id' => ['nullable', 'string'],
         ]);
 
         /** @var EmployeeScheduleShift $entry */
@@ -378,6 +425,25 @@ class AdminWeeklyScheduleController extends Controller
             $entry->leave_record_id = null;
         }
 
+        if ($status === null) {
+            $this->clearShiftCover($conn, $entry);
+        } else {
+            $coverAction = $data['cover_action'] ?? null;
+            if ($coverAction === null || $coverAction === '') {
+                throw ValidationException::withMessages([
+                    'cover_action' => 'Choose how this shift should be covered.',
+                ]);
+            }
+
+            $this->applyShiftCover(
+                $conn,
+                $entry,
+                $coverAction,
+                $this->coverEmployeeForAction($conn, $entry, $coverAction, $data['cover_employee_public_id'] ?? null),
+                $createdBy,
+            );
+        }
+
         $entry->save();
 
         $message = $status === null
@@ -385,6 +451,51 @@ class AdminWeeklyScheduleController extends Controller
             : sprintf('Shift marked as %s.', strtolower((string) EmployeeScheduleShift::statusLabel($status)));
 
         return $this->redirectBack($request, $message);
+    }
+
+    public function assignShiftCover(Request $request, int $scheduleShift): RedirectResponse
+    {
+        $context = $this->scheduleContext($request);
+        $conn = $context['conn'];
+
+        $data = $request->validate([
+            'cover_employee_public_id' => ['required', 'string'],
+        ]);
+
+        /** @var EmployeeScheduleShift $entry */
+        $entry = EmployeeScheduleShift::on($conn)->findOrFail($scheduleShift);
+
+        if ($entry->entry_type !== EmployeeScheduleShift::TYPE_SHIFT) {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => 'Only scheduled shifts can be assigned cover.',
+            ]);
+        }
+
+        if ($entry->status === null || $entry->status === '') {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => 'Mark the original shift as sick call out or no show before assigning cover.',
+            ]);
+        }
+
+        /** @var OrganizationPortalUser|null $portalUser */
+        $portalUser = $request->user('portal');
+        $createdBy = $portalUser?->name ?: $portalUser?->email;
+
+        $this->applyShiftCover(
+            $conn,
+            $entry,
+            EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE,
+            $this->coverEmployeeForAction(
+                $conn,
+                $entry,
+                EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE,
+                $data['cover_employee_public_id'],
+            ),
+            $createdBy,
+        );
+        $entry->save();
+
+        return $this->redirectBack($request, 'Shift assigned to the selected employee.');
     }
 
     public function fillFromAssignments(Request $request): RedirectResponse
@@ -439,10 +550,36 @@ class AdminWeeklyScheduleController extends Controller
             ->with(['assignedDepartment', 'assignedJobTitle', 'jobTitles', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate'])
             ->get();
 
+        $scheduleRelations = [
+            'shiftTemplate',
+            'jobTitle',
+            'department',
+            'workLocation',
+            'leaveType',
+            'leaveRecord',
+            'employee',
+            'originalEmployee',
+            'coveredFromShift',
+            'coveringShift.employee',
+        ];
+
         $scheduleEntries = EmployeeScheduleShift::on($conn)
-            ->with(['shiftTemplate', 'jobTitle', 'department', 'workLocation', 'leaveType', 'leaveRecord'])
+            ->with($scheduleRelations)
             ->whereIn('employee_id', $employees->pluck('id'))
             ->whereBetween('scheduled_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->orderBy('start_time')
+            ->orderBy('id')
+            ->get();
+
+        $unassignedEntries = EmployeeScheduleShift::on($conn)
+            ->with($scheduleRelations)
+            ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+            ->whereIn('cover_status', [
+                EmployeeScheduleShift::COVER_LEAVE_UNCOVERED,
+                EmployeeScheduleShift::COVER_UNASSIGNED,
+            ])
+            ->whereBetween('scheduled_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->orderBy('scheduled_date')
             ->orderBy('start_time')
             ->orderBy('id')
             ->get();
@@ -474,6 +611,7 @@ class AdminWeeklyScheduleController extends Controller
             'weekDays' => $schedule['days'],
             'scheduleRows' => $schedule['rows'],
             'scheduleStats' => $schedule['stats'],
+            'unassignedRows' => AdminWeeklySchedule::uncoveredSchedule($unassignedEntries, $weekStart)['rows'],
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'shiftTemplates' => ($shiftTemplates = Shift::on($conn)->where('is_active', true)->orderBy('name')->get()),
@@ -559,6 +697,8 @@ class AdminWeeklyScheduleController extends Controller
                 'every_8_weeks',
                 'weekly',
             ])],
+            'recurrence_series_id' => ['nullable', 'string', 'max:36'],
+            'recurrence_starts' => ['nullable', 'date'],
             'shift_days' => ['nullable', 'array'],
             'shift_days.*' => ['string', Rule::in(WorkforceShifts::allowedDays())],
             'recurrence_until' => ['nullable', 'date'],
@@ -609,7 +749,7 @@ class AdminWeeklyScheduleController extends Controller
 
     /**
      * @param  array<string, mixed>  $data
-     * @return \Illuminate\Support\Collection<int, Employee>
+     * @return Collection<int, Employee>
      */
     private function employeesForShiftPayload(array $data, string $conn)
     {
@@ -683,6 +823,316 @@ class AdminWeeklyScheduleController extends Controller
     }
 
     /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function withRecurrenceSeries(array $data, ?string $existingSeriesId = null, ?string $existingStarts = null): array
+    {
+        $mode = strtolower(trim((string) ($data['recurrence'] ?? 'never')));
+        if ($mode === '' || $mode === 'never') {
+            $data['recurrence_series_id'] = null;
+            $data['recurrence_starts'] = null;
+
+            return $data;
+        }
+
+        if (is_string($existingSeriesId) && $existingSeriesId !== '') {
+            $data['recurrence_series_id'] = $existingSeriesId;
+        } elseif (is_string($data['recurrence_series_id'] ?? null) && $data['recurrence_series_id'] !== '') {
+            // keep posted series id
+        } else {
+            $data['recurrence_series_id'] = (string) \Illuminate\Support\Str::uuid();
+        }
+
+        $postedStarts = is_string($data['recurrence_starts'] ?? null) ? trim((string) $data['recurrence_starts']) : '';
+        if ($postedStarts !== '') {
+            $data['recurrence_starts'] = $postedStarts;
+        } elseif (is_string($existingStarts) && $existingStarts !== '') {
+            $data['recurrence_starts'] = $existingStarts;
+        } else {
+            $data['recurrence_starts'] = $data['scheduled_date'] ?? null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Apply repeat-rule edits across the whole series: update matching rows, create missing
+     * dates, and remove series members that no longer fall in the pattern.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array{start_time: ?string, end_time: ?string, shift_id: ?int, work_location_id: ?int, job_title_id: ?int}  $previousFingerprint
+     * @return array{0: int, 1: int, 2: int} created, updated, deleted
+     */
+    private function applyRecurrenceOnUpdate(
+        string $conn,
+        EmployeeScheduleShift $entry,
+        Employee $employee,
+        array $data,
+        array $previousFingerprint,
+        ?string $previousSeriesId,
+        ?string $createdBy,
+    ): array {
+        $mode = strtolower(trim((string) ($data['recurrence'] ?? 'never')));
+        $currentDate = $entry->scheduled_date instanceof CarbonInterface
+            ? $entry->scheduled_date->toDateString()
+            : (string) $entry->scheduled_date;
+        $currentId = (int) $entry->id;
+
+        if ($mode === '' || $mode === 'never') {
+            // "Does not repeat" only affects this row; leave other series members alone.
+            return [0, 0, 0];
+        }
+
+        $seriesStart = is_string($data['recurrence_starts'] ?? null) && $data['recurrence_starts'] !== ''
+            ? $data['recurrence_starts']
+            : (string) $data['scheduled_date'];
+
+        $days = WorkforceShifts::normalizeDays($data['shift_days'] ?? null) ?? [];
+        if ($days === []) {
+            throw ValidationException::withMessages([
+                'shift_days' => 'Choose at least one day for a repeating shift.',
+            ]);
+        }
+        $data['shift_days'] = $days;
+
+        $dates = AdminWeeklySchedule::recurrenceDates(
+            $seriesStart,
+            $mode,
+            $days,
+            $data['recurrence_until'] ?? null,
+        );
+        $dateSet = array_fill_keys($dates, true);
+
+        // Always prefer the series id from before this save so we can find and clean old members.
+        $seriesId = $previousSeriesId
+            ?? (is_string($data['recurrence_series_id'] ?? null) && $data['recurrence_series_id'] !== ''
+                ? $data['recurrence_series_id']
+                : null);
+        if ($seriesId !== null) {
+            $data['recurrence_series_id'] = $seriesId;
+        }
+
+        $seriesMembersQuery = EmployeeScheduleShift::on($conn)
+            ->where('employee_id', $employee->id)
+            ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT);
+
+        if ($seriesId !== null) {
+            $seriesMembersQuery->where('recurrence_series_id', $seriesId);
+        } else {
+            $this->applyFingerprintConstraints($seriesMembersQuery, $previousFingerprint);
+        }
+
+        $seriesMembers = $seriesMembersQuery->get();
+
+        $occupiedByDate = EmployeeScheduleShift::on($conn)
+            ->where('employee_id', $employee->id)
+            ->whereIn('scheduled_date', $dates === [] ? [$currentDate] : $dates)
+            ->whereIn('entry_type', [EmployeeScheduleShift::TYPE_SHIFT, EmployeeScheduleShift::TYPE_TIME_OFF])
+            ->get()
+            ->groupBy(static function (EmployeeScheduleShift $row): string {
+                return $row->scheduled_date instanceof CarbonInterface
+                    ? $row->scheduled_date->toDateString()
+                    : (string) $row->scheduled_date;
+            });
+
+        $existingPlanInput = [];
+        foreach ($dates as $date) {
+            if ($date === $currentDate) {
+                continue;
+            }
+            /** @var \Illuminate\Support\Collection<int, EmployeeScheduleShift> $dayEntries */
+            $dayEntries = $occupiedByDate->get($date, collect());
+            $existingPlanInput[$date] = $dayEntries->map(function (EmployeeScheduleShift $row) use ($seriesId, $previousFingerprint): array {
+                $sameSeries = ($seriesId !== null
+                        && is_string($row->recurrence_series_id)
+                        && $row->recurrence_series_id === $seriesId)
+                    || $this->shiftMatchesSeriesFingerprint($row, $previousFingerprint);
+
+                return [
+                    'id' => (int) $row->id,
+                    'entry_type' => (string) $row->entry_type,
+                    'matches_series' => $row->entry_type === EmployeeScheduleShift::TYPE_SHIFT && $sameSeries,
+                ];
+            })->all();
+        }
+
+        $plan = AdminWeeklySchedule::planRecurrenceEditActions($currentDate, $dates, $existingPlanInput);
+
+        $created = 0;
+        $updated = 0;
+        $deleted = 0;
+        $now = now();
+        $insertRows = [];
+        $keptIds = [];
+
+        // Keep the edited row only when its date is still part of the repeat pattern.
+        if (isset($dateSet[$currentDate])) {
+            $keptIds[$currentId] = true;
+            // Re-save with the canonical series id / days after validation above.
+            $entry->fill($this->scheduleEntryAttributes(
+                [...$data, 'scheduled_date' => $currentDate],
+                $employee,
+            ))->save();
+        }
+
+        foreach ($plan as $step) {
+            if ($step['action'] === 'update' && $step['entry_id'] !== null) {
+                /** @var EmployeeScheduleShift|null $match */
+                $match = $occupiedByDate
+                    ->get($step['date'], collect())
+                    ->firstWhere('id', $step['entry_id']);
+
+                if (! $match instanceof EmployeeScheduleShift) {
+                    continue;
+                }
+
+                $match->fill($this->scheduleEntryAttributes(
+                    [...$data, 'scheduled_date' => $step['date']],
+                    $employee,
+                ));
+                $match->save();
+                $keptIds[(int) $match->id] = true;
+                $updated++;
+
+                continue;
+            }
+
+            if ($step['action'] !== 'create') {
+                continue;
+            }
+
+            $attributes = $this->scheduleEntryAttributes(
+                [...$data, 'scheduled_date' => $step['date']],
+                $employee,
+                $createdBy,
+            );
+            $insertRows[] = [
+                ...$this->attributesForBulkInsert($attributes),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $created++;
+        }
+
+        foreach (array_chunk($insertRows, 250) as $chunk) {
+            EmployeeScheduleShift::on($conn)->insert($chunk);
+        }
+
+        foreach ($seriesMembers as $member) {
+            $memberId = (int) $member->id;
+            if (isset($keptIds[$memberId])) {
+                continue;
+            }
+
+            $memberDate = $member->scheduled_date instanceof CarbonInterface
+                ? $member->scheduled_date->toDateString()
+                : (string) $member->scheduled_date;
+
+            // Date still belongs in the repeat pattern — keep/update instead of deleting.
+            if (isset($dateSet[$memberDate])) {
+                $member->fill($this->scheduleEntryAttributes(
+                    [...$data, 'scheduled_date' => $memberDate],
+                    $employee,
+                ))->save();
+                $keptIds[$memberId] = true;
+                $updated++;
+                continue;
+            }
+
+            $this->deletePendingLeaveRecord($conn, $member);
+            $this->detachShiftCoverOnDelete($conn, $member);
+            $member->delete();
+            $deleted++;
+        }
+
+        // Edited day was removed from the repeat pattern — delete this occurrence too.
+        if (! isset($dateSet[$currentDate]) && $entry->exists) {
+            $this->deletePendingLeaveRecord($conn, $entry);
+            $this->detachShiftCoverOnDelete($conn, $entry);
+            $entry->delete();
+            $deleted++;
+        }
+
+        return [$created, $updated, $deleted];
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\EmployeeScheduleShift>|\Illuminate\Database\Eloquent\Relations\Relation|\Illuminate\Database\Query\Builder  $query
+     * @param  array{start_time: ?string, end_time: ?string, shift_id: ?int, work_location_id: ?int, job_title_id: ?int}  $fingerprint
+     */
+    private function applyFingerprintConstraints(mixed $query, array $fingerprint): void
+    {
+        if (($fingerprint['start_time'] ?? null) !== null) {
+            $query->whereTime('start_time', $fingerprint['start_time']);
+        }
+        if (($fingerprint['end_time'] ?? null) !== null) {
+            $query->whereTime('end_time', $fingerprint['end_time']);
+        }
+        if (($fingerprint['shift_id'] ?? null) !== null) {
+            $query->where('shift_id', $fingerprint['shift_id']);
+        } else {
+            $query->whereNull('shift_id');
+        }
+        if (($fingerprint['work_location_id'] ?? null) !== null) {
+            $query->where('work_location_id', $fingerprint['work_location_id']);
+        } else {
+            $query->whereNull('work_location_id');
+        }
+        if (($fingerprint['job_title_id'] ?? null) !== null) {
+            $query->where('job_title_id', $fingerprint['job_title_id']);
+        } else {
+            $query->whereNull('job_title_id');
+        }
+    }
+
+    /**
+     * @return array{start_time: ?string, end_time: ?string, shift_id: ?int, work_location_id: ?int, job_title_id: ?int}
+     */
+    private function shiftSeriesFingerprint(EmployeeScheduleShift $entry): array
+    {
+        return [
+            'start_time' => $this->normalizeHm($entry->start_time),
+            'end_time' => $this->normalizeHm($entry->end_time),
+            'shift_id' => $entry->shift_id !== null ? (int) $entry->shift_id : null,
+            'work_location_id' => $entry->work_location_id !== null ? (int) $entry->work_location_id : null,
+            'job_title_id' => $entry->job_title_id !== null ? (int) $entry->job_title_id : null,
+        ];
+    }
+
+    /**
+     * @param  array{start_time: ?string, end_time: ?string, shift_id: ?int, work_location_id: ?int, job_title_id: ?int}  $fingerprint
+     */
+    private function shiftMatchesSeriesFingerprint(EmployeeScheduleShift $entry, array $fingerprint): bool
+    {
+        if ($this->normalizeHm($entry->start_time) !== ($fingerprint['start_time'] ?? null)
+            || $this->normalizeHm($entry->end_time) !== ($fingerprint['end_time'] ?? null)) {
+            return false;
+        }
+
+        $shiftId = $entry->shift_id !== null ? (int) $entry->shift_id : null;
+        $locationId = $entry->work_location_id !== null ? (int) $entry->work_location_id : null;
+        $jobTitleId = $entry->job_title_id !== null ? (int) $entry->job_title_id : null;
+
+        return $shiftId === ($fingerprint['shift_id'] ?? null)
+            && $locationId === ($fingerprint['work_location_id'] ?? null)
+            && $jobTitleId === ($fingerprint['job_title_id'] ?? null);
+    }
+
+    private function normalizeHm(mixed $time): ?string
+    {
+        if ($time instanceof CarbonInterface) {
+            return $time->format('H:i');
+        }
+
+        if (is_string($time) && preg_match('/^(\d{1,2}):(\d{2})/', $time, $matches) === 1) {
+            return sprintf('%02d:%02d', (int) $matches[1], (int) $matches[2]);
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<string>  $dates
      * @param  array<string, mixed>  $data
      */
@@ -728,7 +1178,7 @@ class AdminWeeklyScheduleController extends Controller
                 $createdBy,
             );
             $rows[] = [
-                ...$attributes,
+                ...$this->attributesForBulkInsert($attributes),
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -739,6 +1189,20 @@ class AdminWeeklyScheduleController extends Controller
         }
 
         return count($rows);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function attributesForBulkInsert(array $attributes): array
+    {
+        if (array_key_exists('recurrence_days', $attributes)) {
+            $days = $attributes['recurrence_days'];
+            $attributes['recurrence_days'] = is_array($days) ? json_encode(array_values($days)) : $days;
+        }
+
+        return $attributes;
     }
 
     /**
@@ -767,8 +1231,16 @@ class AdminWeeklyScheduleController extends Controller
                 'work_location_id' => null,
                 'notes' => isset($data['notes']) && trim((string) $data['notes']) !== '' ? trim((string) $data['notes']) : null,
                 'leave_type_id' => ! empty($data['leave_type_id']) ? (int) $data['leave_type_id'] : null,
+                'recurrence_series_id' => null,
+                'recurrence_mode' => null,
+                'recurrence_starts' => null,
+                'recurrence_until' => null,
+                'recurrence_days' => null,
             ];
         } else {
+            $seriesId = is_string($data['recurrence_series_id'] ?? null) && $data['recurrence_series_id'] !== ''
+                ? $data['recurrence_series_id']
+                : null;
             $attributes = [
                 ...$attributes,
                 'start_time' => $data['start_time'],
@@ -777,6 +1249,7 @@ class AdminWeeklyScheduleController extends Controller
                 'work_location_id' => $data['work_location_id'],
                 'leave_type_id' => null,
                 'notes' => isset($data['notes']) && trim((string) $data['notes']) !== '' ? trim((string) $data['notes']) : null,
+                ...AdminWeeklySchedule::recurrenceAttributesFromPayload($data, $seriesId),
             ];
         }
 
@@ -785,6 +1258,209 @@ class AdminWeeklyScheduleController extends Controller
         }
 
         return $attributes;
+    }
+
+    private function coverEmployeeForAction(
+        string $conn,
+        EmployeeScheduleShift $entry,
+        string $coverAction,
+        mixed $coverEmployeePublicId,
+    ): ?Employee {
+        if ($coverAction !== EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE) {
+            return null;
+        }
+
+        $publicId = is_string($coverEmployeePublicId) ? trim($coverEmployeePublicId) : '';
+        if ($publicId === '') {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => 'Select an employee to cover this shift.',
+            ]);
+        }
+
+        /** @var Employee|null $coverEmployee */
+        $coverEmployee = Employee::on($conn)
+            ->where('public_id', $publicId)
+            ->first();
+
+        if ($coverEmployee === null || ($coverEmployee->employment_status ?? '') !== 'active') {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => 'The selected employee could not be found.',
+            ]);
+        }
+
+        if ((int) $coverEmployee->id === (int) $entry->employee_id) {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => 'Choose a different employee to cover this shift.',
+            ]);
+        }
+
+        $scheduledDate = $entry->scheduled_date instanceof CarbonInterface
+            ? $entry->scheduled_date->toDateString()
+            : (string) $entry->scheduled_date;
+
+        $hasTimeOff = EmployeeScheduleShift::on($conn)
+            ->where('employee_id', $coverEmployee->id)
+            ->where('scheduled_date', $scheduledDate)
+            ->where('entry_type', EmployeeScheduleShift::TYPE_TIME_OFF)
+            ->exists();
+
+        if ($hasTimeOff) {
+            throw ValidationException::withMessages([
+                'cover_employee_public_id' => AdminWeeklySchedule::employeeDisplayName($coverEmployee).' already has a day off on this date.',
+            ]);
+        }
+
+        return $coverEmployee;
+    }
+
+    private function applyShiftCover(
+        string $conn,
+        EmployeeScheduleShift $entry,
+        string $coverAction,
+        ?Employee $coverEmployee,
+        ?string $createdBy,
+    ): void {
+        if ($coverAction === EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE) {
+            if ($coverEmployee === null) {
+                throw ValidationException::withMessages([
+                    'cover_employee_public_id' => 'Select an employee to cover this shift.',
+                ]);
+            }
+
+            $covering = $this->syncCoveringShift($conn, $entry, $coverEmployee, $createdBy);
+            $entry->cover_status = EmployeeScheduleShift::COVER_ASSIGNED;
+            $entry->covering_shift_id = $covering->id;
+
+            return;
+        }
+
+        $this->deleteCoveringShift($conn, $entry);
+        $entry->covering_shift_id = null;
+        $entry->cover_status = $coverAction === EmployeeScheduleShift::COVER_UNASSIGNED
+            ? EmployeeScheduleShift::COVER_UNASSIGNED
+            : EmployeeScheduleShift::COVER_LEAVE_UNCOVERED;
+    }
+
+    private function syncCoveringShift(
+        string $conn,
+        EmployeeScheduleShift $entry,
+        Employee $coverEmployee,
+        ?string $createdBy,
+    ): EmployeeScheduleShift {
+        $scheduledDate = $entry->scheduled_date instanceof CarbonInterface
+            ? $entry->scheduled_date->toDateString()
+            : (string) $entry->scheduled_date;
+
+        $attributes = [
+            'employee_id' => $coverEmployee->id,
+            'scheduled_date' => $scheduledDate,
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => $this->scheduleTimeHm($entry->start_time),
+            'end_time' => $this->scheduleTimeHm($entry->end_time),
+            'shift_id' => $entry->shift_id,
+            'job_title_id' => $entry->job_title_id,
+            'department_id' => $entry->department_id ?? $coverEmployee->department_id,
+            'work_location_id' => $entry->work_location_id,
+            'notes' => null,
+            'status' => null,
+            'cover_status' => null,
+            'original_employee_id' => $entry->employee_id,
+            'covered_from_shift_id' => $entry->id,
+            'covering_shift_id' => null,
+            'leave_type_id' => null,
+            'leave_record_id' => null,
+        ];
+
+        if ($createdBy !== null) {
+            $attributes['created_by'] = $createdBy;
+        }
+
+        $covering = null;
+        if ($entry->covering_shift_id) {
+            $covering = EmployeeScheduleShift::on($conn)->find($entry->covering_shift_id);
+        }
+
+        if ($covering === null) {
+            $covering = EmployeeScheduleShift::on($conn)
+                ->where('covered_from_shift_id', $entry->id)
+                ->first();
+        }
+
+        if ($covering !== null) {
+            $covering->fill($attributes)->save();
+
+            return $covering;
+        }
+
+        /** @var EmployeeScheduleShift $covering */
+        $covering = EmployeeScheduleShift::on($conn)->create($attributes);
+
+        return $covering;
+    }
+
+    private function clearShiftCover(string $conn, EmployeeScheduleShift $entry): void
+    {
+        $this->deleteCoveringShift($conn, $entry);
+        $entry->cover_status = null;
+        $entry->covering_shift_id = null;
+    }
+
+    private function deleteCoveringShift(string $conn, EmployeeScheduleShift $entry): void
+    {
+        $covering = null;
+        if ($entry->covering_shift_id) {
+            $covering = EmployeeScheduleShift::on($conn)->find($entry->covering_shift_id);
+        }
+
+        if ($covering === null) {
+            $covering = EmployeeScheduleShift::on($conn)
+                ->where('covered_from_shift_id', $entry->id)
+                ->first();
+        }
+
+        if ($covering !== null) {
+            $covering->delete();
+        }
+
+        $entry->covering_shift_id = null;
+    }
+
+    private function detachShiftCoverOnDelete(string $conn, EmployeeScheduleShift $entry): void
+    {
+        if ($entry->covering_shift_id) {
+            /** @var EmployeeScheduleShift|null $covering */
+            $covering = EmployeeScheduleShift::on($conn)->find($entry->covering_shift_id);
+            if ($covering !== null) {
+                $covering->original_employee_id = null;
+                $covering->covered_from_shift_id = null;
+                $covering->save();
+            }
+        }
+
+        if ($entry->covered_from_shift_id) {
+            /** @var EmployeeScheduleShift|null $original */
+            $original = EmployeeScheduleShift::on($conn)->find($entry->covered_from_shift_id);
+            if ($original !== null) {
+                $original->covering_shift_id = null;
+                if ($original->cover_status === EmployeeScheduleShift::COVER_ASSIGNED) {
+                    $original->cover_status = EmployeeScheduleShift::COVER_LEAVE_UNCOVERED;
+                }
+                $original->save();
+            }
+        }
+    }
+
+    private function scheduleTimeHm(mixed $time): ?string
+    {
+        if ($time instanceof CarbonInterface) {
+            return $time->format('H:i');
+        }
+
+        if (is_string($time) && preg_match('/^(\d{1,2}:\d{2})/', $time, $matches) === 1) {
+            return strlen($matches[1]) === 4 ? '0'.$matches[1] : $matches[1];
+        }
+
+        return null;
     }
 
     /**
@@ -1032,7 +1708,7 @@ class AdminWeeklyScheduleController extends Controller
         $start = $entry->start_time;
         $end = $entry->end_time;
 
-        if (! $start instanceof \Carbon\CarbonInterface || ! $end instanceof \Carbon\CarbonInterface) {
+        if (! $start instanceof CarbonInterface || ! $end instanceof CarbonInterface) {
             return 0.0;
         }
 

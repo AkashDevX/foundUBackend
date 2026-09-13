@@ -107,7 +107,8 @@ final class AdminPayroll
         $requireApproved = (bool) config('payroll.require_approved_timesheets', true);
 
         $approvalKeys = $timesheetApprovals
-            ->where('status', TimesheetApproval::STATUS_APPROVED)
+            ->filter(static fn (TimesheetApproval $a): bool => $a->status === TimesheetApproval::STATUS_APPROVED
+                && (int) ($a->getAttributes()['clock_in_entry_id'] ?? $a->clock_in_entry_id ?? 0) > 0)
             ->keyBy(static fn (TimesheetApproval $a) => AdminTimesheetApproval::approvalSessionLookupKeyFor($a));
 
         $results = [];
@@ -118,12 +119,8 @@ final class AdminPayroll
             }
 
             $scheduleShifts = $employee->scheduleShifts ?? collect();
-            $usesTitleWages = PayrollEmployeeRates::employeeUsesTitleWages($employee, $scheduleShifts);
-
-            // Job-title wages come from the clocked/scheduled title, not employment type or award level.
-            if (! $usesTitleWages
-                && (! in_array($employee->employment_type, PayrollRateTypes::employmentTypes(), true)
-                    || ! in_array($employee->award_level, PayrollRateTypes::awardLevels(), true))) {
+            $wageSkip = self::missingWageSkipReason($employee, $scheduleShifts);
+            if ($wageSkip !== null) {
                 $results[] = [
                     'employee' => $employee,
                     'total_hours' => 0,
@@ -131,7 +128,7 @@ final class AdminPayroll
                     'lines' => [],
                     'sick_leave_accrued' => 0,
                     'annual_leave_accrued' => 0,
-                    'skipped_reason' => 'No job title wage — set an hourly wage on the job title for this shift',
+                    'skipped_reason' => $wageSkip,
                 ];
 
                 continue;
@@ -147,22 +144,19 @@ final class AdminPayroll
                 ->filter(static fn (TimeClockEntry $entry): bool => $entry->clocked_at !== null)
                 ->values();
 
-            $entries = $loadedEntries
-                ->filter(static function (TimeClockEntry $entry) use ($requireApproved, $approvalKeys, $employee, $loadedEntries): bool {
-                    if (! $requireApproved) {
-                        return true;
-                    }
-
-                    $clockInId = AdminTimesheetApproval::resolveSessionClockInId($loadedEntries, $entry);
-                    if ($clockInId === null) {
-                        return false;
-                    }
-
-                    $key = AdminTimesheetApproval::approvalSessionLookupKey((int) $employee->id, $clockInId);
-
-                    return $approvalKeys->has($key);
-                })
-                ->values();
+            $allSessions = PayrollCalculator::extractSessions(
+                $loadedEntries,
+                $rangeStart,
+                $rangeEnd,
+                $tz,
+            );
+            $entries = self::clockEntriesForApprovedSessions(
+                $loadedEntries,
+                $allSessions,
+                $approvalKeys,
+                (int) $employee->id,
+                $requireApproved,
+            );
 
             $leaveLines = PayrollLeaveProcessor::buildPayLines(
                 $employee,
@@ -182,6 +176,7 @@ final class AdminPayroll
             if ($overlappingSessions === [] && $leaveLines === []) {
                 $skippedReason = self::fortnightSkipReason(
                     $loadedEntries,
+                    $allSessions,
                     $requireApproved,
                     $approvalKeys,
                     (int) $employee->id,
@@ -333,7 +328,7 @@ final class AdminPayroll
 
         $requireApproved = (bool) config('payroll.require_approved_timesheets', true);
         $hint = $requireApproved
-            ? 'Each calendar week (Mon–Sun) in the fortnight must be approved separately under Time clock → Timesheet approval.'
+            ? 'Approve each worked shift under Time clock records. Payroll only includes HR-approved clock time.'
             : 'Set PAYROLL_REQUIRE_APPROVED_TIMESHEETS=false in .env to include unapproved clock time (not recommended for production).';
 
         return implode('; ', $parts).'. '.$hint;
@@ -362,11 +357,132 @@ final class AdminPayroll
     }
 
     /**
+     * @param  \Illuminate\Support\Collection<int, \App\Models\EmployeeScheduleShift>  $scheduleShifts
+     */
+    public static function missingWageSkipReason(Employee $employee, Collection $scheduleShifts): ?string
+    {
+        if (PayrollEmployeeRates::employeeUsesTitleWages($employee, $scheduleShifts)) {
+            return null;
+        }
+
+        if (self::employeeHasAwardBand($employee)) {
+            return null;
+        }
+
+        return 'No job title wage — set an hourly wage on the job title for this shift';
+    }
+
+    /**
+     * Pair complete clock sessions first, then keep punches that belong to HR-approved
+     * sessions. Filtering punches before pairing drops clock-outs and blocks payrun.
+     *
+     * @param  Collection<int, TimeClockEntry>  $loadedEntries
+     * @param  list<array<string, mixed>>  $sessions
+     * @param  Collection<string, TimesheetApproval>  $approvalKeys
+     * @return Collection<int, TimeClockEntry>
+     */
+    public static function clockEntriesForApprovedSessions(
+        Collection $loadedEntries,
+        array $sessions,
+        Collection $approvalKeys,
+        int $employeeId,
+        bool $requireApproved,
+    ): Collection {
+        if ($loadedEntries->isEmpty()) {
+            return $loadedEntries;
+        }
+
+        $approvedSessions = [];
+        foreach ($sessions as $session) {
+            if ($requireApproved && ! self::sessionIsApproved($session, $approvalKeys, $employeeId)) {
+                continue;
+            }
+            $approvedSessions[] = $session;
+        }
+
+        if ($approvedSessions === []) {
+            return collect();
+        }
+
+        return $loadedEntries
+            ->filter(static function (TimeClockEntry $entry) use ($approvedSessions): bool {
+                if ($entry->clocked_at === null) {
+                    return false;
+                }
+
+                $ts = $entry->clocked_at->getTimestamp();
+                foreach ($approvedSessions as $session) {
+                    $start = $session['original_in'] ?? $session['clock_in'] ?? null;
+                    $end = $session['original_out'] ?? $session['clock_out'] ?? null;
+                    if (! $start instanceof \Carbon\CarbonInterface || ! $end instanceof \Carbon\CarbonInterface) {
+                        continue;
+                    }
+                    if ($ts >= $start->getTimestamp() && $ts <= $end->getTimestamp()) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })
+            ->values();
+    }
+
+    /**
+     * @param  array<string, mixed>  $session
+     * @param  Collection<string, TimesheetApproval>  $approvalKeys
+     */
+    public static function sessionIsApproved(array $session, Collection $approvalKeys, int $employeeId): bool
+    {
+        $clockInId = (int) ($session['clock_in_entry_id'] ?? 0);
+        if ($clockInId <= 0) {
+            return false;
+        }
+
+        return $approvalKeys->has(AdminTimesheetApproval::approvalSessionLookupKey($employeeId, $clockInId));
+    }
+
+    private static function employeeHasAwardBand(Employee $employee): bool
+    {
+        if (in_array($employee->employment_type, PayrollRateTypes::employmentTypes(), true)
+            && in_array($employee->award_level, PayrollRateTypes::awardLevels(), true)) {
+            return true;
+        }
+
+        $titles = collect();
+        if ($employee->relationLoaded('assignedJobTitle') && $employee->assignedJobTitle !== null) {
+            $titles->push($employee->assignedJobTitle);
+        } elseif ($employee->exists) {
+            $employee->loadMissing('assignedJobTitle');
+            if ($employee->assignedJobTitle !== null) {
+                $titles->push($employee->assignedJobTitle);
+            }
+        }
+
+        if ($employee->relationLoaded('jobTitles')) {
+            $titles = $titles->concat($employee->jobTitles);
+        }
+
+        foreach ($titles as $title) {
+            if (! $title instanceof \App\Models\JobTitle) {
+                continue;
+            }
+            if (in_array($title->employment_type, PayrollRateTypes::employmentTypes(), true)
+                && in_array($title->award_level, PayrollRateTypes::awardLevels(), true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  Collection<int, TimeClockEntry>  $entriesInFortnight
+     * @param  list<array<string, mixed>>  $sessions
      * @param  Collection<string, TimesheetApproval>  $approvalKeys
      */
     private static function fortnightSkipReason(
         Collection $entriesInFortnight,
+        array $sessions,
         bool $requireApproved,
         Collection $approvalKeys,
         int $employeeId,
@@ -377,32 +493,31 @@ final class AdminPayroll
             return 'No clock punches in this fortnight — check the selected pay period matches when employees worked';
         }
 
+        if ($sessions === []) {
+            return 'Clock punches could not be paired into completed sessions';
+        }
+
         if (! $requireApproved) {
             return 'No clock time in fortnight';
         }
 
         $unapprovedSessions = [];
-        $summaryByDay = AdminTimesheetApproval::groupEntriesByDay($entriesInFortnight);
+        foreach ($sessions as $session) {
+            if (self::sessionIsApproved($session, $approvalKeys, $employeeId)) {
+                continue;
+            }
 
-        foreach ($summaryByDay as $workDate => $dayEntries) {
+            $at = $session['original_in'] ?? $session['clock_in'] ?? null;
+            if (! $at instanceof \Carbon\CarbonInterface) {
+                continue;
+            }
+
+            $workDate = $at->copy()->timezone(DisplayTimezone::name())->toDateString();
             if ($workDate < $fortnightStart || $workDate > $fortnightEnd) {
                 continue;
             }
 
-            $sessionSummary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
-            foreach ($sessionSummary['hours_by_entry_id'] as $session) {
-                $clockInId = (int) ($session['clock_in_id'] ?? 0);
-                if ($clockInId <= 0) {
-                    continue;
-                }
-
-                $key = AdminTimesheetApproval::approvalSessionLookupKey($employeeId, $clockInId);
-                if (! $approvalKeys->has($key)) {
-                    $unapprovedSessions[] = AdminTimesheetApproval::formatDayLabel(
-                        Carbon::parse($workDate, DisplayTimezone::name())
-                    );
-                }
-            }
+            $unapprovedSessions[] = AdminTimesheetApproval::formatDayLabel($at);
         }
 
         if ($unapprovedSessions !== []) {

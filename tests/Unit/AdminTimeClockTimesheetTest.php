@@ -359,7 +359,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         $this->assertSame('2026-06-30', $result['groups'][0]['rows'][0]['work_date']);
     }
 
-    public function test_build_groups_reuses_day_session_for_additional_schedule_rows(): void
+    public function test_build_groups_binds_day_session_to_closest_schedule_row_only(): void
     {
         config(['app.display_timezone' => 'UTC']);
         $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
@@ -413,9 +413,68 @@ class AdminTimeClockTimesheetTest extends TestCase
         );
 
         $this->assertCount(1, $result['groups']);
-        $this->assertCount(2, $result['groups'][0]['rows']);
+        $this->assertCount(1, $result['groups'][0]['rows']);
+        $this->assertSame('9:00 AM', $result['groups'][0]['rows'][0]['scheduled_start']);
         $this->assertSame('55', $result['groups'][0]['rows'][0]['clock_in_distance_meters']);
-        $this->assertSame('55', $result['groups'][0]['rows'][1]['clock_in_distance_meters']);
+    }
+
+    public function test_build_groups_binds_afternoon_session_to_afternoon_schedule_row(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-2',
+            'full_legal_name' => 'Sam Worker',
+            'email' => 'sam@example.com',
+            'employment_type' => 'full_time',
+        ]);
+        $employee->id = 2;
+
+        $clockIn = new TimeClockEntry([
+            'employee_id' => 2,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-30 13:05:00', 'UTC'),
+            'distance_from_site_meters' => 40,
+        ]);
+        $clockOut = new TimeClockEntry([
+            'employee_id' => 2,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-30 17:00:00', 'UTC'),
+            'distance_from_site_meters' => 45,
+        ]);
+        $employee->setRelation('timeClockEntries', new Collection([$clockIn, $clockOut]));
+
+        $morningShift = new EmployeeScheduleShift([
+            'employee_id' => 2,
+            'scheduled_date' => '2026-06-30',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '09:00',
+            'end_time' => '12:00',
+        ]);
+        $morningShift->id = 20;
+
+        $afternoonShift = new EmployeeScheduleShift([
+            'employee_id' => 2,
+            'scheduled_date' => '2026-06-30',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '13:00',
+            'end_time' => '17:00',
+        ]);
+        $afternoonShift->id = 21;
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection([$morningShift, $afternoonShift]),
+            new Collection(),
+            null
+        );
+
+        $this->assertCount(1, $result['groups']);
+        $this->assertCount(1, $result['groups'][0]['rows']);
+        $this->assertSame('1:00 PM', $result['groups'][0]['rows'][0]['scheduled_start']);
+        $this->assertSame('40', $result['groups'][0]['rows'][0]['clock_in_distance_meters']);
     }
 
     public function test_build_groups_resolves_status_per_session_on_same_day(): void

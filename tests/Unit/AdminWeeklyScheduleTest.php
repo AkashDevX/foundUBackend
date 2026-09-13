@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeAssignmentShift;
 use App\Models\EmployeeScheduleShift;
 use App\Models\Shift;
 use App\Models\WorkLocation;
@@ -35,7 +36,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('workLocation', $location);
         $employee->setRelation('assignedJobTitle', null);
         $employee->setRelation('assignedShift', null);
-        $employee->setRelation('assignmentShifts', new Collection());
+        $employee->setRelation('assignmentShifts', new Collection);
 
         $entry = new EmployeeScheduleShift([
             'employee_id' => 10,
@@ -92,7 +93,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
         $employee->setRelation('assignedShift', null);
-        $employee->setRelation('assignmentShifts', new Collection());
+        $employee->setRelation('assignmentShifts', new Collection);
 
         $entry = new EmployeeScheduleShift([
             'employee_id' => 11,
@@ -121,7 +122,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertSame('Annual leave', $block['subtitle']);
     }
 
-    public function test_build_schedule_day_off_hides_shifts_and_suggestions_for_that_day(): void
+    public function test_build_schedule_day_off_hides_shifts_for_that_day(): void
     {
         $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
 
@@ -141,7 +142,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('assignedDepartment', null);
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
-        $employee->setRelation('assignmentShifts', new Collection());
+        $employee->setRelation('assignmentShifts', new Collection);
 
         $shiftEntry = new EmployeeScheduleShift([
             'employee_id' => 12,
@@ -181,7 +182,7 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertSame(0, $schedule['stats']['shifts']);
     }
 
-    public function test_build_schedule_shows_assignment_suggestion_when_day_empty(): void
+    public function test_build_schedule_leaves_empty_days_blank_without_assignment_suggestions(): void
     {
         $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
 
@@ -201,23 +202,22 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('assignedDepartment', null);
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
-        $employee->setRelation('assignmentShifts', new Collection());
+        $employee->setRelation('assignmentShifts', new Collection);
 
         $schedule = AdminWeeklySchedule::buildSchedule(
             new Collection([$employee]),
             $weekStart,
-            new Collection()
+            new Collection
         );
 
         $mondayCell = $schedule['rows'][0]['cells']['mon'];
-        $mondayBlock = $mondayCell['blocks'][0];
         $this->assertFalse($mondayCell['is_day_off']);
-        $this->assertTrue($mondayBlock['is_suggestion']);
-        $this->assertSame('suggestion', $mondayBlock['type']);
+        $this->assertSame([], $mondayCell['blocks']);
         $this->assertSame(0, $schedule['stats']['shifts']);
+        $this->assertSame([], $schedule['rows'][0]['cells']['sat']['blocks']);
     }
 
-    public function test_build_schedule_shows_multiple_assignment_shift_suggestions_when_day_empty(): void
+    public function test_build_schedule_does_not_show_multiple_assignment_shifts_on_empty_days(): void
     {
         $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
 
@@ -247,14 +247,14 @@ class AdminWeeklyScheduleTest extends TestCase
         $employee->setRelation('workLocation', null);
         $employee->setRelation('assignedJobTitle', null);
         $employee->setRelation('assignmentShifts', new Collection([
-            tap(new \App\Models\EmployeeAssignmentShift([
+            tap(new EmployeeAssignmentShift([
                 'shift_id' => 1,
                 'unpaid_break_minutes' => 30,
                 'sort_order' => 0,
             ]), static function ($row) use ($morning): void {
                 $row->setRelation('shiftTemplate', $morning);
             }),
-            tap(new \App\Models\EmployeeAssignmentShift([
+            tap(new EmployeeAssignmentShift([
                 'shift_id' => 2,
                 'unpaid_break_minutes' => 0,
                 'sort_order' => 1,
@@ -263,19 +263,32 @@ class AdminWeeklyScheduleTest extends TestCase
             }),
         ]));
 
+        $savedShift = new EmployeeScheduleShift([
+            'employee_id' => 12,
+            'scheduled_date' => '2026-06-16',
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '09:00',
+            'end_time' => '13:00',
+            'job_title_id' => null,
+        ]);
+        $savedShift->id = 88;
+        $savedShift->setRelation('shiftTemplate', $morning);
+        $savedShift->setRelation('jobTitle', null);
+        $savedShift->setRelation('department', null);
+        $savedShift->setRelation('workLocation', null);
+        $savedShift->setRelation('leaveType', null);
+
         $schedule = AdminWeeklySchedule::buildSchedule(
             new Collection([$employee]),
             $weekStart,
-            new Collection()
+            new Collection([$savedShift])
         );
 
         $mondayBlocks = $schedule['rows'][0]['cells']['mon']['blocks'];
-        $this->assertCount(2, $mondayBlocks);
-        $this->assertTrue($mondayBlocks[0]['is_suggestion']);
-        $this->assertTrue($mondayBlocks[1]['is_suggestion']);
-        $this->assertSame('', $mondayBlocks[0]['subtitle']);
-        $this->assertSame('', $mondayBlocks[1]['subtitle']);
-        $this->assertStringContainsString('30m unpaid break', $mondayBlocks[0]['meta']);
+        $this->assertSame([], $mondayBlocks);
+        $this->assertCount(1, $schedule['rows'][0]['cells']['tue']['blocks']);
+        $this->assertFalse($schedule['rows'][0]['cells']['tue']['blocks'][0]['is_suggestion']);
+        $this->assertSame(1, $schedule['stats']['shifts']);
     }
 
     public function test_recurrence_dates_never_returns_the_start_date_only(): void
@@ -360,5 +373,285 @@ class AdminWeeklyScheduleTest extends TestCase
 
         $this->assertSame(Carbon::MONDAY, $weekStart->dayOfWeek);
         $this->assertSame('2026-06-15', $weekStart->toDateString());
+    }
+
+    public function test_cover_action_options_are_the_three_cover_choices(): void
+    {
+        $this->assertSame([
+            EmployeeScheduleShift::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
+            EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE => 'Assign to an employee',
+            EmployeeScheduleShift::COVER_UNASSIGNED => 'Make unassigned',
+        ], EmployeeScheduleShift::coverActionOptions());
+    }
+
+    public function test_uncovered_shift_cards_include_leave_uncovered_and_unassigned_only(): void
+    {
+        $employee = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
+        $coverEmployee = $this->scheduleTestEmployee(11, 'emp-11', 'Sam Lee');
+
+        $uncovered = $this->scheduleTestShift(50, 10, '2026-06-16', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_LEAVE_UNCOVERED,
+            'notes' => 'Called in at 7am',
+        ]);
+        $uncovered->setRelation('employee', $employee);
+
+        $unassigned = $this->scheduleTestShift(51, 10, '2026-06-17', [
+            'status' => EmployeeScheduleShift::STATUS_NO_SHOW,
+            'cover_status' => EmployeeScheduleShift::COVER_UNASSIGNED,
+        ]);
+        $unassigned->setRelation('employee', $employee);
+
+        $assigned = $this->scheduleTestShift(52, 10, '2026-06-18', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_ASSIGNED,
+            'covering_shift_id' => 99,
+        ]);
+        $assigned->setRelation('employee', $employee);
+        $assigned->setRelation('coveringShift', tap($this->scheduleTestShift(99, 11, '2026-06-18', [
+            'original_employee_id' => 10,
+            'covered_from_shift_id' => 52,
+        ]), static function (EmployeeScheduleShift $cover) use ($coverEmployee): void {
+            $cover->setRelation('employee', $coverEmployee);
+        }));
+
+        $cards = AdminWeeklySchedule::uncoveredShiftCards(new Collection([$uncovered, $unassigned, $assigned]));
+
+        $this->assertCount(2, $cards);
+        $this->assertSame(50, $cards[0]['id']);
+        $this->assertSame('Aimee Fromm', $cards[0]['employee_name']);
+        $this->assertSame('Sick call out', $cards[0]['status_label']);
+        $this->assertSame('Leave uncovered', $cards[0]['cover_status_label']);
+        $this->assertSame('Called in at 7am', $cards[0]['notes']);
+        $this->assertSame(51, $cards[1]['id']);
+        $this->assertSame('No show', $cards[1]['status_label']);
+        $this->assertSame('Unassigned', $cards[1]['cover_status_label']);
+    }
+
+    public function test_uncovered_schedule_places_shifts_on_the_weekly_calendar(): void
+    {
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $employee = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
+
+        $uncovered = $this->scheduleTestShift(50, 10, '2026-06-16', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_LEAVE_UNCOVERED,
+        ]);
+        $uncovered->setRelation('employee', $employee);
+
+        $unassigned = $this->scheduleTestShift(51, 10, '2026-06-17', [
+            'status' => EmployeeScheduleShift::STATUS_NO_SHOW,
+            'cover_status' => EmployeeScheduleShift::COVER_UNASSIGNED,
+        ]);
+        $unassigned->setRelation('employee', $employee);
+
+        $assigned = $this->scheduleTestShift(52, 10, '2026-06-18', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_ASSIGNED,
+        ]);
+        $assigned->setRelation('employee', $employee);
+
+        $schedule = AdminWeeklySchedule::uncoveredSchedule(
+            new Collection([$uncovered, $unassigned, $assigned]),
+            $weekStart
+        );
+
+        $this->assertCount(1, $schedule['rows']);
+        $this->assertSame(2, $schedule['stats']['shifts']);
+        $this->assertSame('Aimee Fromm', $schedule['rows'][0]['name']);
+        $this->assertSame(50, $schedule['rows'][0]['cells']['tue']['blocks'][0]['id']);
+        $this->assertSame('Leave uncovered', $schedule['rows'][0]['cells']['tue']['blocks'][0]['cover_status_label']);
+        $this->assertSame(51, $schedule['rows'][0]['cells']['wed']['blocks'][0]['id']);
+        $this->assertSame('Unassigned', $schedule['rows'][0]['cells']['wed']['blocks'][0]['cover_status_label']);
+        $this->assertSame([], $schedule['rows'][0]['cells']['thu']['blocks']);
+    }
+
+    public function test_build_schedule_shows_original_employee_on_covering_shift(): void
+    {
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $original = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
+        $coverEmployee = $this->scheduleTestEmployee(11, 'emp-11', 'Sam Lee');
+
+        $originalShift = $this->scheduleTestShift(50, 10, '2026-06-16', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_ASSIGNED,
+            'covering_shift_id' => 51,
+        ]);
+        $originalShift->setRelation('coveringShift', tap($this->scheduleTestShift(51, 11, '2026-06-16', [
+            'original_employee_id' => 10,
+            'covered_from_shift_id' => 50,
+        ]), static function (EmployeeScheduleShift $cover) use ($coverEmployee): void {
+            $cover->setRelation('employee', $coverEmployee);
+        }));
+
+        $coveringShift = $this->scheduleTestShift(51, 11, '2026-06-16', [
+            'original_employee_id' => 10,
+            'covered_from_shift_id' => 50,
+        ]);
+        $coveringShift->setRelation('originalEmployee', $original);
+        $coveringShift->setRelation('coveredFromShift', $originalShift);
+
+        $schedule = AdminWeeklySchedule::buildSchedule(
+            new Collection([$original, $coverEmployee]),
+            $weekStart,
+            new Collection([$originalShift, $coveringShift])
+        );
+
+        $originalBlock = $schedule['rows'][0]['cells']['tue']['blocks'][0];
+        $this->assertSame('sick_call_out', $originalBlock['status']);
+        $this->assertSame('Covered', $originalBlock['cover_status_label']);
+        $this->assertSame('Sam Lee', $originalBlock['covering_employee_name']);
+
+        $coverBlock = $schedule['rows'][1]['cells']['tue']['blocks'][0];
+        $this->assertTrue($coverBlock['is_cover_shift']);
+        $this->assertSame('Aimee Fromm', $coverBlock['original_employee_name']);
+        $this->assertSame('Sick call out', $coverBlock['original_status_label']);
+    }
+
+    public function test_format_recurrence_label_and_payload_attributes(): void
+    {
+        $this->assertSame('This date only', AdminWeeklySchedule::formatRecurrenceLabel('never'));
+        $this->assertSame(
+            'Every week · Tue · until 7 Jul 2026',
+            AdminWeeklySchedule::formatRecurrenceLabel('every_week', ['tue'], '2026-07-07')
+        );
+
+        $attrs = AdminWeeklySchedule::recurrenceAttributesFromPayload([
+            'recurrence' => 'every_2_weeks',
+            'scheduled_date' => '2026-06-16',
+            'recurrence_until' => '2026-08-01',
+            'shift_days' => ['tue', 'thu'],
+        ], 'series-1');
+
+        $this->assertSame('series-1', $attrs['recurrence_series_id']);
+        $this->assertSame('every_2_weeks', $attrs['recurrence_mode']);
+        $this->assertSame('2026-06-16', $attrs['recurrence_starts']);
+        $this->assertSame('2026-08-01', $attrs['recurrence_until']);
+        $this->assertSame(['tue', 'thu'], $attrs['recurrence_days']);
+
+        $cleared = AdminWeeklySchedule::recurrenceAttributesFromPayload([
+            'recurrence' => 'never',
+            'scheduled_date' => '2026-06-16',
+        ], 'series-1');
+        $this->assertNull($cleared['recurrence_series_id']);
+        $this->assertNull($cleared['recurrence_mode']);
+    }
+
+    public function test_plan_recurrence_edit_creates_updates_and_skips_correctly(): void
+    {
+        $dates = AdminWeeklySchedule::recurrenceDates('2026-06-16', 'every_week', ['tue'], '2026-07-07');
+        $this->assertSame(
+            ['2026-06-16', '2026-06-23', '2026-06-30', '2026-07-07'],
+            $dates
+        );
+
+        $plan = AdminWeeklySchedule::planRecurrenceEditActions('2026-06-16', $dates, [
+            '2026-06-23' => [
+                ['id' => 10, 'entry_type' => EmployeeScheduleShift::TYPE_SHIFT, 'matches_series' => true],
+            ],
+            '2026-06-30' => [
+                ['id' => 11, 'entry_type' => EmployeeScheduleShift::TYPE_TIME_OFF, 'matches_series' => false],
+            ],
+            '2026-07-07' => [
+                ['id' => 12, 'entry_type' => EmployeeScheduleShift::TYPE_SHIFT, 'matches_series' => false],
+            ],
+        ]);
+
+        $this->assertSame([
+            ['date' => '2026-06-23', 'action' => 'update', 'entry_id' => 10],
+            ['date' => '2026-06-30', 'action' => 'skip', 'entry_id' => null],
+            ['date' => '2026-07-07', 'action' => 'skip', 'entry_id' => null],
+        ], $plan);
+
+        $createPlan = AdminWeeklySchedule::planRecurrenceEditActions('2026-06-16', $dates, []);
+        $this->assertSame([
+            ['date' => '2026-06-23', 'action' => 'create', 'entry_id' => null],
+            ['date' => '2026-06-30', 'action' => 'create', 'entry_id' => null],
+            ['date' => '2026-07-07', 'action' => 'create', 'entry_id' => null],
+        ], $createPlan);
+    }
+
+    public function test_plan_recurrence_edit_from_series_start_covers_earlier_dates(): void
+    {
+        $dates = AdminWeeklySchedule::recurrenceDates('2026-09-10', 'every_week', ['thu', 'fri', 'sun', 'tue', 'wed'], '2026-09-17');
+        $this->assertSame(
+            ['2026-09-10', '2026-09-11', '2026-09-13', '2026-09-15', '2026-09-16', '2026-09-17'],
+            $dates
+        );
+
+        $plan = AdminWeeklySchedule::planRecurrenceEditActions('2026-09-15', $dates, [
+            '2026-09-10' => [
+                ['id' => 1, 'entry_type' => EmployeeScheduleShift::TYPE_SHIFT, 'matches_series' => true],
+            ],
+            '2026-09-11' => [
+                ['id' => 2, 'entry_type' => EmployeeScheduleShift::TYPE_SHIFT, 'matches_series' => true],
+            ],
+        ]);
+
+        $byDate = collect($plan)->keyBy('date');
+        $this->assertSame('update', $byDate['2026-09-10']['action']);
+        $this->assertSame('update', $byDate['2026-09-11']['action']);
+        $this->assertSame('create', $byDate['2026-09-13']['action']);
+        $this->assertSame('create', $byDate['2026-09-16']['action']);
+        $this->assertArrayNotHasKey('2026-09-15', $byDate->all());
+    }
+
+    public function test_series_dates_to_remove_drops_unchecked_weekdays(): void
+    {
+        $existing = ['2026-09-10', '2026-09-11', '2026-09-13', '2026-09-15', '2026-09-16'];
+        $newDates = AdminWeeklySchedule::recurrenceDates(
+            '2026-09-10',
+            'every_week',
+            ['thu'],
+            '2026-09-17'
+        );
+
+        $this->assertSame(['2026-09-10', '2026-09-17'], $newDates);
+        $this->assertSame(
+            ['2026-09-11', '2026-09-13', '2026-09-15', '2026-09-16'],
+            AdminWeeklySchedule::seriesDatesToRemove($existing, $newDates)
+        );
+        $this->assertContains('2026-09-15', AdminWeeklySchedule::seriesDatesToRemove($existing, $newDates));
+    }
+
+    private function scheduleTestEmployee(int $id, string $publicId, string $name): Employee
+    {
+        $employee = new Employee([
+            'public_id' => $publicId,
+            'full_legal_name' => $name,
+            'email' => strtolower(str_replace(' ', '.', $name)).'@example.com',
+        ]);
+        $employee->id = $id;
+        $employee->setRelation('assignedDepartment', null);
+        $employee->setRelation('workLocation', null);
+        $employee->setRelation('assignedJobTitle', null);
+        $employee->setRelation('assignedShift', null);
+        $employee->setRelation('assignmentShifts', new Collection);
+
+        return $employee;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function scheduleTestShift(int $id, int $employeeId, string $date, array $attributes = []): EmployeeScheduleShift
+    {
+        $entry = new EmployeeScheduleShift([
+            'employee_id' => $employeeId,
+            'scheduled_date' => $date,
+            'entry_type' => EmployeeScheduleShift::TYPE_SHIFT,
+            'start_time' => '09:00',
+            'end_time' => '17:00',
+            ...$attributes,
+        ]);
+        $entry->id = $id;
+        $entry->setRelation('shiftTemplate', null);
+        $entry->setRelation('jobTitle', null);
+        $entry->setRelation('department', null);
+        $entry->setRelation('workLocation', null);
+        $entry->setRelation('leaveType', null);
+        $entry->setRelation('leaveRecord', null);
+
+        return $entry;
     }
 }

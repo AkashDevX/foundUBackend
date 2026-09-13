@@ -181,6 +181,14 @@
                         <dt class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Notes</dt>
                         <dd id="schedule-detail-notes" class="mt-1 whitespace-pre-wrap text-sm font-medium text-brand-text">—</dd>
                     </div>
+                    <div id="schedule-detail-cover-row" class="hidden sm:col-span-2">
+                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Cover</dt>
+                        <dd id="schedule-detail-cover" class="mt-1 text-sm font-medium text-brand-text">—</dd>
+                    </div>
+                    <div id="schedule-detail-covering-for-row" class="hidden sm:col-span-2">
+                        <dt class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Covering for</dt>
+                        <dd id="schedule-detail-covering-for" class="mt-1 text-sm font-medium text-brand-text">—</dd>
+                    </div>
                     <div id="schedule-detail-recurrence-row" class="sm:col-span-2">
                         <dt class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Repeat</dt>
                         <dd id="schedule-detail-recurrence" class="mt-1 text-sm font-medium text-brand-text">—</dd>
@@ -234,6 +242,7 @@
             <input type="hidden" name="employee_public_id" id="schedule-employee-hidden">
             <input type="hidden" name="entry_type" id="schedule-entry-type-hidden" value="{{ EmployeeScheduleShift::TYPE_SHIFT }}">
             <input type="hidden" name="time_off_request_id" id="schedule-time-off-request-id">
+            <input type="hidden" name="recurrence_series_id" id="schedule-recurrence-series-id" value="">
 
             <header class="shrink-0 border-b border-brand-border border-l-4 border-l-brand-primary bg-gradient-to-br from-brand-surface via-white to-white px-5 py-4">
                 <div class="flex items-start justify-between gap-3">
@@ -402,7 +411,7 @@
                                 <div class="grid grid-cols-2 items-stretch gap-2">
                                     <label class="flex min-h-[3.25rem] min-w-0 flex-col justify-center rounded-lg bg-[#e8eaee] px-3 py-2">
                                         <span class="block text-[10px] font-semibold uppercase tracking-wide text-brand-text-secondary">Starts</span>
-                                        <input type="date" id="schedule-recurrence-starts" class="mt-0.5 w-full border-0 bg-transparent p-0 text-sm font-medium leading-5 text-brand-text outline-none focus:ring-0">
+                                        <input type="date" name="recurrence_starts" id="schedule-recurrence-starts" class="mt-0.5 w-full border-0 bg-transparent p-0 text-sm font-medium leading-5 text-brand-text outline-none focus:ring-0">
                                     </label>
                                     <label id="schedule-recurrence-ends-wrap" class="flex min-h-[3.25rem] min-w-0 flex-col justify-center rounded-lg bg-[#e8eaee] px-3 py-2">
                                         <span class="block text-[10px] font-semibold uppercase tracking-wide text-brand-text-secondary">Ends</span>
@@ -543,6 +552,18 @@
             @endforeach
             <input type="hidden" name="status" id="schedule-status-value">
             <input type="hidden" name="notes" id="schedule-status-notes" value="">
+            <input type="hidden" name="cover_action" id="schedule-status-cover-action" value="">
+            <input type="hidden" name="cover_employee_public_id" id="schedule-status-cover-employee" value="">
+        </form>
+
+        <form id="schedule-assign-cover-form" method="post" action="#" class="hidden">
+            @csrf
+            @foreach ($redirectQuery as $key => $value)
+                @if ($value !== null && $value !== '')
+                    <input type="hidden" name="redirect[{{ $key }}]" value="{{ $value }}">
+                @endif
+            @endforeach
+            <input type="hidden" name="cover_employee_public_id" id="schedule-assign-cover-employee" value="">
         </form>
     </div>
 </div>
@@ -577,6 +598,7 @@
         const recurrenceOneYearBtn = document.getElementById('schedule-recurrence-one-year');
         const recurrenceOneYearWrap = document.getElementById('schedule-recurrence-one-year-wrap');
         const recurrenceEndsWrap = document.getElementById('schedule-recurrence-ends-wrap');
+        const recurrenceSeriesIdEl = document.getElementById('schedule-recurrence-series-id');
         const leaveTypeEl = document.getElementById('schedule-leave-type');
         const leaveHoursEl = document.getElementById('schedule-leave-hours');
         const leaveHoursWrap = document.getElementById('schedule-leave-hours-wrap');
@@ -618,8 +640,16 @@
         const statusForm = document.getElementById('schedule-shift-status-form');
         const statusValueInput = document.getElementById('schedule-status-value');
         const statusNotesInput = document.getElementById('schedule-status-notes');
+        const statusCoverActionInput = document.getElementById('schedule-status-cover-action');
+        const statusCoverEmployeeInput = document.getElementById('schedule-status-cover-employee');
+        const assignCoverForm = document.getElementById('schedule-assign-cover-form');
+        const assignCoverEmployeeInput = document.getElementById('schedule-assign-cover-employee');
         const statusBadge = document.getElementById('schedule-modal-status');
         const STATUS_LABELS = { {{ EmployeeScheduleShift::STATUS_SICK_CALL_OUT }}: 'Sick call out', {{ EmployeeScheduleShift::STATUS_NO_SHOW }}: 'No show' };
+        const COVER_ACTION_ASSIGN = @json(EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE);
+        const COVER_ASSIGNED = @json(EmployeeScheduleShift::COVER_ASSIGNED);
+        const COVER_ACTION_OPTIONS = @json(EmployeeScheduleShift::coverActionOptions());
+        const coverEmployees = @json($modalEmployees ?? []);
         const detailDateRow = document.getElementById('schedule-detail-date-row');
         const detailPositionEl = document.getElementById('schedule-detail-position');
         const detailTimeRow = document.getElementById('schedule-detail-time-row');
@@ -629,6 +659,8 @@
         const detailShiftRow = document.getElementById('schedule-detail-shift-row');
         const detailMetaRow = document.getElementById('schedule-detail-meta-row');
         const detailNotesRow = document.getElementById('schedule-detail-notes-row');
+        const detailCoverRow = document.getElementById('schedule-detail-cover-row');
+        const detailCoveringForRow = document.getElementById('schedule-detail-covering-for-row');
         const detailDateEl = document.getElementById('schedule-detail-date');
         const detailTimeEl = document.getElementById('schedule-detail-time');
         const detailDurationEl = document.getElementById('schedule-detail-duration');
@@ -637,11 +669,14 @@
         const detailShiftEl = document.getElementById('schedule-detail-shift');
         const detailMetaEl = document.getElementById('schedule-detail-meta');
         const detailNotesEl = document.getElementById('schedule-detail-notes');
+        const detailCoverEl = document.getElementById('schedule-detail-cover');
+        const detailCoveringForEl = document.getElementById('schedule-detail-covering-for');
 
         const storeUrl = @json(route('admin.employees.weekly-schedule.shifts.store'));
         const updateUrlTemplate = @json(route('admin.employees.weekly-schedule.shifts.update', ['scheduleShift' => '__ID__']));
         const destroyUrlTemplate = @json(route('admin.employees.weekly-schedule.shifts.destroy', ['scheduleShift' => '__ID__']));
         const statusUrlTemplate = @json(route('admin.employees.weekly-schedule.shifts.status', ['scheduleShift' => '__ID__']));
+        const coverUrlTemplate = @json(route('admin.employees.weekly-schedule.shifts.cover', ['scheduleShift' => '__ID__']));
 
         if (!modal || !form) return;
 
@@ -1097,7 +1132,7 @@
         }
 
         function setRecurrenceUntilOneYear() {
-            const startIso = dateInput?.value || '';
+            const startIso = recurrenceStartsEl?.value || dateInput?.value || '';
             if (!recurrenceUntilEl || !startIso) return;
             recurrenceUntilEl.value = addYearsIso(startIso, 1);
             recurrenceUntilEl.min = startIso;
@@ -1105,6 +1140,15 @@
 
         function syncRecurrenceStartsLabel() {
             if (!recurrenceStartsEl) return;
+            // While editing a recurring shift, keep the series start date independent
+            // from the occurrence date being edited.
+            if (entryTypeHidden?.dataset.edit === '1' && recurrenceStartsEl.value) {
+                if (recurrenceUntilEl?.value && recurrenceUntilEl.value < recurrenceStartsEl.value) {
+                    recurrenceUntilEl.value = addWeeksIso(recurrenceStartsEl.value, 12);
+                }
+                if (recurrenceUntilEl) recurrenceUntilEl.min = recurrenceStartsEl.value;
+                return;
+            }
             const iso = dateInput?.value || '';
             recurrenceStartsEl.value = iso;
             if (iso) {
@@ -1148,6 +1192,7 @@
 
         function resetRecurrence() {
             setRecurrenceMode('never');
+            if (recurrenceSeriesIdEl) recurrenceSeriesIdEl.value = '';
             const dayKey = weekdayKeyFromIso(dateInput?.value || '');
             form.querySelectorAll('#schedule-recurrence-details input[name="shift_days[]"]').forEach((input) => {
                 if (input instanceof HTMLInputElement) {
@@ -1158,6 +1203,53 @@
                 recurrenceUntilEl.value = addWeeksIso(dateInput?.value || '', 12);
             }
             syncRecurrenceStartsLabel();
+        }
+
+        function parseRecurrenceDays(raw) {
+            if (Array.isArray(raw)) return raw.map(String);
+            if (typeof raw !== 'string' || raw.trim() === '') return [];
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed.map(String) : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function applyRecurrenceFromPayload(payload) {
+            const mode = payload.recurrenceMode && payload.recurrenceMode !== ''
+                ? payload.recurrenceMode
+                : 'never';
+            setRecurrenceMode(mode);
+            if (recurrenceSeriesIdEl) {
+                recurrenceSeriesIdEl.value = mode !== 'never' ? (payload.recurrenceSeriesId || '') : '';
+            }
+
+            const days = parseRecurrenceDays(payload.recurrenceDays);
+            const fallbackDay = weekdayKeyFromIso(payload.scheduledDate || dateInput?.value || '');
+            form.querySelectorAll('#schedule-recurrence-details input[name="shift_days[]"]').forEach((input) => {
+                if (! (input instanceof HTMLInputElement)) return;
+                input.checked = days.length
+                    ? days.includes(input.value)
+                    : Boolean(fallbackDay) && input.value === fallbackDay;
+            });
+
+            if (recurrenceUntilEl) {
+                if (mode !== 'never' && payload.recurrenceUntil) {
+                    recurrenceUntilEl.value = payload.recurrenceUntil;
+                } else {
+                    recurrenceUntilEl.value = addWeeksIso(payload.scheduledDate || dateInput?.value || '', 12);
+                }
+                if (payload.scheduledDate) {
+                    recurrenceUntilEl.min = payload.scheduledDate;
+                }
+            }
+
+            if (recurrenceStartsEl) {
+                recurrenceStartsEl.value = payload.recurrenceStarts || payload.scheduledDate || dateInput?.value || '';
+            } else {
+                syncRecurrenceStartsLabel();
+            }
         }
 
         function updateTabUi(type) {
@@ -1492,6 +1584,22 @@
                 }
             }
 
+            const coverLabel = payload.coverStatusLabel || '';
+            const coveringName = (payload.coveringEmployeeName || '').trim();
+            const coverText = coverLabel
+                ? (coveringName && payload.coverStatus === COVER_ASSIGNED ? coverLabel + ' · ' + coveringName : coverLabel)
+                : '';
+            setDetailText(detailCoverEl, coverText);
+            toggleDetailRow(detailCoverRow, !isTimeOff && coverText !== '');
+
+            const originalName = (payload.originalEmployeeName || '').trim();
+            const originalStatusLabel = (payload.originalStatusLabel || '').trim();
+            const coveringForText = originalName
+                ? (originalStatusLabel ? originalName + ' · ' + originalStatusLabel : originalName)
+                : '';
+            setDetailText(detailCoveringForEl, coveringForText);
+            toggleDetailRow(detailCoveringForRow, !isTimeOff && coveringForText !== '');
+
             deleteForm.action = destroyUrlTemplate.replace('__ID__', payload.shiftId);
 
             const canMark = !isTimeOff && Boolean(payload.shiftId);
@@ -1618,8 +1726,12 @@
             if (shiftNotesEl) shiftNotesEl.value = entryType === TYPE_SHIFT ? (payload.notes || '') : '';
             if (notesEl) notesEl.value = entryType === TYPE_TIME_OFF ? (payload.notes || '') : '';
             fillBreaks(parseBreaks(payload.breaks));
-            resetRecurrence();
-            recurrenceWrap?.classList.toggle('hidden', isEdit && entryType === TYPE_SHIFT);
+            if (isEdit && entryType === TYPE_SHIFT && !isSuggestion) {
+                applyRecurrenceFromPayload(payload);
+            } else {
+                resetRecurrence();
+            }
+            recurrenceWrap?.classList.toggle('hidden', entryType === TYPE_TIME_OFF || isSuggestion);
             populateLeaveTypeOptions(payload.employeePublicId, payload.leaveTypeId);
             if (leaveHoursEl) leaveHoursEl.value = payload.leaveHours || '';
             updateLeaveBalanceUi();
@@ -1703,10 +1815,22 @@
                 breaks: el.dataset.breaks || '[]',
                 breaksLabel: el.dataset.breaksLabel || '',
                 recurrenceLabel: el.dataset.recurrenceLabel || '',
+                recurrenceMode: el.dataset.recurrenceMode || 'never',
+                recurrenceStarts: el.dataset.recurrenceStarts || '',
+                recurrenceUntil: el.dataset.recurrenceUntil || '',
+                recurrenceDays: el.dataset.recurrenceDays || '[]',
+                recurrenceSeriesId: el.dataset.recurrenceSeriesId || '',
                 blockTitle: el.dataset.blockTitle || '',
                 blockSubtitle: el.dataset.blockSubtitle || '',
                 blockMeta: el.dataset.blockMeta || '',
                 status: el.dataset.status || '',
+                coverStatus: el.dataset.coverStatus || '',
+                coverStatusLabel: el.dataset.coverStatusLabel || '',
+                coveringEmployeeName: el.dataset.coveringEmployeeName || '',
+                originalEmployeeName: el.dataset.originalEmployeeName || '',
+                originalStatus: el.dataset.originalStatus || '',
+                originalStatusLabel: el.dataset.originalStatusLabel || '',
+                isCoverShift: el.dataset.isCoverShift || '0',
                 leaveTypeId: el.dataset.leaveTypeId || '',
                 leaveHours: el.dataset.leaveHours || '',
                 leaveTypeName: el.dataset.leaveTypeName || '',
@@ -1724,9 +1848,19 @@
             setRecurrenceUntilOneYear();
         });
         recurrenceStartsEl?.addEventListener('change', () => {
-            if (!dateInput || !recurrenceStartsEl.value) return;
-            dateInput.value = recurrenceStartsEl.value;
-            dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+            if (!recurrenceStartsEl.value) return;
+            // New shifts: series start is the first occurrence date.
+            if (entryTypeHidden?.dataset.edit !== '1' && dateInput) {
+                dateInput.value = recurrenceStartsEl.value;
+                dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+            if (recurrenceUntilEl) {
+                recurrenceUntilEl.min = recurrenceStartsEl.value;
+                if (recurrenceUntilEl.value && recurrenceUntilEl.value < recurrenceStartsEl.value) {
+                    recurrenceUntilEl.value = addWeeksIso(recurrenceStartsEl.value, 12);
+                }
+            }
         });
         dateInput?.addEventListener('change', () => {
             if (dateLabelEl) dateLabelEl.textContent = formatDateLabel(dateInput.value);
@@ -1768,6 +1902,25 @@
             });
             closeAllTimePickerMenus();
             syncEmployeeHiddenInputs();
+
+            // Disabled recurrence inputs are omitted from POST; re-enable before submit.
+            if (recurrenceModeEl) recurrenceModeEl.disabled = false;
+            if (recurrenceUntilEl) recurrenceUntilEl.disabled = false;
+            if (recurrenceStartsEl) recurrenceStartsEl.disabled = false;
+            form.querySelectorAll('#schedule-recurrence-details input[name="shift_days[]"]').forEach((input) => {
+                if (input instanceof HTMLInputElement) input.disabled = false;
+            });
+
+            if (entryTypeHidden.value === TYPE_SHIFT && recurrenceModeEl && recurrenceModeEl.value !== 'never') {
+                const checkedDays = form.querySelectorAll('#schedule-recurrence-details input[name="shift_days[]"]:checked');
+                if (checkedDays.length === 0) {
+                    event.preventDefault();
+                    recurrenceDetails?.classList.remove('hidden');
+                    const firstDay = form.querySelector('#schedule-recurrence-details input[name="shift_days[]"]');
+                    if (firstDay instanceof HTMLInputElement) firstDay.focus();
+                    return;
+                }
+            }
 
             if (selectedEmployeeIds.length === 0) {
                 event.preventDefault();
@@ -1819,30 +1972,41 @@
                 const status = button.dataset.statusAction || '';
                 const isClearing = status === '';
                 let notes = '';
+                let coverAction = '';
+                let coverEmployeePublicId = '';
 
                 if (!isClearing) {
                     const statusLabel = STATUS_LABELS[status] || 'status';
                     const dialog = window.CruLynkDialog;
                     const existingNotes = (currentPayload.notes || '').trim();
+                    const employees = (coverEmployees || []).filter((employee) => employee.id !== currentPayload.employeePublicId);
 
-                    if (dialog && typeof dialog.promptNote === 'function') {
-                        const note = await dialog.promptNote({
+                    if (dialog && typeof dialog.promptShiftCover === 'function') {
+                        const result = await dialog.promptShiftCover({
                             title: 'Mark as ' + statusLabel + '?',
                             text: (currentPayload.employeeName || 'Employee') + ' · ' + (currentPayload.dayLabel || formatDateLabel(currentPayload.scheduledDate)),
                             inputLabel: 'Comment (optional)',
                             inputPlaceholder: 'e.g. Worked 2 hours before calling in sick',
                             inputValue: existingNotes,
+                            coverLabel: 'Cover shift',
+                            coverOptions: COVER_ACTION_OPTIONS,
+                            coverValue: currentPayload.coverStatus === COVER_ASSIGNED ? COVER_ACTION_ASSIGN : (currentPayload.coverStatus || ''),
+                            employees,
+                            employeeLabel: 'Assign to',
+                            employeeValue: '',
                             confirmText: 'Mark ' + statusLabel.toLowerCase(),
                             cancelText: 'Cancel',
                             danger: status === STATUS_NO_SHOW,
                         });
 
-                        if (note === null) {
+                        if (result === null) {
                             closeDetailMenu();
                             return;
                         }
 
-                        notes = note;
+                        notes = result.notes || '';
+                        coverAction = result.coverAction || '';
+                        coverEmployeePublicId = result.coverEmployeePublicId || '';
                     } else {
                         const fallback = window.prompt(
                             'Comment (optional) for ' + statusLabel.toLowerCase() + ':',
@@ -1853,6 +2017,10 @@
                             return;
                         }
                         notes = fallback.trim();
+                        coverAction = currentPayload.coverStatus || 'leave_uncovered';
+                        if (coverAction === 'assigned') {
+                            coverAction = 'leave_uncovered';
+                        }
                     }
                 }
 
@@ -1862,7 +2030,65 @@
                 if (statusNotesInput) {
                     statusNotesInput.value = notes;
                 }
+                if (statusCoverActionInput) {
+                    statusCoverActionInput.value = coverAction;
+                }
+                if (statusCoverEmployeeInput) {
+                    statusCoverEmployeeInput.value = coverEmployeePublicId;
+                }
                 statusForm.requestSubmit();
+            });
+        });
+
+        document.querySelectorAll('.schedule-assign-cover').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const shiftId = button.dataset.shiftId || '';
+                if (!shiftId || !assignCoverForm) return;
+
+                const excludeId = button.dataset.employeePublicId || '';
+                const employees = (coverEmployees || []).filter((employee) => employee.id !== excludeId);
+                const dialog = window.CruLynkDialog;
+                const summary = [
+                    button.dataset.employeeName || 'Employee',
+                    button.dataset.statusLabel || '',
+                    button.dataset.dayLabel || '',
+                    button.dataset.timeRange || '',
+                ].filter(Boolean).join(' · ');
+
+                let coverEmployeePublicId = '';
+
+                if (dialog && typeof dialog.promptAssignEmployee === 'function') {
+                    const result = await dialog.promptAssignEmployee({
+                        title: 'Assign cover',
+                        text: summary,
+                        employees,
+                        employeeLabel: 'Assign to',
+                        confirmText: 'Assign shift',
+                        cancelText: 'Cancel',
+                    });
+
+                    if (result === null) {
+                        return;
+                    }
+
+                    coverEmployeePublicId = result;
+                } else {
+                    const fallback = window.prompt('Enter the employee to assign (public id):');
+                    if (fallback === null) {
+                        return;
+                    }
+                    coverEmployeePublicId = fallback.trim();
+                }
+
+                if (!coverEmployeePublicId) {
+                    return;
+                }
+
+                assignCoverForm.action = coverUrlTemplate.replace('__ID__', shiftId);
+                if (assignCoverEmployeeInput) {
+                    assignCoverEmployeeInput.value = coverEmployeePublicId;
+                }
+                assignCoverForm.requestSubmit();
             });
         });
 

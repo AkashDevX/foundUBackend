@@ -590,6 +590,7 @@ final class PayrollCalculator
      *     clock_out: CarbonInterface,
      *     original_in: CarbonInterface,
      *     original_out: CarbonInterface,
+     *     clock_in_entry_id: int,
      *     unpaid_break_intervals: list<array{start: CarbonInterface, end: CarbonInterface}>,
      * }>
      */
@@ -692,6 +693,7 @@ final class PayrollCalculator
                     'clock_out' => $sessionEnd,
                     'original_in' => $clockIn,
                     'original_out' => $clockOut,
+                    'clock_in_entry_id' => (int) ($openIn->id ?? 0),
                     'unpaid_break_intervals' => self::unpaidBreakIntervals($breakIntervals, $allocatedBreaks),
                 ];
             }

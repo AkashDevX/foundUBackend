@@ -113,7 +113,7 @@
                         @endforeach
                     </ul>
                     @if ($requireApprovedTimesheets ?? true)
-                        <p class="mt-3 text-xs text-amber-900/90">Payroll only counts clock time from <strong>HR-approved</strong> weeks. A fortnight spans <strong>two</strong> Mon–Sun weeks — approve each week separately under <a href="{{ route('admin.employees.time-clock') }}" class="font-semibold underline">Time clock records → Timesheet approval</a>.</p>
+                        <p class="mt-3 text-xs text-amber-900/90">Payroll only counts clock time from <strong>HR-approved</strong> shifts. Open <a href="{{ route('admin.employees.time-clock') }}" class="font-semibold underline">Time clock records</a> and approve each worked shift in this fortnight.</p>
                     @endif
                     <p class="mt-2 text-xs text-amber-900/90">Pay is hours from approved time clock records × the job title wage on that shift. Set the hourly wage on the job title, and pick that title on the weekly schedule.</p>
                 </div>

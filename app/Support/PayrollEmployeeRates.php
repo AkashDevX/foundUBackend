@@ -13,10 +13,25 @@ final class PayrollEmployeeRates
      */
     public static function forEmployee(string $connection, Employee $employee): array
     {
+        $employmentType = $employee->employment_type;
+        $awardLevel = $employee->award_level;
+        if (! in_array($employmentType, PayrollRateTypes::employmentTypes(), true)
+            || ! in_array($awardLevel, PayrollRateTypes::awardLevels(), true)) {
+            $title = self::primaryTitle($employee);
+            if ($title !== null) {
+                $employmentType = is_string($title->employment_type) && $title->employment_type !== ''
+                    ? $title->employment_type
+                    : $employmentType;
+                $awardLevel = is_string($title->award_level) && $title->award_level !== ''
+                    ? $title->award_level
+                    : $awardLevel;
+            }
+        }
+
         $base = PayrollAwardRateSeeder::ratesForEmployee(
             $connection,
-            $employee->employment_type,
-            $employee->award_level
+            $employmentType,
+            $awardLevel
         );
 
         $overrides = is_array($employee->payroll_rates_json) ? $employee->payroll_rates_json : [];
