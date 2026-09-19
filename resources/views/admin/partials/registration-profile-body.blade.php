@@ -106,7 +106,6 @@
         $registrationPicklists->get('transport_mode', collect())
     );
     $roleDepartment = $e->assignedDepartment?->name ?? $e->department;
-    $roleJobTitle = $e->assignedJobTitle?->name ?? $e->job_title;
     $roleEmployeeCode = ($e->employee_code !== null && trim((string) $e->employee_code) !== '')
         ? trim((string) $e->employee_code)
         : 'N/A';
@@ -399,12 +398,8 @@
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">Role</h3>
-        @if ($canEditProfile)
-            <!-- <p class="mt-1 text-sm text-brand-text-secondary">Job titles and departments come from <a href="{{ route('admin.workforce.job-titles') }}" class="font-semibold text-brand-link hover:underline">Organization setup</a>.</p> -->
-        @endif
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Job title</dt><dd class="min-w-0">@if ($canEditProfile)@php $jobTitles = $jobTitles ?? collect(); @endphp<select name="job_title_id" class="{{ $editIn }}"><option value="">—</option>@foreach ($jobTitles as $jt)<option value="{{ $jt->id }}" @selected((string) old('job_title_id', $e->job_title_id) === (string) $jt->id)>{{ $jt->name }}</option>@endforeach</select>@if ($jobTitles->isEmpty())<p class="mt-1 text-xs text-brand-text-secondary">No job titles yet — add them under Organization setup.</p>@elseif (! $e->job_title_id && trim((string) ($e->job_title ?? '')) !== '')<p class="mt-1 text-xs text-brand-text-secondary">Registration note: {{ $line($e->job_title) }}</p>@endif @else<span class="text-brand-text">{{ $line($roleJobTitle) }}</span>@endif</dd></div>
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Department</dt><dd class="min-w-0">@if ($canEditProfile)@php $departments = $departments ?? collect(); @endphp<select name="department_id" class="{{ $editIn }}"><option value="">—</option>@foreach ($departments as $d)<option value="{{ $d->id }}" @selected((string) old('department_id', $e->department_id) === (string) $d->id)>{{ $d->name }}</option>@endforeach</select>@if ($departments->isEmpty())<p class="mt-1 text-xs text-brand-text-secondary">No departments yet — add them under Organization setup.</p>@elseif (! $e->department_id && trim((string) ($e->department ?? '')) !== '')<p class="mt-1 text-xs text-brand-text-secondary">Registration note: {{ $line($e->department) }}</p>@endif @else<span class="text-brand-text">{{ $line($roleDepartment) }}</span>@endif</dd></div>
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Employee code</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="employee_code" maxlength="64" value="{{ old('employee_code', $e->employee_code) }}" class="{{ $editIn }}" placeholder="N/A" />@else<span class="text-brand-text">{{ e($roleEmployeeCode) }}</span>@endif</dd></div>
     </div>
@@ -412,11 +407,11 @@
 
 @include('admin.partials.registration-profile-leaves', ['e' => $e, 'company' => $company, 'leaveTypes' => $leaveTypes ?? collect()])
 
-<section class="{{ $card }}">
+<section class="mb-10 overflow-visible rounded-2xl border border-brand-border bg-white shadow-sm">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">Payroll information</h3>
         @if ($canEditProfile)
-            <p class="mt-1 text-sm"><a href="{{ route('admin.payroll.rates') }}" class="font-semibold text-brand-link hover:underline">Edit award rates</a></p>
+            <p class="mt-1 text-sm text-brand-text-secondary">Job titles can change by shift. <a href="{{ route('admin.workforce.job-titles') }}" class="font-semibold text-brand-link hover:underline">Manage job titles</a></p>
         @endif
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">

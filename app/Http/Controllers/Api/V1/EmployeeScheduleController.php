@@ -19,7 +19,11 @@ class EmployeeScheduleController extends Controller
         $weekParam = is_string($week) && $week !== '' ? $week : null;
 
         return response()->json([
-            'schedule' => AdminWeeklySchedule::mobilePayloadForEmployee($employee, $weekParam),
+            'schedule' => AdminWeeklySchedule::mobilePayloadForEmployee(
+                $employee,
+                $weekParam,
+                $request->tenantCompany(),
+            ),
         ]);
     }
 }

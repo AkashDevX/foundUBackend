@@ -16,7 +16,14 @@ class CurrentEmployeeController extends Controller
     {
         /** @var Employee $employee */
         $employee = $request->user();
-        $employee->loadMissing(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift']);
+        // Always re-query relations so a just-edited work location name/address/coords
+        // are not served from a stale in-memory relation on the authenticated model.
+        $employee->unsetRelation('workLocation');
+        $employee->unsetRelation('assignedDepartment');
+        $employee->unsetRelation('assignedJobTitle');
+        $employee->unsetRelation('assignedShift');
+        $employee->unsetRelation('assignmentShifts');
+        $employee->load(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate']);
 
         $payload = $employee->toMobileProfilePayload($request->tenantCompany());
 

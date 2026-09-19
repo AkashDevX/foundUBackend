@@ -24,7 +24,6 @@ final class PayrollLeaveProcessor
         $tz = DisplayTimezone::name();
         $rangeStart = Carbon::parse($fortnightStart, $tz)->startOfDay();
         $rangeEnd = Carbon::parse($fortnightEnd, $tz)->endOfDay();
-        $ordinary = PayrollEmployeeRates::ordinaryHourlyRate($rates);
 
         $lines = [];
         $sort = $sortStart;
@@ -68,9 +67,9 @@ final class PayrollLeaveProcessor
                 continue;
             }
 
-            $hourlyRate = (float) ($record->hourly_rate ?? $ordinary);
+            $hourlyRate = (float) ($record->hourly_rate ?? 0);
             if ($hourlyRate <= 0) {
-                $hourlyRate = $ordinary;
+                $hourlyRate = PayrollEmployeeRates::ordinaryHourlyRateForEmployee($employee, $rates, $leaveDay);
             }
 
             $amount = round($hours * $hourlyRate, 2);

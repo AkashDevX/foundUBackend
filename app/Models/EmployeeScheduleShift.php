@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
     'employee_id',
+    'original_employee_id',
     'scheduled_date',
     'entry_type',
     'start_time',
@@ -17,7 +18,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'department_id',
     'work_location_id',
     'notes',
+    'recurrence_series_id',
+    'recurrence_mode',
+    'recurrence_starts',
+    'recurrence_until',
+    'recurrence_days',
     'status',
+    'cover_status',
+    'covered_from_shift_id',
+    'covering_shift_id',
     'leave_type_id',
     'leave_record_id',
     'created_by',
@@ -31,6 +40,14 @@ class EmployeeScheduleShift extends Model
     public const STATUS_SICK_CALL_OUT = 'sick_call_out';
 
     public const STATUS_NO_SHOW = 'no_show';
+
+    public const COVER_LEAVE_UNCOVERED = 'leave_uncovered';
+
+    public const COVER_UNASSIGNED = 'unassigned';
+
+    public const COVER_ASSIGNED = 'assigned';
+
+    public const COVER_ACTION_ASSIGN_EMPLOYEE = 'assign_employee';
 
     /**
      * @return array<string, string>
@@ -48,9 +65,66 @@ class EmployeeScheduleShift extends Model
         return $status !== null ? (self::statusLabels()[$status] ?? null) : null;
     }
 
+    /**
+     * @return array<string, string>
+     */
+    public static function coverStatusLabels(): array
+    {
+        return [
+            self::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
+            self::COVER_UNASSIGNED => 'Unassigned',
+            self::COVER_ASSIGNED => 'Covered',
+        ];
+    }
+
+    public static function coverStatusLabel(?string $coverStatus): ?string
+    {
+        return $coverStatus !== null ? (self::coverStatusLabels()[$coverStatus] ?? null) : null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function coverActionOptions(): array
+    {
+        return [
+            self::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
+            self::COVER_ACTION_ASSIGN_EMPLOYEE => 'Assign to an employee',
+            self::COVER_UNASSIGNED => 'Make unassigned',
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function coverActionValues(): array
+    {
+        return array_keys(self::coverActionOptions());
+    }
+
+    public function needsCover(): bool
+    {
+        return in_array($this->cover_status, [self::COVER_LEAVE_UNCOVERED, self::COVER_UNASSIGNED], true);
+    }
+
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function originalEmployee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'original_employee_id');
+    }
+
+    public function coveredFromShift(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'covered_from_shift_id');
+    }
+
+    public function coveringShift(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'covering_shift_id');
     }
 
     public function shiftTemplate(): BelongsTo
@@ -89,6 +163,9 @@ class EmployeeScheduleShift extends Model
             'scheduled_date' => 'date',
             'start_time' => 'datetime:H:i',
             'end_time' => 'datetime:H:i',
+            'recurrence_starts' => 'date',
+            'recurrence_until' => 'date',
+            'recurrence_days' => 'array',
         ];
     }
 }

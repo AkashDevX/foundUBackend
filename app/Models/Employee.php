@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use App\Support\DisplayTimezone;
 use App\Support\PayrollRateTypes;
 use App\Support\RegistrationDisplay;
+use App\Support\TimeClockScheduledShift;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
@@ -102,6 +105,17 @@ class Employee extends Model
         return $this->belongsTo(JobTitle::class, 'job_title_id');
     }
 
+    /**
+     * All job titles this employee can be scheduled under.
+     */
+    public function jobTitles(): BelongsToMany
+    {
+        return $this->belongsToMany(JobTitle::class, 'employee_job_title')
+            ->withPivot(['is_primary'])
+            ->withTimestamps()
+            ->orderBy('name');
+    }
+
     public function workLocation(): BelongsTo
     {
         return $this->belongsTo(WorkLocation::class);
@@ -178,7 +192,9 @@ class Employee extends Model
         }
 
         $dept = $this->assignedDepartment;
-        $loc = $this->workLocation;
+        // Prefer today's scheduled shift site (same rule as clock-in) so admin schedule
+        // location edits show up on mobile map + label together.
+        $loc = $this->effectiveWorkLocationForMobile();
         $primaryShift = $shiftPayloads[0] ?? null;
 
         return [
@@ -200,6 +216,32 @@ class Employee extends Model
             'shifts' => $shiftPayloads,
             'shift' => $primaryShift,
         ];
+    }
+
+    /**
+     * Work site the mobile client should treat as current: today's schedule row when present,
+     * otherwise the employee's assigned location. Read-only (does not materialize rows).
+     */
+    public function effectiveWorkLocationForMobile(): ?WorkLocation
+    {
+        $now = DisplayTimezone::now();
+        $scheduled = TimeClockScheduledShift::pickBestForMoment(
+            TimeClockScheduledShift::shiftsForDate($this, $now->toDateString()),
+            $now,
+        );
+
+        if ($scheduled instanceof EmployeeScheduleShift) {
+            $scheduled->loadMissing('workLocation');
+            $fromSchedule = $scheduled->workLocation;
+            if ($fromSchedule instanceof WorkLocation) {
+                return $fromSchedule;
+            }
+        }
+
+        $this->loadMissing('workLocation');
+        $assigned = $this->workLocation;
+
+        return $assigned instanceof WorkLocation ? $assigned : null;
     }
 
     /**
@@ -341,6 +383,7 @@ class Employee extends Model
             'assigned_shift_name' => $assignedShift['name'] ?? null,
             'assigned_shift_start_time' => $assignedShift['start_time'] ?? null,
             'assigned_shift_end_time' => $assignedShift['end_time'] ?? null,
+            'assigned_work_location_id' => $assignedWorkLocation['id'] ?? null,
             'assigned_work_location_name' => $assignedWorkLocation['name'] ?? null,
             'assigned_work_location_address' => $assignedWorkLocation['address'] ?? null,
             'assigned_work_location_lat' => $assignedWorkLocation['latitude'] ?? null,

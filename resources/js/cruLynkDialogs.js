@@ -170,6 +170,209 @@ export async function promptNote({
     return typeof result.value === 'string' ? result.value.trim() : '';
 }
 
+/**
+ * Prompt used when marking a shift sick call out / no show. Returns notes plus cover
+ * choice, or `null` when cancelled.
+ *
+ * @param {{
+ *   title?: string,
+ *   text?: string,
+ *   inputLabel?: string,
+ *   inputPlaceholder?: string,
+ *   inputValue?: string,
+ *   coverLabel?: string,
+ *   coverOptions?: Record<string, string>,
+ *   coverValue?: string,
+ *   employees?: Array<{id: string, label: string}>,
+ *   employeeLabel?: string,
+ *   employeeValue?: string,
+ *   confirmText?: string,
+ *   cancelText?: string,
+ *   danger?: boolean,
+ *   maxLength?: number,
+ * }} options
+ * @returns {Promise<{notes: string, coverAction: string, coverEmployeePublicId: string}|null>}
+ */
+export async function promptShiftCover({
+    title = 'Mark shift',
+    text = '',
+    inputLabel = 'Comment (optional)',
+    inputPlaceholder = '',
+    inputValue = '',
+    coverLabel = 'Cover shift',
+    coverOptions = {},
+    coverValue = '',
+    employees = [],
+    employeeLabel = 'Assign to',
+    employeeValue = '',
+    confirmText = 'Confirm',
+    cancelText = 'Cancel',
+    danger = false,
+    maxLength = 500,
+} = {}) {
+    const optionEntries = Object.entries(coverOptions || {});
+    const employeeList = Array.isArray(employees) ? employees : [];
+    const coverSelectId = 'crulynk-cover-action';
+    const employeeWrapId = 'crulynk-cover-employee-wrap';
+    const employeeSelectId = 'crulynk-cover-employee';
+    const notesId = 'crulynk-cover-notes';
+    const assignValue = 'assign_employee';
+
+    const coverOptionsHtml = optionEntries
+        .map(([value, label]) => `<option value="${escapeHtml(value)}"${value === coverValue ? ' selected' : ''}>${escapeHtml(label)}</option>`)
+        .join('');
+
+    const employeeOptionsHtml = employeeList
+        .map((employee) => {
+            const id = String(employee?.id ?? '');
+            const label = String(employee?.label ?? id);
+
+            return `<option value="${escapeHtml(id)}"${id === employeeValue ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        })
+        .join('');
+
+    const html = `
+        <p class="crulynk-swal-lead">${escapeHtml(text)}</p>
+        <label class="crulynk-swal-field-label" for="${notesId}">${escapeHtml(inputLabel)}</label>
+        <textarea id="${notesId}" class="crulynk-swal-textarea" maxlength="${maxLength}" placeholder="${escapeHtml(inputPlaceholder)}">${escapeHtml(inputValue)}</textarea>
+        <label class="crulynk-swal-field-label" for="${coverSelectId}">${escapeHtml(coverLabel)}</label>
+        <select id="${coverSelectId}" class="crulynk-swal-select">
+            <option value="">Select cover option</option>
+            ${coverOptionsHtml}
+        </select>
+        <div id="${employeeWrapId}" class="crulynk-swal-employee-wrap${coverValue === assignValue ? '' : ' is-hidden'}">
+            <label class="crulynk-swal-field-label" for="${employeeSelectId}">${escapeHtml(employeeLabel)}</label>
+            <select id="${employeeSelectId}" class="crulynk-swal-select">
+                <option value="">Select an employee</option>
+                ${employeeOptionsHtml}
+            </select>
+        </div>
+    `;
+
+    const result = await dialog.fire({
+        title,
+        html,
+        icon: danger ? 'warning' : 'question',
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: cancelText,
+        focusCancel: true,
+        reverseButtons: true,
+        confirmButtonColor: danger ? BRAND_DANGER : BRAND_PRIMARY,
+        didOpen: () => {
+            const actionEl = document.getElementById(coverSelectId);
+            const wrapEl = document.getElementById(employeeWrapId);
+            const syncEmployee = () => {
+                wrapEl?.classList.toggle('is-hidden', actionEl?.value !== assignValue);
+            };
+            actionEl?.addEventListener('change', syncEmployee);
+            syncEmployee();
+        },
+        preConfirm: () => {
+            const actionEl = document.getElementById(coverSelectId);
+            const employeeEl = document.getElementById(employeeSelectId);
+            const notesEl = document.getElementById(notesId);
+            const coverAction = actionEl instanceof HTMLSelectElement ? actionEl.value : '';
+            const coverEmployeePublicId = employeeEl instanceof HTMLSelectElement ? employeeEl.value : '';
+            const notes = notesEl instanceof HTMLTextAreaElement ? notesEl.value.trim() : '';
+
+            if (!coverAction) {
+                Swal.showValidationMessage('Choose how this shift should be covered.');
+                return false;
+            }
+
+            if (coverAction === assignValue && !coverEmployeePublicId) {
+                Swal.showValidationMessage('Select an employee to cover this shift.');
+                return false;
+            }
+
+            return {
+                notes,
+                coverAction,
+                coverEmployeePublicId: coverAction === assignValue ? coverEmployeePublicId : '',
+            };
+        },
+    });
+
+    if (result.isConfirmed !== true || !result.value || typeof result.value !== 'object') {
+        return null;
+    }
+
+    return {
+        notes: String(result.value.notes || ''),
+        coverAction: String(result.value.coverAction || ''),
+        coverEmployeePublicId: String(result.value.coverEmployeePublicId || ''),
+    };
+}
+
+/**
+ * @param {{
+ *   title?: string,
+ *   text?: string,
+ *   employees?: Array<{id: string, label: string}>,
+ *   employeeLabel?: string,
+ *   confirmText?: string,
+ *   cancelText?: string,
+ * }} options
+ * @returns {Promise<string|null>}
+ */
+export async function promptAssignEmployee({
+    title = 'Assign employee',
+    text = '',
+    employees = [],
+    employeeLabel = 'Assign to',
+    confirmText = 'Assign',
+    cancelText = 'Cancel',
+} = {}) {
+    const employeeList = Array.isArray(employees) ? employees : [];
+    const employeeSelectId = 'crulynk-assign-employee';
+    const employeeOptionsHtml = employeeList
+        .map((employee) => {
+            const id = String(employee?.id ?? '');
+            const label = String(employee?.label ?? id);
+
+            return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+        })
+        .join('');
+
+    const html = `
+        <p class="crulynk-swal-lead">${escapeHtml(text)}</p>
+        <label class="crulynk-swal-field-label" for="${employeeSelectId}">${escapeHtml(employeeLabel)}</label>
+        <select id="${employeeSelectId}" class="crulynk-swal-select">
+            <option value="">Select an employee</option>
+            ${employeeOptionsHtml}
+        </select>
+    `;
+
+    const result = await dialog.fire({
+        title,
+        html,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: confirmText,
+        cancelButtonText: cancelText,
+        focusCancel: true,
+        reverseButtons: true,
+        confirmButtonColor: BRAND_PRIMARY,
+        preConfirm: () => {
+            const employeeEl = document.getElementById(employeeSelectId);
+            const value = employeeEl instanceof HTMLSelectElement ? employeeEl.value : '';
+            if (!value) {
+                Swal.showValidationMessage('Select an employee to cover this shift.');
+                return false;
+            }
+
+            return value;
+        },
+    });
+
+    if (result.isConfirmed !== true || typeof result.value !== 'string' || result.value === '') {
+        return null;
+    }
+
+    return result.value;
+}
+
 export function toastSuccess(message) {
     if (!message) {
         return;
@@ -521,6 +724,8 @@ export const CruLynkDialog = {
     confirm: confirmAction,
     alert: alertDialog,
     promptNote,
+    promptShiftCover,
+    promptAssignEmployee,
     toastSuccess,
     toastError,
     toastWarning,

@@ -12,28 +12,10 @@
     @php
         /** @var \App\Models\Company $currentCompany */
         /** @var string|null $tenantError */
-        /** @var array{sections: list<array>, alert_count: int} $notifications */
+        /** @var array{sections: list<array>, alert_count: int, workflow?: list<array>} $notifications */
         use App\Support\DisplayTimezone;
-        /** @var int $statsTotal */
-        /** @var int $statsPending */
-        /** @var int $statsActive */
-        /** @var int $statsDeclined */
         /** @var array<string, list<array<string, mixed>>> $timeOffLeaveBalances */
         /** @var int|null $openTimeOffRequestId */
-
-        $severityStyles = [
-            'urgent' => 'border-l-red-500 bg-red-50/60',
-            'warning' => 'border-l-amber-500 bg-amber-50/50',
-            'info' => 'border-l-brand-primary-light bg-brand-surface/40',
-            'success' => 'border-l-emerald-500 bg-emerald-50/50',
-        ];
-
-        $severityDots = [
-            'urgent' => 'bg-red-500',
-            'warning' => 'bg-amber-500',
-            'info' => 'bg-brand-primary-light',
-            'success' => 'bg-emerald-500',
-        ];
 
         $timeOffReviewsById = [];
         foreach ($notifications['sections'] ?? [] as $section) {
@@ -43,115 +25,78 @@
                 }
             }
         }
+
+        $workflowColumns = $notifications['workflow'] ?? [];
+        $displayNow = DisplayTimezone::now();
     @endphp
 
     @if ($tenantError !== null)
         <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
-    <div class="mb-6 overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
-        <div class="border-b border-brand-border border-l-4 border-l-brand-primary bg-white px-5 py-4 sm:px-6 sm:py-5">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                    <h2 class="text-xl font-semibold text-brand-text sm:text-2xl">{{ $currentCompany->name }}</h2>
-                    <p class="mt-1.5 text-sm text-brand-text-secondary">
-                        <time datetime="{{ DisplayTimezone::now()->toDateString() }}">{{ DisplayTimezone::now()->format('l, F j, Y') }}</time>
-                        <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
-                        <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
-                    </p>
-                </div>
-                @if (($notifications['alert_count'] ?? 0) > 0)
-                    <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-950 ring-1 ring-amber-200/80">
-                        {{ $notifications['alert_count'] }} alert{{ $notifications['alert_count'] === 1 ? '' : 's' }}
-                    </span>
-                @endif
-            </div>
+    <section class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
+        <style>
+            .workflow-card {
+                transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+            }
+            .workflow-card:hover {
+                border-color: rgba(0, 61, 122, 0.22);
+                box-shadow: 0 6px 18px rgba(0, 40, 85, 0.07);
+            }
+            .workflow-card .workflow-card-details {
+                max-height: 0;
+                overflow: hidden;
+                opacity: 0;
+                transition: max-height 0.22s ease, opacity 0.16s ease;
+            }
+            .workflow-card.is-expanded .workflow-card-details {
+                max-height: 28rem;
+                opacity: 1;
+                overflow: auto;
+            }
+            .workflow-card .workflow-card-chevron {
+                transition: transform 0.18s ease, color 0.18s ease;
+            }
+            .workflow-card.is-expanded .workflow-card-chevron {
+                transform: rotate(90deg);
+                color: #003d7a;
+            }
+            .workflow-card.is-expanded {
+                border-color: rgba(0, 61, 122, 0.32);
+                box-shadow: 0 10px 24px rgba(0, 40, 85, 0.1);
+                transform: translateY(-1px);
+            }
+        </style>
+        <div class="border-b border-brand-border border-l-4 border-l-brand-primary bg-white px-5 py-4 sm:px-6">
+            <h2 class="text-xl font-semibold text-brand-text">{{ $currentCompany->name }}</h2>
+            <p class="mt-1.5 text-sm text-brand-text-secondary">
+                <time datetime="{{ $displayNow->toDateString() }}">{{ $displayNow->format('l, F j, Y') }}</time>
+                <span class="px-1.5 text-brand-border" aria-hidden="true">·</span>
+                <span class="font-mono text-xs text-brand-text-secondary/90">{{ $currentCompany->slug }}</span>
+            </p>
         </div>
 
-        <div class="flex flex-col divide-y divide-brand-border sm:flex-row sm:divide-x sm:divide-y-0">
-            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
-                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsTotal }}</span>
-                <span class="mt-0.5 block text-sm text-brand-text-secondary">Total employees</span>
-            </div>
-            <a
-                href="{{ route('admin.registrations.index', ['status' => 'pending']) }}"
-                class="min-w-0 flex-1 px-5 py-3.5 text-left transition hover:bg-brand-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-5 sm:py-4"
-            >
-                <span class="block text-2xl font-medium tabular-nums text-brand-primary-light sm:text-3xl">{{ $statsPending }}</span>
-                <span class="mt-0.5 block text-sm text-brand-text-secondary">Pending registrations</span>
-            </a>
-            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
-                <span class="block text-2xl font-medium tabular-nums text-brand-primary sm:text-3xl">{{ $statsActive }}</span>
-                <span class="mt-0.5 block text-sm text-brand-text-secondary">Active employees</span>
-            </div>
-            <div class="min-w-0 flex-1 px-5 py-3.5 sm:px-5 sm:py-4">
-                <span class="block text-2xl font-medium tabular-nums text-brand-text sm:text-3xl">{{ $statsDeclined }}</span>
-                <span class="mt-0.5 block text-sm text-brand-text-secondary">Declined</span>
-            </div>
-        </div>
-    </div>
-
-    <section class="space-y-4">
-        @foreach ($notifications['sections'] ?? [] as $section)
-            <div class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-brand-border bg-brand-surface/50 px-5 py-4 sm:px-6">
-                    <h3 class="text-base font-bold text-brand-text">{{ $section['title'] }}</h3>
-                    @if (! ($section['unavailable'] ?? false))
-                        <span class="text-xs font-semibold uppercase tracking-wide text-brand-label">
-                            {{ $section['total_count'] }} {{ $section['total_count'] === 1 ? 'item' : 'items' }}
-                        </span>
-                    @endif
-                </div>
-
-                @if ($section['unavailable'] ?? false)
-                    <div class="px-5 py-6 text-sm text-brand-text-secondary sm:px-6">
-                        {{ $section['unavailable_reason'] ?? 'Not available yet.' }}
-                    </div>
-                @elseif (($section['total_count'] ?? 0) === 0)
-                    <div class="px-5 py-6 text-sm text-brand-text-secondary sm:px-6">
-                        No notifications in this category right now.
-                    </div>
-                @else
-                    <ul class="divide-y divide-brand-border">
-                        @foreach ($section['items'] as $item)
-                            @php
-                                $severity = $item['severity'] ?? 'info';
-                                $rowClass = $severityStyles[$severity] ?? $severityStyles['info'];
-                                $dotClass = $severityDots[$severity] ?? $severityDots['info'];
-                                $timeOffReview = $item['time_off_review'] ?? null;
-                            @endphp
-                            <li class="border-l-4 {{ $rowClass }}">
-                                @if (is_array($timeOffReview) && ! empty($timeOffReview['id']))
-                                    <button
-                                        type="button"
-                                        class="flex w-full items-start gap-3 px-5 py-3.5 text-left text-sm transition hover:bg-white/70 sm:px-6"
-                                        data-open-time-off-review="{{ (int) $timeOffReview['id'] }}"
-                                    >
-                                        <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
-                                        <span class="text-brand-text">{{ $item['message'] }}</span>
-                                    </button>
-                                @elseif (! empty($item['url']))
-                                    <a href="{{ $item['url'] }}" class="flex items-start gap-3 px-5 py-3.5 text-sm transition hover:bg-white/70 sm:px-6">
-                                        <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
-                                        <span class="text-brand-text">{{ $item['message'] }}</span>
-                                    </a>
-                                @else
-                                    <div class="flex items-start gap-3 px-5 py-3.5 text-sm sm:px-6">
-                                        <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
-                                        <span class="text-brand-text">{{ $item['message'] }}</span>
-                                    </div>
-                                @endif
-                            </li>
-                        @endforeach
-                    </ul>
-                    @if (($section['total_count'] ?? 0) > count($section['items']))
-                        <div class="border-t border-brand-border bg-brand-surface/30 px-5 py-3 text-xs text-brand-text-secondary sm:px-6">
-                            Showing {{ count($section['items']) }} of {{ $section['total_count'] }} notifications.
+        <div class="px-5 py-5 sm:px-6 sm:py-6">
+            @if ($workflowColumns === [])
+                <p class="text-sm text-brand-text-secondary">You're all caught up. There is nothing in the workflow right now.</p>
+            @else
+                <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-5">
+                    @foreach ($workflowColumns as $column)
+                        <div class="min-w-0 flex-1">
+                            <h3 class="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-label">
+                                <span class="inline-block size-1.5 rounded-full bg-brand-primary/70" aria-hidden="true"></span>
+                                {{ $column['title'] }}
+                            </h3>
+                            <div class="space-y-4">
+                                @foreach ($column['cards'] as $card)
+                                    @include('admin.partials.dashboard-workflow-card', ['card' => $card])
+                                @endforeach
+                            </div>
                         </div>
-                    @endif
-                @endif
-            </div>
-        @endforeach
+                    @endforeach
+                </div>
+            @endif
+        </div>
     </section>
 
     <div
@@ -266,6 +211,40 @@
     </div>
 
     @push('scripts')
+        <script>
+            (function () {
+                document.querySelectorAll('[data-workflow-card]').forEach((card) => {
+                    const details = card.querySelector('.workflow-card-details');
+                    let closeTimer = null;
+
+                    function openCard() {
+                        if (closeTimer) {
+                            clearTimeout(closeTimer);
+                            closeTimer = null;
+                        }
+                        card.classList.add('is-expanded');
+                        if (details) details.setAttribute('aria-hidden', 'false');
+                    }
+
+                    function scheduleClose() {
+                        if (closeTimer) clearTimeout(closeTimer);
+                        closeTimer = setTimeout(() => {
+                            card.classList.remove('is-expanded');
+                            if (details) details.setAttribute('aria-hidden', 'true');
+                        }, 120);
+                    }
+
+                    card.addEventListener('mouseenter', openCard);
+                    card.addEventListener('mouseleave', scheduleClose);
+                    card.addEventListener('focusin', openCard);
+                    card.addEventListener('focusout', (event) => {
+                        if (! card.contains(event.relatedTarget)) {
+                            scheduleClose();
+                        }
+                    });
+                });
+            })();
+        </script>
         <script>
             (function () {
                 const reviews = @json($timeOffReviewsById);

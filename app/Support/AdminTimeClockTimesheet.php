@@ -92,23 +92,16 @@ final class AdminTimeClockTimesheet
             }
 
             $sessions = self::buildWorkSessions($weekEntries);
-            $usedSessionIndexes = [];
+            $sessionIndexByScheduleIndex = self::assignSessionsToScheduleShifts($sessions, $employeeSchedule, $tz);
+            $usedSessionIndexes = array_values($sessionIndexByScheduleIndex);
             $rows = [];
 
-            foreach ($employeeSchedule as $scheduleShift) {
-                $sessionIndex = self::matchSessionIndex($sessions, $scheduleShift, $usedSessionIndexes, $tz);
+            foreach ($employeeSchedule as $scheduleIndex => $scheduleShift) {
+                $sessionIndex = $sessionIndexByScheduleIndex[$scheduleIndex] ?? null;
                 $session = $sessionIndex !== null ? $sessions[$sessionIndex] : null;
 
                 $workDate = $scheduleShift->scheduled_date?->toDateString()
                     ?? ($session['date'] ?? '');
-
-                if ($session === null && $workDate !== '') {
-                    $session = self::findSessionForWorkDate($sessions, $workDate);
-                }
-
-                if ($sessionIndex !== null) {
-                    $usedSessionIndexes[] = $sessionIndex;
-                }
 
                 if ($session === null) {
                     continue;
@@ -456,63 +449,82 @@ final class AdminTimeClockTimesheet
     }
 
     /**
+     * Bind each work session to at most one schedule row for that day, using closest
+     * clock-in → shift-start distance. Prevents a single punch from attaching to every
+     * shift when an employee has multiple blocks on the same date.
+     *
      * @param  list<array<string, mixed>>  $sessions
-     * @param  list<int>  $usedSessionIndexes
+     * @param  Collection<int, EmployeeScheduleShift>  $scheduleShifts
+     * @return array<int, int> scheduleIndex => sessionIndex
      */
-    private static function matchSessionIndex(array $sessions, EmployeeScheduleShift $scheduleShift, array $usedSessionIndexes, string $tz): ?int
+    private static function assignSessionsToScheduleShifts(array $sessions, Collection $scheduleShifts, string $tz): array
     {
-        $scheduleDate = $scheduleShift->scheduled_date?->toDateString();
-        if ($scheduleDate === null) {
-            return null;
-        }
+        $candidates = [];
 
-        $scheduleStartMinutes = self::timeToMinutes(self::storedTimeToHm($scheduleShift->start_time));
-        $bestIndex = null;
-        $bestDistance = PHP_INT_MAX;
-
-        foreach ($sessions as $index => $session) {
-            if (in_array($index, $usedSessionIndexes, true)) {
+        foreach ($scheduleShifts as $scheduleIndex => $scheduleShift) {
+            $scheduleDate = $scheduleShift->scheduled_date?->toDateString();
+            if ($scheduleDate === null) {
                 continue;
             }
 
-            if (($session['date'] ?? '') !== $scheduleDate) {
-                continue;
-            }
+            $scheduleStartMinutes = self::timeToMinutes(self::storedTimeToHm($scheduleShift->start_time));
 
-            $clockIn = $session['clock_in'] ?? null;
-            if (! $clockIn instanceof TimeClockEntry || $clockIn->clocked_at === null) {
-                continue;
-            }
+            foreach ($sessions as $sessionIndex => $session) {
+                if (($session['date'] ?? '') !== $scheduleDate) {
+                    continue;
+                }
 
-            $clockMinutes = (int) $clockIn->clocked_at->copy()->timezone($tz)->format('G') * 60
-                + (int) $clockIn->clocked_at->copy()->timezone($tz)->format('i');
+                $clockIn = $session['clock_in'] ?? null;
+                if (! $clockIn instanceof TimeClockEntry || $clockIn->clocked_at === null) {
+                    continue;
+                }
 
-            $distance = $scheduleStartMinutes === null
-                ? 0
-                : abs($clockMinutes - $scheduleStartMinutes);
+                $clockLocal = $clockIn->clocked_at->copy()->timezone($tz);
+                $clockMinutes = ((int) $clockLocal->format('G') * 60) + (int) $clockLocal->format('i');
+                $distance = $scheduleStartMinutes === null
+                    ? 0
+                    : abs($clockMinutes - $scheduleStartMinutes);
 
-            if ($distance < $bestDistance) {
-                $bestDistance = $distance;
-                $bestIndex = $index;
-            }
-        }
-
-        return $bestIndex;
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $sessions
-     * @return array<string, mixed>|null
-     */
-    private static function findSessionForWorkDate(array $sessions, string $workDate): ?array
-    {
-        foreach ($sessions as $session) {
-            if (($session['date'] ?? '') === $workDate) {
-                return $session;
+                $candidates[] = [
+                    'schedule_index' => (int) $scheduleIndex,
+                    'session_index' => (int) $sessionIndex,
+                    'distance' => $distance,
+                ];
             }
         }
 
-        return null;
+        usort($candidates, static function (array $a, array $b): int {
+            $distanceCmp = $a['distance'] <=> $b['distance'];
+            if ($distanceCmp !== 0) {
+                return $distanceCmp;
+            }
+
+            $scheduleCmp = $a['schedule_index'] <=> $b['schedule_index'];
+            if ($scheduleCmp !== 0) {
+                return $scheduleCmp;
+            }
+
+            return $a['session_index'] <=> $b['session_index'];
+        });
+
+        $assignments = [];
+        $usedSessions = [];
+        $usedSchedules = [];
+
+        foreach ($candidates as $candidate) {
+            $scheduleIndex = $candidate['schedule_index'];
+            $sessionIndex = $candidate['session_index'];
+
+            if (isset($usedSchedules[$scheduleIndex]) || isset($usedSessions[$sessionIndex])) {
+                continue;
+            }
+
+            $assignments[$scheduleIndex] = $sessionIndex;
+            $usedSchedules[$scheduleIndex] = true;
+            $usedSessions[$sessionIndex] = true;
+        }
+
+        return $assignments;
     }
 
     /**

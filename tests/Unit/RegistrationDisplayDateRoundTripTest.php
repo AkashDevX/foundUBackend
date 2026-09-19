@@ -107,4 +107,27 @@ class RegistrationDisplayDateRoundTripTest extends TestCase
         ]);
         $this->assertSame('2026-12-01', $input);
     }
+
+    public function test_array_date_storage_format_field_does_not_overwrite_value(): void
+    {
+        $this->assertSame(
+            'police_check_expiry_storage_format',
+            RegistrationDisplay::adminDateStorageFormatFieldName('police_check_expiry')
+        );
+        $this->assertSame(
+            'licence_expiry_row_storage_format[7]',
+            RegistrationDisplay::adminDateStorageFormatFieldName('licence_expiry_row[7]')
+        );
+
+        parse_str(
+            'licence_expiry_row[7]=2026-04-01&licence_expiry_row[7]_storage_format=Y-m-d',
+            $colliding
+        );
+        $this->assertSame('Y-m-d', $colliding['licence_expiry_row'][7]);
+
+        $formatName = RegistrationDisplay::adminDateStorageFormatFieldName('licence_expiry_row[7]');
+        parse_str('licence_expiry_row[7]=2026-04-01&'.$formatName.'=Y-m-d', $fixed);
+        $this->assertSame('2026-04-01', $fixed['licence_expiry_row'][7]);
+        $this->assertSame('Y-m-d', $fixed['licence_expiry_row_storage_format'][7]);
+    }
 }

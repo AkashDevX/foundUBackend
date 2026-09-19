@@ -23,6 +23,7 @@
         ? $shiftDayLabel
         : 'relative flex min-h-[2.75rem] cursor-pointer select-none items-center justify-center overflow-hidden rounded-xl border border-brand-border bg-white px-3 py-2 text-center text-xs font-semibold text-brand-text shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface/60 [&:has(input:checked)]:border-brand-primary [&:has(input:checked)]:bg-brand-primary [&:has(input:checked)]:text-white [&:has(input:checked)]:shadow-md [&:has(input:checked)]:shadow-brand-primary/25';
     $selectedDays = is_array($selectedDays ?? null) ? $selectedDays : [];
+    $hideName = (bool) ($hideName ?? false);
     $nameValue = is_scalar($nameValue ?? null) ? (string) $nameValue : '';
     $startValue = is_scalar($startValue ?? null) ? (string) $startValue : '';
     $endValue = is_scalar($endValue ?? null) ? (string) $endValue : '';
@@ -33,10 +34,12 @@
         : ($idPrefix.'-breaks');
 @endphp
 
+@unless ($hideName)
 <div class="{{ $fieldRowClass }}">
     <label for="{{ $idPrefix }}-name" class="{{ $fieldLabelClass }}">Name</label>
     <input id="{{ $idPrefix }}-name" name="shift_name" required maxlength="160" value="{{ $nameValue }}" class="{{ $fieldInputClass }}" placeholder="e.g. Morning" />
 </div>
+@endunless
 <div class="{{ $fieldRowClass }}">
     <span class="{{ $fieldLabelClass }}">Hours</span>
     <div class="grid gap-3 sm:grid-cols-2">
