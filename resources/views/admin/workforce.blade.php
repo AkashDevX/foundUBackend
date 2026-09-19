@@ -9,7 +9,6 @@
 @push('scripts')
     @vite(['resources/js/workforce.js'])
     @if (in_array($section, ['departments', 'job-titles', 'work-locations', 'shifts', 'leave-types', 'chat-faqs'], true))
-    <!-- @if (in_array($section, ['departments', 'work-locations', 'shifts', 'leave-types'], true)) -->
         <script>
             (function () {
                 function normalize(value) {

@@ -80,7 +80,6 @@
                         <a href="{{ route('admin.workforce.work-locations') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.work-locations') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work locations</a>
                         <a href="{{ route('admin.workforce.leave-types') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.leave-types') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Leave types</a>
                         <a href="{{ route('admin.workforce.chat-faqs') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.chat-faqs') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Chat help FAQs</a>
-                        <a href="{{ route('admin.payroll.rates') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.rates*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Award rates</a>
                         <a href="{{ route('admin.payroll.holidays') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.holidays*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Public holidays</a>
                     </div>
 

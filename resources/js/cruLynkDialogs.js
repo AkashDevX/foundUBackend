@@ -11,6 +11,9 @@ const dialog = Swal.mixin({
     confirmButtonColor: BRAND_PRIMARY,
     cancelButtonColor: '#94a3b8',
     color: '#111827',
+    // Keep page height stable — heightAuto collapses full-viewport layouts (e.g. portal login).
+    heightAuto: false,
+    scrollbarPadding: false,
     customClass: {
         popup: 'crulynk-swal-popup',
         title: 'crulynk-swal-title',
