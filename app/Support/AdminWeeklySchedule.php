@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\EmployeeAssignmentShift;
 use App\Models\EmployeeLeaveEntitlement;
@@ -695,6 +696,8 @@ final class AdminWeeklySchedule
             'title' => $jobTitle,
             'subtitle' => $subtitle,
             'meta' => trim(collect([$departmentName, $locationName])->filter()->join(' · ')),
+            'department_name' => $departmentName,
+            'location_name' => $locationName,
             'palette' => self::paletteForJobTitle($entry->jobTitle) ?? self::paletteForSeed((int) ($entry->work_location_id ?? $entry->department_id ?? $employee->id ?? 0)),
             'accent_color' => $entry->jobTitle?->accentColor(),
             'scheduled_date' => $entry->scheduled_date?->toDateString(),
@@ -1234,10 +1237,12 @@ final class AdminWeeklySchedule
      *
      * @return array<string, mixed>
      */
-    public static function mobilePayloadForEmployee(Employee $employee, ?string $weekParam): array
+    public static function mobilePayloadForEmployee(Employee $employee, ?string $weekParam, ?Company $tenantCompany = null): array
     {
         $weekStart = self::resolveWeekStart($weekParam);
         $weekEnd = $weekStart->copy()->addDays(6);
+
+        $organizationName = trim((string) ($tenantCompany?->name ?: $employee->company_display_name ?: ''));
 
         $employee->loadMissing(['assignedDepartment', 'assignedJobTitle', 'workLocation', 'assignedShift', 'assignmentShifts.shiftTemplate']);
 
@@ -1266,7 +1271,10 @@ final class AdminWeeklySchedule
                 'day_number' => $day['day_number'],
                 'is_today' => $day['is_today'],
                 'is_day_off' => (bool) ($cell['is_day_off'] ?? false),
-                'entries' => array_map(static fn (array $block): array => self::mobileEntryFromBlock($block), $blocks),
+                'entries' => array_map(
+                    static fn (array $block): array => self::mobileEntryFromBlock($block, $organizationName),
+                    $blocks
+                ),
             ];
         }
 
@@ -1281,20 +1289,44 @@ final class AdminWeeklySchedule
     }
 
     /**
+     * Labeled org / location / department lines for mobile schedule cards (renders as multiline Text).
+     */
+    private static function mobileAssignmentMeta(string $organizationName, string $locationName, string $departmentName): string
+    {
+        return implode("\n", [
+            'Organization: '.$organizationName,
+            'Location: '.$locationName,
+            'Department: '.$departmentName,
+        ]);
+    }
+
+    /**
      * @param  array<string, mixed>  $block
      * @return array<string, mixed>
      */
-    private static function mobileEntryFromBlock(array $block): array
+    private static function mobileEntryFromBlock(array $block, string $organizationName = ''): array
     {
+        $type = $block['type'] ?? 'shift';
+        $isTimeOff = $type === EmployeeScheduleShift::TYPE_TIME_OFF || $type === 'time_off';
+
+        $meta = is_string($block['meta'] ?? null) ? $block['meta'] : '';
+        if (! $isTimeOff) {
+            $meta = self::mobileAssignmentMeta(
+                $organizationName,
+                trim((string) ($block['location_name'] ?? '')),
+                trim((string) ($block['department_name'] ?? '')),
+            );
+        }
+
         return [
             'id' => $block['id'] ?? null,
-            'type' => $block['type'] ?? 'shift',
+            'type' => $type,
             'is_suggestion' => (bool) ($block['is_suggestion'] ?? false),
             'time_range' => $block['time_range'] ?? '',
             'duration_label' => $block['duration_label'] ?? '',
             'title' => $block['title'] ?? '',
             'subtitle' => $block['subtitle'] ?? '',
-            'meta' => $block['meta'] ?? '',
+            'meta' => $meta,
             'notes' => $block['notes'] ?? null,
             'start_time' => $block['start_time'] ?? null,
             'end_time' => $block['end_time'] ?? null,
