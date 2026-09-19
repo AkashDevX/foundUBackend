@@ -188,6 +188,21 @@ final class RegistrationDisplay
         return $parsed['format'] ?? 'Y-m-d';
     }
 
+    /**
+     * Hidden input name for the storage-format hint.
+     *
+     * PHP treats `foo[bar]_storage_format` as `foo[bar]`, which overwrites the date value.
+     * Array fields therefore use `foo_storage_format[bar]` instead.
+     */
+    public static function adminDateStorageFormatFieldName(string $inputName): string
+    {
+        if (preg_match('/^([^\[\]]+)(\[.+)$/', $inputName, $m) === 1) {
+            return $m[1].'_storage_format'.$m[2];
+        }
+
+        return $inputName.'_storage_format';
+    }
+
     public static function adminAssignmentEffectiveInput(Request $request, Employee $employee): string
     {
         $fromModel = $employee->assignment_effective_from;

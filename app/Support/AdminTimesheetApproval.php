@@ -191,18 +191,60 @@ final class AdminTimesheetApproval
     }
 
     /**
+     * Clock-in id for this punch, including break punches that sit inside the session.
+     * Approved timesheets are keyed by clock-in; breaks must stay with that session or payrun drops unpaid time.
+     *
      * @param  Collection<int, TimeClockEntry>  $dayEntries
      */
     public static function resolveSessionClockInId(Collection $dayEntries, TimeClockEntry $entry): ?int
     {
-        $summary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
+        $entryId = (int) ($entry->id ?? 0);
+        if ($entryId <= 0) {
+            return null;
+        }
 
-        foreach ($summary['hours_by_entry_id'] as $entryId => $session) {
-            $clockInId = (int) ($session['clock_in_id'] ?? 0);
-            $clockOutId = isset($session['clock_out_id']) ? (int) $session['clock_out_id'] : null;
+        $sorted = $dayEntries
+            ->sortBy(static fn (TimeClockEntry $row) => [
+                $row->clocked_at?->getTimestamp() ?? 0,
+                $row->id,
+            ])
+            ->values();
 
-            if ($entry->id === $entryId || $entry->id === $clockInId || ($clockOutId !== null && $entry->id === $clockOutId)) {
-                return $clockInId > 0 ? $clockInId : null;
+        $openInId = null;
+
+        foreach ($sorted as $row) {
+            $rowId = (int) ($row->id ?? 0);
+            if ($rowId <= 0 || $row->clocked_at === null) {
+                continue;
+            }
+
+            if ($row->event_type === TimeClockEntry::EVENT_CLOCK_IN) {
+                $openInId = $rowId;
+                if ($rowId === $entryId) {
+                    return $openInId;
+                }
+
+                continue;
+            }
+
+            if ($openInId === null) {
+                continue;
+            }
+
+            if (! in_array($row->event_type, [
+                TimeClockEntry::EVENT_BREAK_START,
+                TimeClockEntry::EVENT_BREAK_END,
+                TimeClockEntry::EVENT_CLOCK_OUT,
+            ], true)) {
+                continue;
+            }
+
+            if ($rowId === $entryId) {
+                return $openInId;
+            }
+
+            if ($row->event_type === TimeClockEntry::EVENT_CLOCK_OUT) {
+                $openInId = null;
             }
         }
 

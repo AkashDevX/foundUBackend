@@ -4,6 +4,7 @@
     /** @var string $storageFormat */
     /** @var string $inputClass */
     $storageFormat = $storageFormat ?? 'Y-m-d';
+    $storageFormatName = $storageFormatName ?? \App\Support\RegistrationDisplay::adminDateStorageFormatFieldName($name);
 @endphp
 <input type="date" name="{{ $name }}" value="{{ $value }}" class="{{ $inputClass }}" />
-<input type="hidden" name="{{ $name }}_storage_format" value="{{ $storageFormat }}" />
+<input type="hidden" name="{{ $storageFormatName }}" value="{{ $storageFormat }}" />

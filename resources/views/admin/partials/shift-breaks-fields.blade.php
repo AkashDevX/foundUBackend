@@ -13,10 +13,7 @@
     data-max-breaks="8"
 >
     <div class="flex flex-wrap items-end justify-between gap-2">
-        <div>
-            <p class="{{ $lbl ?? 'mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary' }}">Breaks</p>
-            <p class="text-[11px] text-brand-text-secondary">Add each break and mark it paid or unpaid.</p>
-        </div>
+        <p class="{{ $lbl ?? 'mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary' }}">Breaks</p>
         <button
             type="button"
             class="rounded-lg border border-brand-border bg-white px-2.5 py-1.5 text-[11px] font-bold text-brand-primary shadow-sm transition hover:bg-brand-surface"

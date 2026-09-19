@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full">
 <head>
     <meta charset="utf-8">
@@ -43,7 +43,7 @@
                     @php
                         $navActive = 'group relative flex items-center gap-3 rounded-xl bg-white/[0.12] px-3 py-3 text-brand-white shadow-inner shadow-black/10 ring-1 ring-white/15';
                         $navInactive = 'group flex items-center gap-3 rounded-xl px-3 py-3 text-white/70 transition hover:bg-white/[0.07] hover:text-white';
-                        $orgSetupActive = request()->routeIs('admin.workforce*') || request()->routeIs('admin.payroll.rates*') || request()->routeIs('admin.payroll.holidays*');
+                        $orgSetupActive = request()->routeIs('admin.workforce*') || request()->routeIs('admin.payroll.holidays*');
                         $payrollActive = request()->routeIs('admin.employees.time-clock*') || request()->routeIs('admin.payroll.runs*');
                     @endphp
                     <a href="{{ route('admin.dashboard') }}" class="{{ request()->routeIs('admin.dashboard') ? $navActive : $navInactive }}" @if(request()->routeIs('admin.dashboard')) aria-current="page" @endif>
@@ -76,11 +76,9 @@
                     </button>
                     <div id="workforce-nav-submenu" class="ml-12 space-y-1 pb-1 {{ $orgSetupActive ? '' : 'hidden' }}">
                         <a href="{{ route('admin.workforce.departments') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.departments') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Departments</a>
-                        <a href="{{ route('admin.workforce.job-titles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.job-titles') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Job titles</a>
+                        <a href="{{ route('admin.workforce.job-titles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.job-titles*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Job titles</a>
                         <a href="{{ route('admin.workforce.work-locations') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.work-locations') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Work locations</a>
-                        <a href="{{ route('admin.workforce.shifts') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.shifts') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Shifts</a>
                         <a href="{{ route('admin.workforce.leave-types') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.workforce.leave-types') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Leave types</a>
-                        <a href="{{ route('admin.payroll.rates') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.rates*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Award rates</a>
                         <a href="{{ route('admin.payroll.holidays') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.holidays*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Public holidays</a>
                     </div>
 

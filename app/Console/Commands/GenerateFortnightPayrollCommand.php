@@ -99,9 +99,14 @@ class GenerateFortnightPayrollCommand extends Command
                         ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
                         ->orderBy('clocked_at');
                 },
-                'scheduleShifts' => static function ($query) use ($fortnightStart, $fortnightEnd): void {
-                    $query->whereBetween('scheduled_date', [$fortnightStart, $fortnightEnd]);
+                'scheduleShifts' => static function ($query) use ($fortnightStart, $fortnightEnd, $tz): void {
+                    $scheduleFrom = \Carbon\Carbon::parse($fortnightStart, $tz)->subDay()->toDateString();
+                    $query->with('jobTitle')
+                        ->where('entry_type', \App\Models\EmployeeScheduleShift::TYPE_SHIFT)
+                        ->whereBetween('scheduled_date', [$scheduleFrom, $fortnightEnd]);
                 },
+                'assignedJobTitle',
+                'jobTitles',
                 'leaveRecords' => static function ($query) use ($fortnightStart, $fortnightEnd): void {
                     $query->where('status', 'pending')
                         ->whereBetween('leave_date', [$fortnightStart, $fortnightEnd]);

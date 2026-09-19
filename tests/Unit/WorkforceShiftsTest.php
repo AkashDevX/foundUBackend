@@ -23,7 +23,35 @@ class WorkforceShiftsTest extends TestCase
         $this->assertSame('Late retail', $payload['name']);
         $this->assertSame('16:00', $payload['start_time']);
         $this->assertSame('00:00', $payload['end_time']);
-        $this->assertSame('Late retail · 4:00 PM – 12:00 AM', $payload['option_label']);
+        $this->assertSame('4:00 PM – 12:00 AM', $payload['option_label']);
+    }
+
+    public function test_auto_name_uses_start_and_finish_times(): void
+    {
+        $this->assertSame('7:30 AM – 4:00 PM', WorkforceShifts::autoNameFromTimes('07:30', '16:00'));
+    }
+
+    public function test_matches_schedule_pattern_compares_times_and_breaks(): void
+    {
+        $shift = new Shift([
+            'name' => 'Morning retail',
+            'start_time' => '07:30:00',
+            'end_time' => '16:00:00',
+            'breaks' => [
+                ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+            ],
+        ]);
+
+        $this->assertTrue(WorkforceShifts::matchesSchedulePattern(
+            $shift,
+            '07:30',
+            '16:00',
+            [['label' => 'Lunch', 'minutes' => 30, 'paid' => false]],
+        ));
+        $this->assertFalse(WorkforceShifts::matchesSchedulePattern($shift, '08:00', '16:00', [
+            ['label' => 'Lunch', 'minutes' => 30, 'paid' => false],
+        ]));
+        $this->assertFalse(WorkforceShifts::matchesSchedulePattern($shift, '07:30', '16:00', []));
     }
 
     public function test_normalize_days_keeps_valid_unique_weekdays(): void

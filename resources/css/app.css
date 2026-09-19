@@ -70,6 +70,63 @@
     background: var(--color-brand-primary);
 }
 
+/* Weekly schedule — horizontal only (no vertical panel scrollbar) */
+.schedule-table-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.schedule-table-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.schedule-grid {
+    table-layout: fixed;
+    width: 1276px;
+    min-width: 1276px;
+    border-collapse: collapse;
+}
+
+.schedule-grid .col-employee {
+    width: 240px;
+}
+
+.schedule-grid .col-day {
+    width: 148px;
+}
+
+.schedule-scroll-dock {
+    position: fixed;
+    left: 50%;
+    bottom: 1.25rem;
+    z-index: 45;
+    display: none;
+    width: min(28rem, calc(100vw - 1.5rem));
+    translate: -50% 0;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-brand-border);
+    background: rgba(255, 255, 255, 0.97);
+    padding: 0.55rem 0.75rem;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+    backdrop-filter: blur(10px);
+}
+
+.schedule-scroll-dock.is-visible {
+    display: flex;
+}
+
+.schedule-scroll-dock input[type='range'] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--color-brand-primary);
+    cursor: pointer;
+}
+
 /* Workforce location tabs */
 [data-wf-tab].wf-tab-active {
     background: #fff;
@@ -180,6 +237,51 @@
     margin-top: 0.35rem;
 }
 
+.crulynk-swal-lead {
+    margin: 0 0 0.85rem;
+    text-align: left;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-brand-text-secondary);
+}
+
+.crulynk-swal-field-label {
+    display: block;
+    margin: 0 0 0.4rem;
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-brand-label, #6b7280);
+}
+
+.crulynk-swal-textarea,
+.crulynk-swal-select {
+    display: block;
+    width: 100%;
+    margin: 0 0 0.9rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-brand-border, #e5e7eb);
+    background: #fff;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.875rem;
+    color: var(--color-brand-text, #111827);
+}
+
+.crulynk-swal-textarea {
+    min-height: 4.5rem;
+    resize: vertical;
+}
+
+.crulynk-swal-select {
+    appearance: auto;
+}
+
+.crulynk-swal-employee-wrap.is-hidden {
+    display: none;
+}
+
 .wf-addr-suggest-hint--busy {
     display: flex;
     align-items: flex-start;
@@ -196,4 +298,32 @@
     border-top-color: var(--color-brand-primary);
     border-radius: 9999px;
     animation: wf-map-spin 0.65s linear infinite;
+}
+
+/* Dashboard workflow cards — collapsed by default; expand details only on hover/focus */
+.workflow-card-details {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows 200ms ease,
+        opacity 160ms ease;
+}
+
+.workflow-card-details > * {
+    overflow: hidden;
+    min-height: 0;
+}
+
+.workflow-card:hover .workflow-card-details,
+.workflow-card:focus-within .workflow-card-details {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .workflow-card:focus-within .workflow-card-details {
+        grid-template-rows: 1fr;
+        opacity: 1;
+    }
 }

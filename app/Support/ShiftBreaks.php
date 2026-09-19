@@ -62,6 +62,16 @@ final class ShiftBreaks
     }
 
     /**
+     * Stable comparison key for find-or-create of schedule templates.
+     *
+     * @param  mixed  $input
+     */
+    public static function fingerprint(mixed $input): string
+    {
+        return (string) json_encode(self::normalize($input));
+    }
+
+    /**
      * @param  list<array{label: string, minutes: int, paid: bool}>  $breaks
      */
     public static function summaryFrom(array $breaks): ?string

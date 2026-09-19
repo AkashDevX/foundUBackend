@@ -27,7 +27,7 @@ final class WorkforceShifts
     public static function rules(): array
     {
         return [
-            'shift_name' => ['required', 'string', 'max:160'],
+            'shift_name' => ['nullable', 'string', 'max:160'],
             'shift_start_time' => ['required', 'date_format:H:i'],
             'shift_end_time' => ['required', 'date_format:H:i'],
             'shift_days' => ['nullable', 'array'],
@@ -80,7 +80,7 @@ final class WorkforceShifts
         $breakPayload = self::breakPayload($request);
 
         return Shift::on($connection)->create([
-            'name' => $data['shift_name'],
+            'name' => self::resolvedName($data['shift_name'] ?? null, $data['shift_start_time'], $data['shift_end_time']),
             'start_time' => $data['shift_start_time'],
             'end_time' => $data['shift_end_time'],
             'shift_days' => self::normalizeDays($data['shift_days'] ?? null),
@@ -103,7 +103,7 @@ final class WorkforceShifts
         $previousEnd = self::formatTime($target->end_time, 'H:i', '');
 
         $target->forceFill([
-            'name' => $data['shift_name'],
+            'name' => self::resolvedName($data['shift_name'] ?? null, $data['shift_start_time'], $data['shift_end_time']),
             'start_time' => $data['shift_start_time'],
             'end_time' => $data['shift_end_time'],
             'shift_days' => self::normalizeDays($data['shift_days'] ?? null),
@@ -216,8 +216,79 @@ final class WorkforceShifts
             'name' => (string) $shift->name,
             'start_time' => $start,
             'end_time' => $end,
-            'option_label' => trim($shift->name.' · '.$startLabel.' – '.$endLabel),
+            'option_label' => $startLabel.' – '.$endLabel,
         ];
+    }
+
+    /**
+     * Reuse an existing active template with the same times and breaks so the
+     * catalog does not grow a new row for every identical calendar shift.
+     *
+     * @param  list<string>|null  $days
+     * @param  mixed  $breaksInput
+     */
+    public static function findOrCreateForSchedule(
+        string $connection,
+        string $startHm,
+        string $endHm,
+        mixed $days,
+        mixed $breaksInput,
+    ): Shift {
+        $breaks = ShiftBreaks::normalize($breaksInput);
+
+        $match = Shift::on($connection)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get()
+            ->first(static function (Shift $shift) use ($startHm, $endHm, $breaks): bool {
+                return self::matchesSchedulePattern($shift, $startHm, $endHm, $breaks);
+            });
+
+        if ($match instanceof Shift) {
+            return $match;
+        }
+
+        return Shift::on($connection)->create([
+            'name' => self::autoNameFromTimes($startHm, $endHm),
+            'start_time' => $startHm,
+            'end_time' => $endHm,
+            'shift_days' => self::normalizeDays($days),
+            'breaks' => $breaks === [] ? null : $breaks,
+            'breaks_summary' => ShiftBreaks::summaryFrom($breaks),
+            'notes' => null,
+            'is_active' => true,
+        ]);
+    }
+
+    public static function matchesSchedulePattern(Shift $shift, string $startHm, string $endHm, mixed $breaksInput): bool
+    {
+        return self::formatTime($shift->start_time, 'H:i', '') === $startHm
+            && self::formatTime($shift->end_time, 'H:i', '') === $endHm
+            && ShiftBreaks::fingerprint($shift->breaks) === ShiftBreaks::fingerprint($breaksInput);
+    }
+
+    public static function autoNameFromTimes(string $startHm, string $endHm): string
+    {
+        $startLabel = self::formatClock($startHm, 'g:i A', $startHm);
+        $endLabel = self::formatClock($endHm, 'g:i A', $endHm);
+
+        return $startLabel.' – '.$endLabel;
+    }
+
+    private static function resolvedName(mixed $name, string $startHm, string $endHm): string
+    {
+        $trimmed = is_string($name) ? trim($name) : '';
+
+        return $trimmed !== '' ? $trimmed : self::autoNameFromTimes($startHm, $endHm);
+    }
+
+    private static function formatClock(string $hm, string $format, string $fallback): string
+    {
+        try {
+            return Carbon::createFromFormat('H:i', $hm)->format($format);
+        } catch (\Throwable) {
+            return $fallback;
+        }
     }
 
     private static function formatTime(mixed $value, string $format, string $fallback): string

@@ -38,8 +38,8 @@ final class TimeClockScheduledShift
 
     /**
      * A shift exists for the date if there's a concrete schedule row, or — when the day is not a
-     * day off and no concrete row exists yet — the employee's assignment shift runs that weekday
-     * (the same shift the weekly schedule shows as a suggestion). Keeps clock-in eligibility in
+     * day off and no concrete row exists yet — the employee's assignment shift runs that weekday.
+     * Keeps clock-in eligibility in
      * sync with what the schedule screen displays.
      */
     public static function hasShiftForDate(Employee $employee, CarbonInterface $now): bool
@@ -62,9 +62,9 @@ final class TimeClockScheduledShift
         $now = $now ?? DisplayTimezone::now();
         $date = $now->toDateString();
 
-        $existing = self::shiftsForDate($employee, $date)->first();
-        if ($existing instanceof EmployeeScheduleShift) {
-            return $existing;
+        $existing = self::shiftsForDate($employee, $date);
+        if ($existing->isNotEmpty()) {
+            return self::pickBestForMoment($existing, $now);
         }
 
         if (self::hasTimeOffForDate($employee, $date)) {
@@ -74,10 +74,74 @@ final class TimeClockScheduledShift
         // No concrete row yet — materialize today's shift from the employee's assignment so the
         // punch links to a real schedule row (same shift the weekly schedule shows).
         if (AdminWeeklySchedule::materializeAssignmentShiftsForDate($employee, $now) > 0) {
-            return self::shiftsForDate($employee, $date)->first();
+            return self::pickBestForMoment(self::shiftsForDate($employee, $date), $now);
         }
 
         return null;
+    }
+
+    /**
+     * Choose the schedule row that matches the current time slot when an employee has
+     * multiple shifts on the same day.
+     *
+     * Preference order:
+     * 1. Shift window that contains $now (including overnight windows)
+     * 2. Nearest upcoming shift start
+     * 3. Most recent past shift start
+     *
+     * @param  Collection<int, EmployeeScheduleShift>  $shifts
+     */
+    public static function pickBestForMoment(Collection $shifts, CarbonInterface $now): ?EmployeeScheduleShift
+    {
+        if ($shifts->isEmpty()) {
+            return null;
+        }
+
+        $nowMinutes = ($now->hour * 60) + $now->minute;
+
+        $scored = $shifts
+            ->map(static function (EmployeeScheduleShift $shift) use ($nowMinutes): ?array {
+                $start = self::storedTimeToMinutes($shift->start_time);
+                $end = self::storedTimeToMinutes($shift->end_time);
+                if ($start === null) {
+                    return null;
+                }
+
+                return [
+                    'shift' => $shift,
+                    'start' => $start,
+                    'end' => $end,
+                    'contains' => self::windowContains($start, $end, $nowMinutes),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        if ($scored->isEmpty()) {
+            return $shifts->first();
+        }
+
+        $containing = $scored
+            ->filter(static fn (array $row): bool => $row['contains'])
+            ->sortBy(static fn (array $row): int => abs($row['start'] - $nowMinutes))
+            ->values();
+
+        if ($containing->isNotEmpty()) {
+            return $containing->first()['shift'];
+        }
+
+        $upcoming = $scored
+            ->filter(static fn (array $row): bool => $row['start'] >= $nowMinutes)
+            ->sortBy(static fn (array $row): int => $row['start'])
+            ->values();
+
+        if ($upcoming->isNotEmpty()) {
+            return $upcoming->first()['shift'];
+        }
+
+        return $scored
+            ->sortByDesc(static fn (array $row): int => $row['start'])
+            ->first()['shift'];
     }
 
     /**
@@ -99,5 +163,32 @@ final class TimeClockScheduledShift
             ->where('entry_type', EmployeeScheduleShift::TYPE_TIME_OFF)
             ->whereDate('scheduled_date', $date)
             ->exists();
+    }
+
+    private static function windowContains(int $startMinutes, ?int $endMinutes, int $nowMinutes): bool
+    {
+        if ($endMinutes === null) {
+            return $nowMinutes === $startMinutes;
+        }
+
+        // Overnight: e.g. 22:00–06:00
+        if ($endMinutes <= $startMinutes) {
+            return $nowMinutes >= $startMinutes || $nowMinutes <= $endMinutes;
+        }
+
+        return $nowMinutes >= $startMinutes && $nowMinutes <= $endMinutes;
+    }
+
+    private static function storedTimeToMinutes(mixed $value): ?int
+    {
+        if ($value instanceof CarbonInterface) {
+            return ($value->hour * 60) + $value->minute;
+        }
+
+        if (! is_string($value) || ! preg_match('/^(\d{1,2}):(\d{2})/', $value, $matches)) {
+            return null;
+        }
+
+        return ((int) $matches[1] * 60) + (int) $matches[2];
     }
 }
