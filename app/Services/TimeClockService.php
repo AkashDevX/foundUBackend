@@ -6,6 +6,7 @@ use App\Exceptions\TimeClockException;
 use App\Models\Employee;
 use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
+use App\Models\TimeClockIdleAlert;
 use App\Models\WorkLocation;
 use App\Support\TimeClockScheduledShift;
 use App\Support\GeoDistance;
@@ -211,6 +212,8 @@ class TimeClockService
                 $session['clock_in']->shift_id,
             );
 
+            $this->clearIdleAlertsForSession($employee, $session['clock_in']);
+
             return [
                 'entry' => $entry,
                 'time_clock' => $this->statusFor($employee),
@@ -370,6 +373,8 @@ class TimeClockService
                 $session['clock_in']->shift_id,
             );
 
+            $this->clearIdleAlertsForSession($employee, $session['clock_in']);
+
             return [
                 'entry' => $entry,
                 'time_clock' => $this->statusFor($employee),
@@ -439,12 +444,32 @@ class TimeClockService
                 ]);
             }
 
-            return TimeClockEntry::query()->create([
+            $entry = TimeClockEntry::query()->create([
                 ...$baseAttributes,
                 'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
                 'comment' => $comment !== null ? mb_substr($comment, 0, 2000) : null,
             ]);
+
+            $this->clearIdleAlertsForSession($employee, $clockIn);
+
+            return $entry;
         });
+    }
+
+    private function clearIdleAlertsForSession(Employee $employee, TimeClockEntry $clockIn): void
+    {
+        TimeClockIdleAlert::query()
+            ->where('employee_id', $employee->id)
+            ->where('clock_in_entry_id', $clockIn->id)
+            ->whereIn('status', [
+                TimeClockIdleAlert::STATUS_OPEN,
+                TimeClockIdleAlert::STATUS_ACKNOWLEDGED,
+            ])
+            ->update([
+                'status' => TimeClockIdleAlert::STATUS_CLEARED,
+                'cleared_at' => now('UTC'),
+                'updated_at' => now('UTC'),
+            ]);
     }
 
     private function latestEntryFor(Employee $employee): ?TimeClockEntry
@@ -454,6 +479,22 @@ class TimeClockService
             ->orderByDesc('clocked_at')
             ->orderByDesc('id')
             ->first();
+    }
+
+    /**
+     * Public open-session resolver for location tracking (does not change punch rules).
+     *
+     * @return array{
+     *     clock_in: TimeClockEntry,
+     *     last: TimeClockEntry,
+     *     is_on_break: bool,
+     *     open_break_start: TimeClockEntry|null,
+     *     breaks: list<array{start: TimeClockEntry, end: TimeClockEntry|null}>,
+     * }|null
+     */
+    public function openSessionFor(Employee $employee): ?array
+    {
+        return $this->resolveOpenSession($employee);
     }
 
     /**

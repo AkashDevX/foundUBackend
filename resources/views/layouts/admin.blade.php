@@ -102,6 +102,7 @@
                         <a href="{{ route('admin.employees.profiles') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.profiles') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Employee profiles</a>
                         <a href="{{ route('admin.employees.weekly-schedule') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.weekly-schedule') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Weekly schedule</a>
                         <a href="{{ route('admin.employees.tasks') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.tasks*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Tasks</a>
+                        <a href="{{ route('admin.employees.location-tracking') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.location-tracking*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Location tracking</a>
                         <a href="{{ route('admin.training.index') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.training*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Training</a>
                     </div>
 

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
+use App\Http\Controllers\Admin\AdminLocationTrackingController;
 use App\Http\Controllers\Admin\AdminMessagesController;
 use App\Http\Controllers\Admin\AdminTrainingController;
 use App\Http\Controllers\Admin\AdminPayrollController;
@@ -120,6 +121,9 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
     Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
     Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
+    Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
+    Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
+    Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
     Route::get('/admin/payroll', [AdminPayrollController::class, 'index'])->name('admin.payroll');
     Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
     Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');
@@ -235,6 +239,9 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
         Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
         Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
+        Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
+        Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
+        Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
         Route::get('/admin/payroll', [AdminPayrollController::class, 'index'])->name('admin.payroll');
         Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
         Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');

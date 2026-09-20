@@ -370,6 +370,7 @@ class AdminDashboardNotificationsTest extends TestCase
             ['key' => 'no_shows_sick', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'late_early_punches', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'overtime', 'total_count' => 1, 'unavailable' => false],
+            ['key' => 'idle_low_movement', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'clocked_in', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'birthdays_today', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'recently_joined', 'total_count' => 1, 'unavailable' => false],
@@ -390,7 +391,7 @@ class AdminDashboardNotificationsTest extends TestCase
             $byColumn['requires_action'],
         );
         $this->assertSame(
-            ['missing_clock_in', 'no_shows_sick', 'late_early_punches', 'overtime', 'clocked_in', 'birthdays_today'],
+            ['missing_clock_in', 'no_shows_sick', 'late_early_punches', 'overtime', 'idle_low_movement', 'clocked_in', 'birthdays_today'],
             $byColumn['happening_today'],
         );
         $this->assertSame(

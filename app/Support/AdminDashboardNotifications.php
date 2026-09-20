@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
+use App\Models\TimeClockIdleAlert;
 use App\Models\TimeOffRequest;
 use App\Models\TimesheetApproval;
 use Carbon\Carbon;
@@ -56,6 +57,7 @@ final class AdminDashboardNotifications
                 'no_shows_sick',
                 'late_early_punches',
                 'overtime',
+                'idle_low_movement',
                 'clocked_in',
                 'birthdays_today',
             ],
@@ -146,6 +148,10 @@ final class AdminDashboardNotifications
             'one' => '1 staff member currently clocked in',
             'many' => '%d staff currently clocked in',
         ],
+        'idle_low_movement' => [
+            'one' => '1 employee with little movement while on shift',
+            'many' => '%d employees with little movement while on shift',
+        ],
     ];
 
     /**
@@ -212,6 +218,18 @@ final class AdminDashboardNotifications
                 ->get()
                 ->unique('employee_id')
                 ->values();
+
+        $openIdleAlerts = $employees->isEmpty()
+            ? collect()
+            : TimeClockIdleAlert::on($conn)
+                ->whereIn('employee_id', $employees->pluck('id'))
+                ->whereIn('status', [
+                    TimeClockIdleAlert::STATUS_OPEN,
+                    TimeClockIdleAlert::STATUS_ACKNOWLEDGED,
+                ])
+                ->orderByDesc('detected_at')
+                ->orderByDesc('id')
+                ->get();
 
         $timeOffRequests = TimeOffRequest::on($conn)
             ->where('status', TimeOffRequest::STATUS_PENDING)
@@ -380,6 +398,12 @@ final class AdminDashboardNotifications
         );
 
         $sections[] = self::section(
+            'idle_low_movement',
+            'Little movement while on shift',
+            self::idleLowMovementItems($employees, $openIdleAlerts, $employeeUrl, $name),
+        );
+
+        $sections[] = self::section(
             'clocked_in',
             'Staff currently clocked in',
             self::clockedInItems($employees, $latestClockEntries, $employeeUrl, $name, $now),
@@ -505,6 +529,7 @@ final class AdminDashboardNotifications
             'pending_leave' => null,
             'schedule_conflicts', 'upcoming_shifts' => route('admin.employees.weekly-schedule'),
             'missing_clock_in', 'no_shows_sick', 'late_early_punches', 'overtime', 'clocked_in' => route('admin.employees.time-clock'),
+            'idle_low_movement' => route('admin.employees.location-tracking'),
             'incomplete_onboarding' => route('admin.registrations.index', ['status' => 'pending']),
             'open_shifts' => route('admin.employees.assignments'),
             default => null,
@@ -1447,6 +1472,56 @@ final class AdminDashboardNotifications
                 'url' => self::timeClockUrl($employee),
                 'severity' => 'success',
                 'sort_at' => -$last->clocked_at->getTimestamp(),
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param  Collection<int, Employee>  $employees
+     * @param  Collection<int, TimeClockIdleAlert>  $openIdleAlerts
+     * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
+     */
+    private static function idleLowMovementItems(
+        Collection $employees,
+        Collection $openIdleAlerts,
+        callable $employeeUrl,
+        callable $name,
+    ): array {
+        if ($openIdleAlerts->isEmpty()) {
+            return [];
+        }
+
+        $employeesById = $employees->keyBy(static fn (Employee $employee): int => (int) $employee->id);
+        $items = [];
+        $seenEmployees = [];
+
+        foreach ($openIdleAlerts as $alert) {
+            $employeeId = (int) $alert->employee_id;
+            if (isset($seenEmployees[$employeeId])) {
+                continue;
+            }
+            $seenEmployees[$employeeId] = true;
+
+            $employee = $employeesById->get($employeeId);
+            if (! $employee instanceof Employee) {
+                continue;
+            }
+
+            $items[] = [
+                'message' => sprintf(
+                    '%s — little movement for about %d min%s',
+                    $name($employee),
+                    (int) $alert->idle_minutes,
+                    $alert->status === TimeClockIdleAlert::STATUS_ACKNOWLEDGED ? ' (acknowledged)' : '',
+                ),
+                'url' => route('admin.employees.location-tracking', [
+                    'employee' => $employee->public_id,
+                    'clock_in_entry_id' => $alert->clock_in_entry_id,
+                ]),
+                'severity' => 'urgent',
+                'sort_at' => -($alert->detected_at?->getTimestamp() ?? 0),
             ];
         }
 

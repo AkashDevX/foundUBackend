@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AcknowledgeIdleAlertController;
 use App\Http\Controllers\Api\V1\AcknowledgeTrainingMaterialsController;
 use App\Http\Controllers\Api\V1\AppBootstrapController;
 use App\Http\Controllers\Api\V1\AutoClockOutEmployeeController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\V1\ForgotPasswordController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
 use App\Http\Controllers\Api\V1\DeviceTokenController;
+use App\Http\Controllers\Api\V1\LocationPingEmployeeController;
 use App\Http\Controllers\Api\V1\MessagingController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
@@ -71,6 +73,8 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
      * - GET /time-clock/status, POST /time-clock/clock-in|clock-out — GPS geofence vs assigned work site.
      * - POST /time-clock/break-start|break-end — unpaid break punches within an open shift.
      * - POST /time-clock/auto-clock-out — automatic clock-out when employee leaves geofence.
+     * - POST /time-clock/location-ping — mid-shift GPS sample (no auto clock-out).
+     * - POST /time-clock/idle-alert/acknowledge — employee dismisses a low-movement alert.
      * - GET /tasks — employee task allocations (optional ?date=).
      * - PATCH /tasks/{id} — mark a task complete or pending for the given date.
      */
@@ -115,6 +119,8 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::post('/time-clock/break-start', BreakStartEmployeeController::class);
         Route::post('/time-clock/break-end', BreakEndEmployeeController::class);
         Route::post('/time-clock/auto-clock-out', AutoClockOutEmployeeController::class);
+        Route::post('/time-clock/location-ping', LocationPingEmployeeController::class);
+        Route::post('/time-clock/idle-alert/acknowledge', AcknowledgeIdleAlertController::class);
         Route::get('/payroll', \App\Http\Controllers\Api\V1\EmployeePayrollController::class);
 
         Route::post('/device-token', [DeviceTokenController::class, 'store']);

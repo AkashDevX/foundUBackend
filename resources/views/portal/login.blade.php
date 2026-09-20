@@ -116,23 +116,23 @@
             background:
                 radial-gradient(ellipse 85% 75% at 50% 45%, rgba(0, 82, 162, 0.55) 0%, rgba(0, 61, 122, 0.35) 42%, transparent 72%),
                 linear-gradient(165deg, #010816 0%, var(--brand-deep) 32%, var(--brand-mid) 58%, #061a33 85%, #02050c 100%);
-            animation: loginHeroShift 18s ease-in-out infinite alternate;
+            animation: none;
         }
         .login-hero__spot {
             position: absolute;
             inset: 0;
             pointer-events: none;
             background: radial-gradient(420px 420px at var(--spot-x) var(--spot-y), rgba(153, 211, 26, 0.16), transparent 58%);
-            transition: background 0.25s ease;
+            transition: background 0.45s ease;
         }
         .login-hero__aurora {
             position: absolute;
             inset: -35%;
             pointer-events: none;
-            opacity: 0.5;
+            opacity: 0.42;
             background: conic-gradient(from 140deg, transparent 0deg, rgba(153, 211, 26, 0.16) 50deg, transparent 90deg, rgba(0, 82, 162, 0.28) 180deg, transparent 230deg, rgba(153, 211, 26, 0.1) 300deg, transparent 360deg);
             filter: blur(28px);
-            animation: loginSpin 32s linear infinite;
+            animation: none;
         }
         .login-hero__bokeh {
             position: absolute;
@@ -144,7 +144,7 @@
                 radial-gradient(ellipse 55% 45% at 72% 78%, rgba(245, 158, 11, 0.11), transparent 42%),
                 radial-gradient(ellipse 45% 40% at 18% 92%, rgba(153, 211, 26, 0.14), transparent 46%),
                 radial-gradient(ellipse 35% 30% at 50% 40%, rgba(0, 82, 162, 0.15), transparent 50%);
-            animation: loginBokehDrift 16s ease-in-out infinite alternate;
+            animation: loginAmbientDrift 48s ease-in-out infinite alternate;
         }
         .login-hero__glass {
             position: absolute;
@@ -170,13 +170,13 @@
                 linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
             background-size: 56px 56px;
             mask-image: radial-gradient(ellipse 62% 58% at 50% 48%, #000 20%, transparent 78%);
-            animation: loginGridDrift 28s linear infinite;
+            animation: none;
         }
         .login-hero__stars {
             position: absolute;
             inset: 0;
             pointer-events: none;
-            opacity: 0.7;
+            opacity: 0.55;
             background-image:
                 radial-gradient(1.6px 1.6px at 12% 22%, rgba(255, 255, 255, 0.7), transparent),
                 radial-gradient(1.2px 1.2px at 28% 68%, rgba(153, 211, 26, 0.7), transparent),
@@ -188,7 +188,7 @@
                 radial-gradient(1.5px 1.5px at 54% 48%, rgba(153, 211, 26, 0.35), transparent),
                 radial-gradient(1.2px 1.2px at 8% 48%, rgba(255, 255, 255, 0.45), transparent),
                 radial-gradient(1.7px 1.7px at 92% 18%, rgba(153, 211, 26, 0.4), transparent);
-            animation: loginStarsTwinkle 5.5s ease-in-out infinite;
+            animation: none;
         }
         .login-hero__net {
             position: absolute;
@@ -202,8 +202,8 @@
             fill: none;
             stroke: rgba(153, 211, 26, 0.35);
             stroke-width: 1;
-            stroke-dasharray: 5 12;
-            animation: loginDash 18s linear infinite;
+            stroke-dasharray: none;
+            animation: none;
         }
         .login-hero__net circle {
             fill: rgba(255, 255, 255, 0.55);
@@ -222,14 +222,13 @@
         }
         .login-hero__wave path:last-child {
             fill: rgba(153, 211, 26, 0.08);
-            animation: loginWave 7s ease-in-out infinite alternate;
+            animation: none;
         }
         .login-orb {
             position: absolute;
             border-radius: 9999px;
             pointer-events: none;
             filter: blur(2px);
-            will-change: transform, opacity;
         }
         .login-orb--1 {
             width: 280px;
@@ -237,7 +236,7 @@
             left: -80px;
             top: 12%;
             background: radial-gradient(circle, rgba(0, 82, 162, 0.45) 0%, transparent 70%);
-            animation: loginFloatA 14s ease-in-out infinite;
+            animation: none;
         }
         .login-orb--2 {
             width: 220px;
@@ -245,7 +244,7 @@
             right: -50px;
             top: 58%;
             background: radial-gradient(circle, rgba(153, 211, 26, 0.22) 0%, transparent 70%);
-            animation: loginFloatB 18s ease-in-out infinite;
+            animation: none;
         }
         .login-orb--3 {
             width: 160px;
@@ -253,7 +252,7 @@
             left: 38%;
             bottom: -40px;
             background: radial-gradient(circle, rgba(0, 82, 162, 0.35) 0%, transparent 72%);
-            animation: loginFloatC 12s ease-in-out infinite;
+            animation: none;
         }
         .login-orb--4 {
             width: 90px;
@@ -261,7 +260,7 @@
             right: 18%;
             top: 16%;
             background: radial-gradient(circle, rgba(153, 211, 26, 0.28) 0%, transparent 70%);
-            animation: loginFloatA 10s ease-in-out infinite reverse;
+            animation: none;
         }
 
         .login-logo-wrap {
@@ -271,7 +270,7 @@
             justify-content: center;
             width: min(150px, 28vh, 52vw);
             height: min(150px, 28vh, 52vw);
-            animation: loginLogoIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+            animation: loginReveal 0.7s ease both;
         }
         @media (min-width: 1024px) {
             .login-logo-wrap {
@@ -293,13 +292,13 @@
         .login-logo-wrap::before {
             width: 108%;
             height: 108%;
-            animation: loginRingPulse 5.5s ease-out infinite;
+            animation: none;
         }
         .login-logo-wrap::after {
             width: 132%;
             height: 132%;
             border-color: rgba(255, 255, 255, 0.12);
-            animation: loginRingPulse 5.5s ease-out 1.4s infinite;
+            animation: none;
         }
         .login-orbit {
             position: absolute;
@@ -307,14 +306,13 @@
             border-radius: 9999px;
             border: 1px dashed rgba(255, 255, 255, 0.16);
             pointer-events: none;
-            animation: loginSpin 22s linear infinite;
+            animation: none;
         }
         .login-orbit--slow {
             inset: -8%;
             border-style: dotted;
             border-color: rgba(153, 211, 26, 0.22);
-            animation-duration: 36s;
-            animation-direction: reverse;
+            animation: none;
         }
         .login-orbit__dot {
             position: absolute;
@@ -337,14 +335,14 @@
         .login-logo {
             position: relative;
             z-index: 1;
-            animation: loginLogoFloat 6.5s ease-in-out infinite;
+            animation: none;
             filter: drop-shadow(0 18px 36px rgba(0, 0, 0, 0.35)) drop-shadow(0 0 28px rgba(153, 211, 26, 0.18));
         }
         .login-badge {
-            animation: loginFadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.25s both;
+            animation: loginReveal 0.65s ease 0.12s both;
         }
         .login-badge__dot {
-            animation: loginDotPulse 2.2s ease-in-out infinite;
+            animation: none;
         }
         .login-pills {
             display: flex;
@@ -354,7 +352,7 @@
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
-            animation: loginFadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.4s both;
+            animation: loginReveal 0.65s ease 0.2s both;
         }
         .login-pill {
             display: inline-flex;
@@ -400,10 +398,10 @@
             border-radius: 9999px;
             background: var(--login-lime);
             box-shadow: 0 0 8px rgba(153, 211, 26, 0.7);
-            animation: loginDotPulse 2.6s ease-in-out infinite;
+            animation: none;
         }
-        .login-pill:nth-child(2) span { animation-delay: 0.4s; background: #60a5fa; box-shadow: 0 0 8px rgba(96, 165, 250, 0.7); }
-        .login-pill:nth-child(3) span { animation-delay: 0.8s; background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.55); }
+        .login-pill:nth-child(2) span { animation: none; background: #60a5fa; box-shadow: 0 0 8px rgba(96, 165, 250, 0.7); }
+        .login-pill:nth-child(3) span { animation: none; background: #fbbf24; box-shadow: 0 0 8px rgba(251, 191, 36, 0.55); }
 
         .login-panel,
         .login-panel * {
@@ -425,7 +423,7 @@
             border-radius: 9999px;
             pointer-events: none;
             background: radial-gradient(circle, rgba(0, 82, 162, 0.1), transparent 68%);
-            animation: loginFloatB 16s ease-in-out infinite;
+            animation: none;
         }
         .login-panel__glow--lime {
             left: -90px;
@@ -433,7 +431,7 @@
             bottom: 6%;
             top: auto;
             background: radial-gradient(circle, rgba(153, 211, 26, 0.12), transparent 68%);
-            animation-name: loginFloatA;
+            animation: none;
         }
         .login-panel__card {
             position: relative;
@@ -449,7 +447,7 @@
                 0 1px 0 rgba(255, 255, 255, 0.9) inset,
                 0 24px 60px rgba(0, 61, 122, 0.08);
             backdrop-filter: blur(18px);
-            animation: loginFadeUp 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+            animation: loginReveal 0.55s ease both;
         }
         .login-panel__card::before {
             content: "";
@@ -463,7 +461,7 @@
             -webkit-mask-composite: xor;
             mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             mask-composite: exclude;
-            animation: loginBorderGlow 6s ease-in-out infinite;
+            animation: none;
         }
         @media (min-width: 1024px) {
             .login-panel__card {
@@ -482,7 +480,7 @@
             height: 3px;
             border-radius: 9999px;
             background: linear-gradient(90deg, #0052a2, var(--login-lime));
-            animation: loginAccentGrow 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+            animation: loginReveal 0.55s ease 0.08s both;
         }
         .login-form {
             min-width: 0;
@@ -492,7 +490,7 @@
             margin-top: 0.9rem;
         }
         .login-form > * {
-            animation: loginFadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+            animation: loginReveal 0.45s ease both;
         }
         .login-form > *:nth-child(1) { animation-delay: 0.12s; }
         .login-form > *:nth-child(2) { animation-delay: 0.2s; }
@@ -547,7 +545,7 @@
             min-width: 148px;
             background: linear-gradient(180deg, #1a6bb8 0%, #0052a2 55%, #003d7a 100%);
             transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
-            animation: loginBtnGlow 2.8s ease-in-out infinite;
+            animation: none;
         }
         .login-btn::before {
             content: "";
@@ -556,7 +554,8 @@
             pointer-events: none;
             background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
             transform: translateX(-120%);
-            animation: loginBtnShine 3.4s ease-in-out 1.2s infinite;
+            animation: none;
+            opacity: 0;
         }
         .login-btn:hover {
             filter: brightness(1.06);
@@ -578,84 +577,16 @@
             margin-top: 1.5rem;
             color: #94a3b8;
             font-size: 12px;
-            animation: loginFadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.6s both;
+            animation: loginReveal 0.5s ease 0.25s both;
         }
 
-        @keyframes loginHeroShift {
-            0% { filter: saturate(1); }
-            100% { filter: saturate(1.12); }
-        }
-        @keyframes loginBokehDrift {
-            0% { transform: translate3d(0, 0, 0) scale(1); }
-            100% { transform: translate3d(2%, -2%, 0) scale(1.06); }
-        }
-        @keyframes loginGridDrift {
+        @keyframes loginAmbientDrift {
             0% { transform: translate3d(0, 0, 0); }
-            100% { transform: translate3d(-28px, -28px, 0); }
+            100% { transform: translate3d(1.2%, -0.8%, 0); }
         }
-        @keyframes loginStarsTwinkle {
-            0%, 100% { opacity: 0.35; }
-            50% { opacity: 0.85; }
-        }
-        @keyframes loginFloatA {
-            0%, 100% { transform: translate3d(0, 0, 0); }
-            50% { transform: translate3d(18px, -22px, 0); }
-        }
-        @keyframes loginFloatB {
-            0%, 100% { transform: translate3d(0, 0, 0); }
-            50% { transform: translate3d(-24px, 16px, 0); }
-        }
-        @keyframes loginFloatC {
-            0%, 100% { transform: translate3d(0, 0, 0); }
-            50% { transform: translate3d(12px, -18px, 0); }
-        }
-        @keyframes loginLogoIn {
-            from { opacity: 0; transform: scale(0.92) translateY(12px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-        @keyframes loginLogoFloat {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-        }
-        @keyframes loginRingPulse {
-            0% { opacity: 0.45; transform: scale(0.86); }
-            70% { opacity: 0; transform: scale(1.08); }
-            100% { opacity: 0; transform: scale(1.08); }
-        }
-        @keyframes loginDotPulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 10px rgba(153, 211, 26, 0.65); }
-            50% { transform: scale(1.35); box-shadow: 0 0 18px rgba(153, 211, 26, 0.95); }
-        }
-        @keyframes loginFadeUp {
-            from { opacity: 0; transform: translateY(16px); }
+        @keyframes loginReveal {
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes loginAccentGrow {
-            from { opacity: 0; transform: scaleX(0.35); transform-origin: left; }
-            to { opacity: 1; transform: scaleX(1); transform-origin: left; }
-        }
-        @keyframes loginBtnShine {
-            0%, 18% { transform: translateX(-120%); }
-            42% { transform: translateX(120%); }
-            100% { transform: translateX(120%); }
-        }
-        @keyframes loginBtnGlow {
-            0%, 100% { box-shadow: 0 12px 24px rgba(0, 82, 162, 0.28); }
-            50% { box-shadow: 0 16px 34px rgba(0, 82, 162, 0.42), 0 0 0 6px rgba(0, 82, 162, 0.08); }
-        }
-        @keyframes loginSpin {
-            to { transform: rotate(360deg); }
-        }
-        @keyframes loginDash {
-            to { stroke-dashoffset: -240; }
-        }
-        @keyframes loginWave {
-            from { transform: translateX(0); }
-            to { transform: translateX(-28px); }
-        }
-        @keyframes loginBorderGlow {
-            0%, 100% { opacity: 0.65; }
-            50% { opacity: 1; }
         }
 
         @media (max-width: 1023px) {

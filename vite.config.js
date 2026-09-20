@@ -15,6 +15,7 @@ export default defineConfig({
                 'resources/js/admin-time-clock-timesheet.js',
                 'resources/js/admin-time-clock-punch-map.js',
                 'resources/js/admin-time-clock-row-actions.js',
+                'resources/js/admin-location-tracking.js',
             ],
             refresh: true,
         }),
