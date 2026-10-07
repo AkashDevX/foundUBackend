@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V1\DeviceTokenController;
 use App\Http\Controllers\Api\V1\LocationPingEmployeeController;
 use App\Http\Controllers\Api\V1\MessagingController;
 use App\Http\Controllers\Api\V1\RequestOrganizationController;
+use App\Http\Controllers\Api\V1\RegisterEmployeeApplicationsController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SubmitTrainingAttemptController;
@@ -51,6 +52,13 @@ Route::prefix('v1')->group(function () {
      * Stored for CruLynk platform admin only; never exposed in tenant org portals.
      */
     Route::post('/request-organization', RequestOrganizationController::class)
+        ->middleware(['platform.api', 'throttle:10,1']);
+
+    /*
+     * Multi-org Create Account: one profile, pending employee per selected tenant.
+     * Each tenant admin Approves / Declines independently. No token is issued.
+     */
+    Route::post('/register-applications', RegisterEmployeeApplicationsController::class)
         ->middleware(['platform.api', 'throttle:10,1']);
 
     // Signed attachment open (no Bearer token). Tenant comes from ?company= in the signed URL.

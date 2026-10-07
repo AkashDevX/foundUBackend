@@ -6,11 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Middleware\ResolveTenantFromMaster;
 use App\Http\Requests\RegisterEmployeeRequest;
 use App\Models\Employee;
-use App\Services\RegistrationDocumentStorage;
-use App\Support\FoundUProfileMapper;
-use App\Support\RegistrationDisplay;
+use App\Services\EmployeeRegistrationService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Persists the full four-step foundU registration into the tenant `employees` table.
@@ -18,7 +15,7 @@ use Illuminate\Support\Facades\DB;
  */
 class RegisterEmployeeController extends Controller
 {
-    public function __invoke(RegisterEmployeeRequest $request): JsonResponse
+    public function __invoke(RegisterEmployeeRequest $request, EmployeeRegistrationService $registration): JsonResponse
     {
         $company = $request->tenantCompany();
         abort_unless($company !== null, 500, 'Tenant not resolved.');
@@ -29,137 +26,29 @@ class RegisterEmployeeController extends Controller
             ], 422);
         }
 
-        $registryAppKey = $company->app_key;
-        if ($registryAppKey !== null && $registryAppKey !== '') {
-            $submittedKey = $request->validated('registration_company_app_key');
-            if ($submittedKey !== $registryAppKey) {
-                return response()->json([
-                    'message' => 'Organization credentials do not match the master registry. Use GET /api/v1/bootstrap and send registration_company_app_key equal to the company appKey.',
-                    'code' => 'invalid_organization_key',
-                ], 422);
-            }
+        if (! $registration->appKeyIsValid($company, $request->validated('registration_company_app_key'))) {
+            return response()->json([
+                'message' => 'Organization credentials do not match the master registry. Use GET /api/v1/bootstrap and send registration_company_app_key equal to the company appKey.',
+                'code' => 'invalid_organization_key',
+            ], 422);
         }
 
-        [$firstName, $lastName] = FoundUProfileMapper::splitFullLegalName($request->validated('full_legal_name'));
-
-        $payload = $request->safe()->only([
-            'registration_company_slug',
-            'registration_company_app_key',
-            'company_display_name',
-            'email',
-            'password',
-            'phone',
-            'date_of_birth',
-            'sex',
-            'marital_status',
-            'address',
-            'emergency_contact_name',
-            'emergency_contact_phone',
-            'emergency_contact_relationship',
-            'visa_status',
-            'unrestricted_work_rights',
-            'visa_expiry',
-            'hours_per_week',
-            'weekly_availability_summary',
-            'weekly_availability_json',
-            'id_documents_summary',
-            'id_documents_json',
-            'police_check_expiry',
-            'police_check_uploaded',
-            'fit_to_work_expiry',
-            'fit_to_work_uploaded',
-            'licences_summary',
-            'insurances_summary',
-            'licences_json',
-            'insurances_json',
-            'bank_account_name',
-            'bank_account_number',
-            'bank_branch_code',
-            'bank_name',
-            'mode_of_transport',
-            'vehicle_registration',
-            'vehicle_expiry',
-            'vehicle_insurance_uploaded',
-            'employee_code',
-            'job_title',
-            'department',
-        ]);
-
-        foreach (['date_of_birth', 'visa_expiry', 'police_check_expiry', 'fit_to_work_expiry', 'vehicle_expiry'] as $dateField) {
-            if (array_key_exists($dateField, $payload)) {
-                $payload[$dateField] = RegistrationDisplay::toNullableIsoDate($payload[$dateField]);
-            }
-        }
-
-        if (array_key_exists('licences_json', $payload)) {
-            $payload['licences_json'] = RegistrationDisplay::normalizeDocumentJsonExpiryRows(
-                is_array($payload['licences_json']) ? $payload['licences_json'] : null
-            );
-            $payload['licences_summary'] = RegistrationDisplay::rebuildDocumentRowsSummary(
-                is_array($payload['licences_json']) ? $payload['licences_json'] : null
-            ) ?? ($payload['licences_summary'] ?? null);
-        }
-
-        if (array_key_exists('insurances_json', $payload)) {
-            $payload['insurances_json'] = RegistrationDisplay::normalizeDocumentJsonExpiryRows(
-                is_array($payload['insurances_json']) ? $payload['insurances_json'] : null
-            );
-            $payload['insurances_summary'] = RegistrationDisplay::rebuildDocumentRowsSummary(
-                is_array($payload['insurances_json']) ? $payload['insurances_json'] : null
-            ) ?? ($payload['insurances_summary'] ?? null);
-        }
-
-        if (! $this->transportIsOwnVehicle($payload['mode_of_transport'] ?? null)) {
-            $payload['vehicle_registration'] = null;
-            $payload['vehicle_expiry'] = null;
-            $payload['vehicle_insurance_uploaded'] = null;
-        }
-
-        $employee = null;
-
-        DB::connection()->transaction(function () use (
-            &$employee,
-            $payload,
-            $firstName,
-            $lastName,
-            $request,
+        $payload = $registration->payloadFromValidated($request->validated());
+        $result = $registration->createPendingEmployee(
             $company,
-        ): void {
-            $employee = Employee::query()->create([
-                ...$payload,
-                'first_name' => $firstName,
-                'last_name' => $lastName,
-                'full_legal_name' => $request->validated('full_legal_name'),
-                'employment_status' => 'pending',
-            ]);
+            $request,
+            $payload,
+            $request->validated('full_legal_name'),
+        );
 
-            app(RegistrationDocumentStorage::class)->attach($request, $employee, $company->slug);
+        if (($result['status'] ?? null) !== EmployeeRegistrationService::STATUS_CREATED) {
+            return response()->json([
+                'message' => $result['message'] ?? 'Registration failed.',
+            ], 422);
+        }
 
-            $uploadFlags = [];
-            if ($request->hasFile('police_check')) {
-                $uploadFlags['police_check_uploaded'] = 'Yes';
-            }
-            if ($request->hasFile('fit_to_work')) {
-                $uploadFlags['fit_to_work_uploaded'] = 'Yes';
-            }
-            if ($request->hasFile('vehicle_insurance')) {
-                $uploadFlags['vehicle_insurance_uploaded'] = 'Yes';
-            }
-            if ($uploadFlags !== []) {
-                $employee->forceFill($uploadFlags)->save();
-            }
-
-            if (! $this->transportIsOwnVehicle($employee->mode_of_transport)) {
-                $employee->forceFill([
-                    'vehicle_registration' => null,
-                    'vehicle_expiry' => null,
-                    'vehicle_insurance_uploaded' => null,
-                    'vehicle_insurance_path' => null,
-                ])->save();
-            }
-        });
-
-        abort_unless($employee instanceof Employee, 500, 'Registration failed.');
+        /** @var Employee $employee */
+        $employee = $result['employee'];
 
         /*
          * Mobile clients: never treat this response as logged-in. There is no token/session.
@@ -185,14 +74,5 @@ class RegisterEmployeeController extends Controller
                 'requires_email_password_login_after_approval' => true,
             ],
         ], 201);
-    }
-
-    private function transportIsOwnVehicle(?string $mode): bool
-    {
-        if ($mode === null || trim($mode) === '') {
-            return false;
-        }
-
-        return strcasecmp(trim($mode), 'Own vehicle') === 0;
     }
 }
