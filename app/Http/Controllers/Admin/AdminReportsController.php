@@ -235,7 +235,7 @@ class AdminReportsController extends Controller
     public function timesheet(Request $request): View
     {
         $ctx = $this->pageContext($request);
-        $to = $this->parseDate($request, 'to') ?? Carbon::today();
+        $to = $this->parseDate($request, 'to') ?? DisplayTimezone::now()->startOfDay();
         $from = $this->parseDate($request, 'from') ?? $to->copy()->subDays(29);
         if ($from->gt($to)) {
             [$from, $to] = [$to->copy(), $from->copy()];
@@ -624,7 +624,7 @@ class AdminReportsController extends Controller
         }
 
         try {
-            return Carbon::parse($value)->startOfDay();
+            return Carbon::parse($value, DisplayTimezone::name())->startOfDay();
         } catch (\Throwable) {
             return null;
         }

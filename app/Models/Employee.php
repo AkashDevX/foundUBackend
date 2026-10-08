@@ -39,6 +39,7 @@ use Laravel\Sanctum\HasApiTokens;
     'visa_status',
     'unrestricted_work_rights',
     'visa_expiry',
+    'visa_document_path',
     'hours_per_week',
     'weekly_availability_summary',
     'weekly_availability_json',
@@ -69,6 +70,7 @@ use Laravel\Sanctum\HasApiTokens;
     'profile_photo_path',
     'police_check_path',
     'fit_to_work_path',
+    'resume_path',
     'job_title',
     'job_title_id',
     'department',
@@ -343,6 +345,9 @@ class Employee extends Model
             'visa_expiry' => RegistrationDisplay::toNullableIsoDate(
                 RegistrationDisplay::employeeRawDateValue($this, 'visa_expiry', ['visaExpiry', 'visa_expiry'])
             ),
+            'visa_document_uploaded' => (is_string($this->visa_document_path) && $this->visa_document_path !== '')
+                ? 'Yes'
+                : null,
             'hours_per_week' => $this->hours_per_week,
             'weekly_availability_summary' => $this->weekly_availability_summary,
             'weekly_availability_json' => $this->weekly_availability_json,
@@ -351,6 +356,9 @@ class Employee extends Model
             'police_check_expiry' => RegistrationDisplay::toNullableIsoDate(
                 RegistrationDisplay::employeeRawDateValue($this, 'police_check_expiry', ['policeCheckExpiry', 'police_check_expiry'])
             ),
+            'resume_uploaded' => (is_string($this->resume_path) && $this->resume_path !== '')
+                ? 'Yes'
+                : null,
             'police_check_uploaded' => $this->police_check_uploaded,
             'fit_to_work_expiry' => RegistrationDisplay::toNullableIsoDate(
                 RegistrationDisplay::employeeRawDateValue($this, 'fit_to_work_expiry', ['fitToWorkExpiry', 'fit_to_work_expiry'])

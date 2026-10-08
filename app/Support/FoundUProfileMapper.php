@@ -26,6 +26,7 @@ class FoundUProfileMapper
         'visaStatus' => 'visa_status',
         'unrestrictedWorkRights' => 'unrestricted_work_rights',
         'visaExpiry' => 'visa_expiry',
+        'visaDocumentUploaded' => 'visa_document_uploaded',
         'hoursPerWeek' => 'hours_per_week',
         'weeklyAvailabilitySummary' => 'weekly_availability_summary',
         'weeklyAvailabilityJson' => 'weekly_availability_json',

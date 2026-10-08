@@ -3,6 +3,10 @@
 @endphp
 {{-- Official Heroicons (outline) — one clear symbol per workflow category --}}
 @switch($key ?? '')
+    @case('incidents')
+        <svg class="{{ $class }}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6.9 3.87 4.78 5.28 3.37 7.4 5.5 6 6.9M13 1v3h-2V1h2m7.13 3.78L18 6.9l-1.4-1.4 2.12-2.13 1.41 1.41M4.5 10.5v2h-3v-2h3m18 0v2h-3v-2h3M6 20h12a2 2 0 0 1 2 2H4a2 2 0 0 1 2-2m6-14a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2V19H9v-1.8c-1.79-1.04-3-2.98-3-5.2a6 6 0 0 1 6-6Z"/></svg>
+        @break
+
     @case('expired_documents')
         {{-- Shield alert: compliance docs at risk --}}
         <svg class="{{ $class }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0-10.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.75c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.57-.598-3.75h-.152c-3.196 0-6.1-1.25-8.25-3.286zm0 13.036h.008v.008H12v-.008z"/></svg>
@@ -31,6 +35,10 @@
     @case('no_shows_sick')
         {{-- Frown: no-show / unwell --}}
         <svg class="{{ $class }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.182 16.318A4.486 4.486 0 0012.016 15a4.486 4.486 0 00-3.198 1.318M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z"/></svg>
+        @break
+
+    @case('clock_in_exceptions')
+        <svg class="{{ $class }}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         @break
 
     @case('late_early_punches')

@@ -61,4 +61,50 @@ class AdminWeeklyAvailabilityTest extends TestCase
         $this->assertFalse($grid['tue']['morning']);
         $this->assertFalse($grid['tue']['evening']);
     }
+
+    public function test_day_schedule_keeps_multiple_periods_not_available_and_overnight(): void
+    {
+        $raw = [
+            'Mon' => [
+                'status' => 'available',
+                'periods' => [
+                    ['start' => '09:00', 'end' => '13:00'],
+                    ['start' => '18:00', 'end' => '22:00'],
+                ],
+            ],
+            'Tue' => ['status' => 'unavailable', 'periods' => []],
+            'Wed' => [
+                'status' => 'available',
+                'periods' => [
+                    ['start' => '22:00', 'end' => '06:00'],
+                ],
+            ],
+        ];
+
+        $schedule = AdminWeeklyAvailability::dayScheduleState($raw);
+
+        $this->assertTrue($schedule['mon']['available']);
+        $this->assertSame('09:00', $schedule['mon']['periods'][0]['start']);
+        $this->assertSame('22:00', $schedule['mon']['periods'][1]['end']);
+        $this->assertFalse($schedule['tue']['available']);
+        $this->assertSame([], $schedule['tue']['periods']);
+        $this->assertTrue(AdminWeeklyAvailability::isOvernight('22:00', '06:00'));
+        $this->assertStringContainsString('Mon: 09:00–13:00, 18:00–22:00', (string) AdminWeeklyAvailability::summaryTextFromStored($raw));
+        $this->assertStringContainsString('Tue: Not available', (string) AdminWeeklyAvailability::summaryTextFromStored($raw));
+        $this->assertStringContainsString('Wed: 22:00–06:00 (overnight)', (string) AdminWeeklyAvailability::summaryTextFromStored($raw));
+    }
+
+    public function test_legacy_morning_evening_lists_become_day_periods(): void
+    {
+        $schedule = AdminWeeklyAvailability::dayScheduleState([
+            'Mon' => ['morning', 'evening'],
+            'Tue' => [],
+        ]);
+
+        $this->assertSame([
+            ['start' => '06:00', 'end' => '11:00'],
+            ['start' => '17:00', 'end' => '22:00'],
+        ], $schedule['mon']['periods']);
+        $this->assertFalse($schedule['tue']['available']);
+    }
 }

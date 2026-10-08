@@ -3,6 +3,10 @@
 namespace App\Http\Requests\Concerns;
 
 use App\Support\FoundUProfileMapper;
+use App\Support\RegistrationDisplay;
+use App\Support\RegistrationIdDocument;
+use App\Support\RegistrationResume;
+use Illuminate\Validation\Validator;
 
 /**
  * Shared camelCase / multipart `payload` JSON handling for foundU registration.
@@ -113,14 +117,59 @@ trait PreparesFoundURegistrationPayload
         return [
             'profile_photo' => ['nullable', 'file', 'max:15360'],
             'police_check' => ['nullable', 'file', 'max:15360'],
+            'visa_document' => array_merge(['nullable'], RegistrationIdDocument::fileRules()),
+            'resume' => RegistrationResume::rules(),
             'fit_to_work' => ['nullable', 'file', 'max:15360'],
-            'vehicle_insurance' => ['nullable', 'file', 'max:15360'],
+            'vehicle_insurance' => array_merge(['nullable'], RegistrationIdDocument::fileRules()),
             'id_document_upload' => ['nullable', 'array'],
-            'id_document_upload.*' => ['file', 'max:15360'],
+            'id_document_upload.*' => RegistrationIdDocument::fileRules(),
+            'id_document_back_upload' => ['nullable', 'array'],
+            'id_document_back_upload.*' => RegistrationIdDocument::fileRules(),
             'licence_upload' => ['nullable', 'array'],
             'licence_upload.*' => ['file', 'max:15360'],
             'insurance_upload' => ['nullable', 'array'],
             'insurance_upload.*' => ['file', 'max:15360'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $status = $this->input('visa_status');
+            if (RegistrationDisplay::requiresVisaDocument(is_string($status) ? $status : null)
+                && ! $this->hasFile('visa_document')) {
+                $validator->errors()->add('visa_document', 'Upload your visa document.');
+            }
+
+            $this->requireExpiryWhenUploaded(
+                $validator,
+                'police_check',
+                'police_check_expiry',
+                'Enter the police check expiry date.',
+            );
+            $this->requireExpiryWhenUploaded(
+                $validator,
+                'fit_to_work',
+                'fit_to_work_expiry',
+                'Enter the fit to work certificate expiry date.',
+            );
+        });
+    }
+
+    private function requireExpiryWhenUploaded(
+        Validator $validator,
+        string $fileField,
+        string $expiryField,
+        string $message,
+    ): void {
+        if (! $this->hasFile($fileField)) {
+            return;
+        }
+
+        $raw = $this->input($expiryField);
+        $iso = RegistrationDisplay::toNullableIsoDate(is_scalar($raw) ? $raw : null);
+        if ($iso === null) {
+            $validator->errors()->add($expiryField, $message);
+        }
     }
 }

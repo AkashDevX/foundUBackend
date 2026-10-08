@@ -16,6 +16,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Clock-in grace period
+    |--------------------------------------------------------------------------
+    |
+    | How many minutes before and after the scheduled shift start an employee
+    | may clock in without an exception. A 20-minute grace on a 9:00 AM shift
+    | allows punches from 8:40 AM through 9:20 AM.
+    |
+    | outside_grace_policy:
+    | - prevent: block the punch
+    | - exception: block the punch until an admin clears the exception
+    |
+    | Organizations can override both values from the admin portal once the
+    | clock-in grace tables exist. These env values are the fallback.
+    |
+    */
+
+    'clock_in_grace_minutes' => (int) env('TIME_CLOCK_CLOCK_IN_GRACE_MINUTES', 20),
+
+    'clock_in_outside_grace_policy' => env('TIME_CLOCK_OUTSIDE_GRACE_POLICY', 'exception'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Auto clock-out exit hysteresis (meters)
     |--------------------------------------------------------------------------
     |

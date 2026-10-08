@@ -79,12 +79,13 @@ return [
     | Display Timezone (admin UI, mobile API metadata, reports)
     |--------------------------------------------------------------------------
     |
-    | All user-facing times use Australian business time. Punch timestamps and
-    | other datetimes are stored in UTC (APP_TIMEZONE) and converted here.
+    | All user-facing times use Brisbane time (Australia/Brisbane, AEST, no
+    | daylight saving). Punch timestamps and other datetimes are stored in
+    | UTC (APP_TIMEZONE) and converted here.
     |
     */
 
-    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Australia/Sydney'),
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Australia/Brisbane'),
 
     'display_locale' => env('APP_DISPLAY_LOCALE', 'en_AU'),
 

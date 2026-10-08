@@ -121,7 +121,21 @@ class EmployeeRegistrationService
             $payload['vehicle_insurance_uploaded'] = null;
         }
 
+        if (array_key_exists('unrestricted_work_rights', $payload)
+            && $this->unrestrictedWorkRightsIsYes($payload['unrestricted_work_rights'] ?? null)) {
+            $payload['visa_expiry'] = null;
+        }
+
         return $payload;
+    }
+
+    public function unrestrictedWorkRightsIsYes(mixed $value): bool
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return false;
+        }
+
+        return strcasecmp(trim($value), 'Yes') === 0;
     }
 
     public function transportIsOwnVehicle(?string $mode): bool

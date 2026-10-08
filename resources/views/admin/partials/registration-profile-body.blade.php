@@ -60,6 +60,24 @@
 
         return '';
     };
+    $specifiedTypeForKey = static function (?string $key, string $column) use ($e): string {
+        if ($key === null || $key === '') {
+            return '';
+        }
+        $rows = $e->{$column} ?? [];
+        if (! is_array($rows)) {
+            return '';
+        }
+        foreach ($rows as $row) {
+            if (! is_array($row) || (string) ($row['id'] ?? '') !== $key) {
+                continue;
+            }
+
+            return \App\Support\RegistrationDisplay::specifiedDocumentType($row) ?? '';
+        }
+
+        return '';
+    };
     $idDocLabel = static function (array $doc) use ($idTypeForKey, $registrationPicklists): string {
         $key = $doc['row_key'] ?? null;
         if ($key !== null) {
@@ -96,6 +114,9 @@
     };
     $currentUnrestrictedWorkRights = old('unrestricted_work_rights', $yesNoPickVal($e->unrestricted_work_rights));
     $showVisaExpiry = ! $unrestrictedWorkRightsYes($currentUnrestrictedWorkRights);
+    $currentVisaStatus = old('visa_status', $e->visa_status);
+    $showVisaDocument = \App\Support\RegistrationDisplay::requiresVisaDocument(is_string($currentVisaStatus) ? $currentVisaStatus : null);
+    $hasVisaDocument = is_string($e->visa_document_path) && $e->visa_document_path !== '';
     $publicLiabilityExpiry = \App\Support\RegistrationDisplay::insuranceExpiryForType(
         $e->insurances_json,
         'Public Liability',
@@ -182,20 +203,51 @@
 <section class="{{ $card }}">
     <div class="{{ $cardHead }}">
         <h3 class="text-lg font-bold text-brand-text">Work eligibility &amp; availability</h3>
-        <!-- <p class="mt-1 text-sm text-brand-text-secondary">@if ($canEditProfile)Picklists are managed in the master registry (<code class="rounded bg-brand-surface px-1 font-mono text-xs">registration_picklist_items</code>).@else Readable schedule from the app.@endif</p> -->
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Unrestricted work rights</dt><dd class="min-w-0">@if ($canEditProfile)<select name="unrestricted_work_rights" class="{{ $editIn }}" data-reg-unrestricted-work-rights><option value="">—</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected($currentUnrestrictedWorkRights === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $yesNo($e->unrestricted_work_rights) }}</span>@endif</dd></div>
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa status</dt><dd class="min-w-0">@if ($canEditProfile)<select name="visa_status" class="{{ $editIn }}"><option value="">—</option>@foreach ($registrationPicklists->get('visa_status', collect()) as $item)<option value="{{ $item->value }}" @selected(old('visa_status', $e->visa_status) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $line($e->visa_status) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa or residency status</dt><dd class="min-w-0">@if ($canEditProfile)<select name="visa_status" class="{{ $editIn }}" data-reg-visa-status><option value="">—</option>@foreach ($registrationPicklists->get('visa_status', collect()) as $item)<option value="{{ $item->value }}" @selected(old('visa_status', $e->visa_status) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $line($e->visa_status) }}</span>@endif</dd></div>
+        @if ($canEditProfile)
+            <div class="{{ $dlRowStart }} {{ $showVisaDocument ? '' : 'hidden' }}" data-reg-visa-document-field>
+                <dt class="pt-1 font-medium text-brand-label">Visa document <span class="text-red-700" aria-hidden="true">*</span></dt>
+                <dd class="min-w-0">
+                    @include('admin.partials.registration-profile-file-upload-card', [
+                        'storagePath' => $e->visa_document_path,
+                        'fileUrl' => $hasVisaDocument ? $fileUrl('visa-document') : null,
+                        'inputName' => 'visa_document',
+                        'uploadInputId' => 'reg-visa-document-upload',
+                        'canEditProfile' => true,
+                        'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    ])
+                </dd>
+            </div>
+        @elseif ($showVisaDocument || $hasVisaDocument)
+            <div class="{{ $dlRowStart }}">
+                <dt class="pt-1 font-medium text-brand-label">Visa document</dt>
+                <dd class="min-w-0">
+                    @if ($hasVisaDocument)
+                        @include('admin.partials.registration-profile-file-upload-card', [
+                            'storagePath' => $e->visa_document_path,
+                            'fileUrl' => $fileUrl('visa-document'),
+                            'inputName' => 'visa_document',
+                            'uploadInputId' => 'reg-visa-document-upload',
+                            'canEditProfile' => false,
+                        ])
+                    @else
+                        <span class="text-brand-text">No visa document uploaded</span>
+                    @endif
+                </dd>
+            </div>
+        @endif
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Unrestricted work rights in Australia</dt><dd class="min-w-0">@if ($canEditProfile)<select name="unrestricted_work_rights" class="{{ $editIn }}" data-reg-unrestricted-work-rights><option value="">—</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected($currentUnrestrictedWorkRights === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select>@else<span class="text-brand-text">{{ $yesNo($e->unrestricted_work_rights) }}</span>@endif</dd></div>
         @if ($canEditProfile)
             <div class="{{ $dl }} {{ $showVisaExpiry ? '' : 'hidden' }}" data-reg-visa-expiry-field>
-                <dt class="font-medium text-brand-label">Visa expiry</dt>
+                <dt class="font-medium text-brand-label">Visa expiry date</dt>
                 <dd class="min-w-0">@include('admin.partials.registration-profile-date-input', ['name' => 'visa_expiry', 'value' => $registrationDateInputs['visa_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['visa_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])</dd>
             </div>
         @elseif ($showVisaExpiry)
-            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa expiry</dt><dd class="min-w-0"><span class="text-brand-text">{{ $profileDateLine('visa_expiry', ['visaExpiry', 'visa_expiry']) }}</span></dd></div>
+            <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Visa expiry date</dt><dd class="min-w-0"><span class="text-brand-text">{{ $profileDateLine('visa_expiry', ['visaExpiry', 'visa_expiry']) }}</span></dd></div>
         @endif
-        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Hours per week</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="hours_per_week" maxlength="16" value="{{ old('hours_per_week', $e->hours_per_week) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->hours_per_week) }}</span>@endif</dd></div>
+        <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Preferred hours per week</dt><dd class="min-w-0">@if ($canEditProfile)<input type="text" name="hours_per_week" maxlength="16" value="{{ old('hours_per_week', $e->hours_per_week) }}" class="{{ $editIn }}" />@else<span class="text-brand-text">{{ $line($e->hours_per_week) }}</span>@endif</dd></div>
         <div class="{{ $dlRowStart }}">
             <dt class="pt-1 font-medium text-brand-label">Weekly availability</dt>
             <dd class="min-w-0 w-full">
@@ -222,7 +274,18 @@
                 @else
                     <ul class="space-y-2">
                         @foreach ($idDocRows as $doc)
-                            @php $docUploaded = ($doc['storage_path'] ?? null) !== null && ($doc['storage_path'] ?? '') !== ''; $docName = $idDocLabel($doc); @endphp
+                            @php
+                                $frontOnFile = is_string($doc['storage_path'] ?? null) && $doc['storage_path'] !== '';
+                                $backOnFile = is_string($doc['back_storage_path'] ?? null) && $doc['back_storage_path'] !== '';
+                                $docName = $idDocLabel($doc);
+                                $docIsLicence = \App\Support\RegistrationDisplay::isDriversLicenceType($docName);
+                                $docUploaded = $docIsLicence ? ($frontOnFile && $backOnFile) : $frontOnFile;
+                                $docStatus = $docIsLicence
+                                    ? ($frontOnFile && $backOnFile
+                                        ? 'Front and back uploaded'
+                                        : ($frontOnFile ? 'Front uploaded, back missing' : ($backOnFile ? 'Back uploaded, front missing' : 'Not uploaded')))
+                                    : ($frontOnFile ? 'Uploaded' : 'Not uploaded');
+                            @endphp
                             <li>
                                 <div class="inline-flex w-full min-w-0 items-center gap-3 rounded-xl border px-4 py-3 {{ $docUploaded ? 'border-emerald-200/90 bg-emerald-50/70' : 'border-brand-border bg-brand-surface/50' }}">
                                     <span class="flex size-9 shrink-0 items-center justify-center rounded-full {{ $docUploaded ? 'bg-emerald-600 text-white' : 'bg-brand-border/80 text-brand-text-secondary' }}" aria-hidden="true">
@@ -234,7 +297,7 @@
                                     </span>
                                     <span class="min-w-0 flex-1">
                                         <span class="block text-sm font-bold text-brand-text">{{ $docName }}</span>
-                                        <span class="mt-0.5 block text-xs text-brand-text-secondary">{{ $docUploaded ? 'Uploaded' : 'Not uploaded' }}</span>
+                                        <span class="mt-0.5 block text-xs text-brand-text-secondary">{{ $docStatus }}</span>
                                     </span>
                                 </div>
                             </li>
@@ -276,6 +339,7 @@
                             'inputName' => 'vehicle_insurance',
                             'uploadInputId' => 'reg-vehicle-insurance-upload',
                             'canEditProfile' => true,
+                            'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         ])
                     </dd>
                 </div>
@@ -294,6 +358,7 @@
                             'inputName' => 'vehicle_insurance',
                             'uploadInputId' => 'reg-vehicle-insurance-upload-ro',
                             'canEditProfile' => false,
+                            'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                         ])
                     </dd>
                 </div>
@@ -313,6 +378,7 @@
                         'inputName' => 'police_check',
                         'uploadInputId' => 'reg-police-check-upload',
                         'canEditProfile' => $canEditProfile,
+                        'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     ])
                 </dd>
             </div>
@@ -328,6 +394,7 @@
                         'inputName' => 'fit_to_work',
                         'uploadInputId' => 'reg-fit-to-work-upload',
                         'canEditProfile' => $canEditProfile,
+                        'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     ])
                 </dd>
             </div>
@@ -340,6 +407,26 @@
         <h3 class="text-lg font-bold text-brand-text">Licences &amp; insurance</h3>
     </div>
     <div class="divide-y divide-brand-border px-6 sm:px-8">
+        <div class="{{ $dl }} items-start">
+            <dt class="pt-1 font-medium text-brand-label">Resume / CV</dt>
+            <dd class="min-w-0 w-full max-w-2xl">
+                @if ($e->resume_path || $canEditProfile)
+                    @include('admin.partials.registration-profile-file-upload-card', [
+                        'storagePath' => $e->resume_path,
+                        'fileUrl' => $e->resume_path ? $fileUrl('resume') : null,
+                        'inputName' => 'resume',
+                        'uploadInputId' => 'reg-resume-upload',
+                        'canEditProfile' => $canEditProfile,
+                        'accept' => '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    ])
+                    @if ($canEditProfile)
+                        <p class="mt-2 text-xs text-brand-text-secondary">PDF, DOC, or DOCX. Up to 15 MB.</p>
+                    @endif
+                @else
+                    <span class="text-brand-text">No resume uploaded</span>
+                @endif
+            </dd>
+        </div>
         <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Licences summary</dt><dd class="min-w-0 text-sm text-brand-text">{{ $line($e->licences_summary) }}</dd></div>
         <div class="{{ $dl }} items-start"><dt class="pt-1 font-medium text-brand-label">Licence uploads</dt>
             <dd class="min-w-0 w-full">
@@ -356,6 +443,8 @@
                                     'typeLabel' => 'Licence type',
                                     'typeFieldName' => 'licence_type_row',
                                     'typeSelectedValue' => $licTypeForKey($doc['row_key']),
+                                    'otherFieldName' => 'licence_type_other_row',
+                                    'otherValue' => $specifiedTypeForKey($doc['row_key'], 'licences_json'),
                                     'uploadFieldName' => 'licence_upload',
                                     'fileUrlKind' => 'licence',
                                     'expiryFieldName' => 'licence_expiry_row',
@@ -382,6 +471,8 @@
                                     'typeLabel' => 'Insurance type',
                                     'typeFieldName' => 'insurance_type_row',
                                     'typeSelectedValue' => $insTypeForKey($doc['row_key']),
+                                    'otherFieldName' => 'insurance_type_other_row',
+                                    'otherValue' => $specifiedTypeForKey($doc['row_key'], 'insurances_json'),
                                     'uploadFieldName' => 'insurance_upload',
                                     'fileUrlKind' => 'insurance',
                                     'expiryFieldName' => 'insurance_expiry_row',

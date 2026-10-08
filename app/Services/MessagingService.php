@@ -10,6 +10,7 @@ use App\Models\Message;
 use App\Models\MessageReport;
 use App\Models\MessagingPolicy;
 use App\Models\MessagingPolicyAcceptance;
+use App\Support\DisplayTimezone;
 use App\Support\MessagingPolicyText;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -43,7 +44,7 @@ class MessagingService
         $policy = new MessagingPolicy;
         $policy->content = $this->defaultMessagingPolicyContent();
         $policy->version = 1;
-        $policy->last_updated_on = now()->toDateString();
+        $policy->last_updated_on = DisplayTimezone::now()->toDateString();
         $policy->save();
 
         return $policy;

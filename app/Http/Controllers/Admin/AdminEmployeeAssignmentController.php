@@ -27,6 +27,8 @@ use App\Support\EmployeeJobTitles;
 use App\Support\FoundUProfileMapper;
 use App\Support\PayrollEmployeeRates;
 use App\Support\RegistrationDisplay;
+use App\Support\RegistrationIdDocument;
+use App\Support\RegistrationResume;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -631,20 +633,28 @@ class AdminEmployeeAssignmentController extends Controller
             'department_id' => ['nullable', 'integer'],
             'profile_photo' => ['nullable', 'file', 'max:15360'],
             'police_check' => ['nullable', 'file', 'max:15360'],
+            'visa_document' => array_merge(['nullable'], RegistrationIdDocument::fileRules()),
+            'resume' => RegistrationResume::rules(),
             'fit_to_work' => ['nullable', 'file', 'max:15360'],
-            'vehicle_insurance' => ['nullable', 'file', 'max:15360'],
+            'vehicle_insurance' => array_merge(['nullable'], RegistrationIdDocument::fileRules()),
             'id_document_upload' => ['nullable', 'array'],
-            'id_document_upload.*' => ['file', 'max:15360'],
+            'id_document_upload.*' => RegistrationIdDocument::fileRules(),
+            'id_document_back_upload' => ['nullable', 'array'],
+            'id_document_back_upload.*' => RegistrationIdDocument::fileRules(),
             'licence_upload' => ['nullable', 'array'],
             'licence_upload.*' => ['file', 'max:15360'],
             'insurance_upload' => ['nullable', 'array'],
             'insurance_upload.*' => ['file', 'max:15360'],
             'remove_profile_photo' => ['nullable', 'boolean'],
             'remove_police_check' => ['nullable', 'boolean'],
+            'remove_visa_document' => ['nullable', 'boolean'],
+            'remove_resume' => ['nullable', 'boolean'],
             'remove_fit_to_work' => ['nullable', 'boolean'],
             'remove_vehicle_insurance' => ['nullable', 'boolean'],
             'remove_id_document_upload' => ['nullable', 'array'],
             'remove_id_document_upload.*' => ['nullable', 'boolean'],
+            'remove_id_document_back_upload' => ['nullable', 'array'],
+            'remove_id_document_back_upload.*' => ['nullable', 'boolean'],
             'remove_licence_upload' => ['nullable', 'array'],
             'remove_licence_upload.*' => ['nullable', 'boolean'],
             'remove_insurance_upload' => ['nullable', 'array'],
@@ -653,10 +663,14 @@ class AdminEmployeeAssignmentController extends Controller
             'id_document_type.*' => ['nullable', 'string', 'max:255'],
             'licence_type_row' => ['nullable', 'array'],
             'licence_type_row.*' => ['nullable', 'string', 'max:255'],
+            'licence_type_other_row' => ['nullable', 'array'],
+            'licence_type_other_row.*' => ['nullable', 'string', 'max:255'],
             'licence_expiry_row' => ['nullable', 'array'],
             'licence_expiry_row.*' => ['nullable', 'string', 'max:32'],
             'insurance_type_row' => ['nullable', 'array'],
             'insurance_type_row.*' => ['nullable', 'string', 'max:255'],
+            'insurance_type_other_row' => ['nullable', 'array'],
+            'insurance_type_other_row.*' => ['nullable', 'string', 'max:255'],
             'insurance_expiry_row' => ['nullable', 'array'],
             'insurance_expiry_row.*' => ['nullable', 'string', 'max:32'],
         ]);
@@ -674,6 +688,27 @@ class AdminEmployeeAssignmentController extends Controller
 
         $this->assertPicklistOptional($data['marital_status'] ?? null, 'marital_status', 'marital_status');
         $this->assertPicklistOptional($data['visa_status'] ?? null, 'visa_status', 'visa_status');
+        $this->assertVisaDocumentWhenRequired($request, $employee, $data['visa_status'] ?? null);
+        $this->assertExpiryWhenComplianceFileKept(
+            $request,
+            $employee,
+            'police_check',
+            'police_check_path',
+            'remove_police_check',
+            'police_check_expiry',
+            $data['police_check_expiry'] ?? null,
+            'Enter the police check expiry date.',
+        );
+        $this->assertExpiryWhenComplianceFileKept(
+            $request,
+            $employee,
+            'fit_to_work',
+            'fit_to_work_path',
+            'remove_fit_to_work',
+            'fit_to_work_expiry',
+            $data['fit_to_work_expiry'] ?? null,
+            'Enter the fit to work certificate expiry date.',
+        );
         $this->assertPicklistOptional($data['unrestricted_work_rights'] ?? null, 'unrestricted_work_rights', 'unrestricted_work_rights');
         $this->assertPicklistOptional($data['mode_of_transport'] ?? null, 'transport_mode', 'mode_of_transport');
         $this->assertPicklistOptional($data['police_check_uploaded'] ?? null, 'unrestricted_work_rights', 'police_check_uploaded');
@@ -695,13 +730,13 @@ class AdminEmployeeAssignmentController extends Controller
                 $this->assertPicklistOptional($val, 'insurance_type', 'insurance_type_row');
             }
         }
+        $this->assertOtherDocumentTypesSpecified($request, 'licence_type_row', 'licence_type_other_row');
+        $this->assertOtherDocumentTypesSpecified($request, 'insurance_type_row', 'insurance_type_other_row');
 
         [$firstName, $lastName] = FoundUProfileMapper::splitFullLegalName($data['full_legal_name']);
 
         $weeklyJson = AdminWeeklyAvailability::encodeFromRequest($request);
-        $weeklySummary = AdminWeeklyAvailability::summaryTextFromMobileGrid(
-            AdminWeeklyAvailability::mobileGridState($weeklyJson)
-        );
+        $weeklySummary = AdminWeeklyAvailability::summaryTextFromStored($weeklyJson);
 
         $sexNormalized = $this->normalizeSex($data['sex'] ?? null);
 
@@ -1191,6 +1226,95 @@ class AdminEmployeeAssignmentController extends Controller
             $request->input('insurance_type_row', []),
             'insurance_type',
         );
+        $this->patchJsonRowsWithOtherDocumentType(
+            $employee,
+            'licences_json',
+            'id',
+            $request->input('licence_type_row', []),
+            $request->input('licence_type_other_row', []),
+        );
+        $this->patchJsonRowsWithOtherDocumentType(
+            $employee,
+            'insurances_json',
+            'id',
+            $request->input('insurance_type_row', []),
+            $request->input('insurance_type_other_row', []),
+        );
+    }
+
+    private function assertOtherDocumentTypesSpecified(Request $request, string $typeField, string $otherField): void
+    {
+        $types = $request->input($typeField, []);
+        if (! is_array($types)) {
+            return;
+        }
+        $others = $request->input($otherField, []);
+        if (! is_array($others)) {
+            $others = [];
+        }
+        foreach ($types as $key => $val) {
+            if (! is_string($val) || ! RegistrationDisplay::isOtherDocumentType($val)) {
+                continue;
+            }
+            $other = $others[$key] ?? null;
+            if (! is_string($other) || trim($other) === '') {
+                throw ValidationException::withMessages([
+                    $otherField.'.'.$key => 'Please specify document type.',
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>|mixed  $types
+     * @param  array<string, mixed>|mixed  $others
+     */
+    private function patchJsonRowsWithOtherDocumentType(
+        Employee $employee,
+        string $jsonAttribute,
+        string $rowIdKey,
+        mixed $types,
+        mixed $others,
+    ): void {
+        if (! is_array($types) || $types === []) {
+            return;
+        }
+        if (! is_array($others)) {
+            $others = [];
+        }
+
+        /** @var array<int, array<string, mixed>>|null $rows */
+        $rows = $employee->{$jsonAttribute};
+        if (! is_array($rows) || $rows === []) {
+            return;
+        }
+
+        foreach ($rows as $i => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = isset($row[$rowIdKey]) && is_scalar($row[$rowIdKey]) ? (string) $row[$rowIdKey] : '';
+            if ($id === '' || ! array_key_exists($id, $types)) {
+                continue;
+            }
+            $type = $types[$id];
+            if (! is_string($type)) {
+                continue;
+            }
+            if (RegistrationDisplay::isOtherDocumentType($type)) {
+                $other = $others[$id] ?? '';
+                $rows[$i]['documentTypeOther'] = is_string($other) ? trim($other) : '';
+                continue;
+            }
+            unset(
+                $rows[$i]['documentTypeOther'],
+                $rows[$i]['document_type_other'],
+                $rows[$i]['typeOther'],
+                $rows[$i]['type_other'],
+            );
+        }
+
+        $employee->{$jsonAttribute} = $rows;
     }
 
     private function applyJsonRowExpiryFields(Request $request, Employee $employee): void
@@ -1343,6 +1467,48 @@ class AdminEmployeeAssignmentController extends Controller
         }
 
         return strcasecmp(trim($value), 'Yes') === 0;
+    }
+
+    private function assertExpiryWhenComplianceFileKept(
+        Request $request,
+        Employee $employee,
+        string $fileField,
+        string $pathAttribute,
+        string $removeField,
+        string $expiryField,
+        mixed $expiry,
+        string $message,
+    ): void {
+        $stored = is_string($employee->{$pathAttribute}) && $employee->{$pathAttribute} !== '';
+        $keepsStored = $stored && ! $request->boolean($removeField);
+        if (! $request->hasFile($fileField) && ! $keepsStored) {
+            return;
+        }
+
+        $iso = RegistrationDisplay::toNullableIsoDate(is_scalar($expiry) ? $expiry : null);
+        if ($iso === null) {
+            throw ValidationException::withMessages([
+                $expiryField => $message,
+            ]);
+        }
+    }
+
+    private function assertVisaDocumentWhenRequired(Request $request, Employee $employee, mixed $status): void
+    {
+        $visaStatus = is_string($status) ? $status : null;
+        if (! RegistrationDisplay::requiresVisaDocument($visaStatus)) {
+            return;
+        }
+
+        $stored = is_string($employee->visa_document_path) && $employee->visa_document_path !== '';
+        $keepsStored = $stored && ! $request->boolean('remove_visa_document');
+        if ($request->hasFile('visa_document') || $keepsStored) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'visa_document' => 'Upload a visa document for this visa or residency status.',
+        ]);
     }
 
     private function assertPicklistOptional(?string $value, string $picklistKey, string $errorField): void

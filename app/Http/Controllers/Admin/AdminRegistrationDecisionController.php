@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Support\DisplayTimezone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +26,7 @@ class AdminRegistrationDecisionController extends Controller
 
         $employee->forceFill([
             'employment_status' => 'active',
-            'hired_at' => now()->toDateString(),
+            'hired_at' => DisplayTimezone::now()->toDateString(),
         ])->save();
 
         return back()->with('success', 'Registration approved. The employee must open the mobile app and sign in with their registration email and password — no automatic access.');

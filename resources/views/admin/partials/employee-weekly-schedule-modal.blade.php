@@ -684,11 +684,29 @@
         let currentPayload = null;
         let openedFromDetails = false;
 
+        function utcDateFromIso(isoDate) {
+            const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate || '');
+            if (!match) return null;
+            return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+        }
+
+        function isoFromUtcDate(date) {
+            const year = date.getUTCFullYear();
+            const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(date.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
         function formatDateLabel(isoDate) {
-            if (!isoDate) return '—';
-            const date = new Date(isoDate + 'T12:00:00');
-            if (Number.isNaN(date.getTime())) return isoDate;
-            return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            const date = utcDateFromIso(isoDate);
+            if (!date) return isoDate || '—';
+            return date.toLocaleDateString('en-AU', {
+                timeZone: 'UTC',
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+            });
         }
 
         function setDetailText(el, value) {
@@ -1109,26 +1127,23 @@
         }
 
         function weekdayKeyFromIso(isoDate) {
-            if (!isoDate) return null;
-            const date = new Date(isoDate + 'T12:00:00');
-            if (Number.isNaN(date.getTime())) return null;
-            return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()] || null;
+            const date = utcDateFromIso(isoDate);
+            if (!date) return null;
+            return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getUTCDay()] || null;
         }
 
         function addWeeksIso(isoDate, weeks) {
-            if (!isoDate) return '';
-            const date = new Date(isoDate + 'T12:00:00');
-            if (Number.isNaN(date.getTime())) return '';
-            date.setDate(date.getDate() + (weeks * 7));
-            return date.toISOString().slice(0, 10);
+            const date = utcDateFromIso(isoDate);
+            if (!date) return '';
+            date.setUTCDate(date.getUTCDate() + (weeks * 7));
+            return isoFromUtcDate(date);
         }
 
         function addYearsIso(isoDate, years) {
-            if (!isoDate) return '';
-            const date = new Date(isoDate + 'T12:00:00');
-            if (Number.isNaN(date.getTime())) return '';
-            date.setFullYear(date.getFullYear() + years);
-            return date.toISOString().slice(0, 10);
+            const date = utcDateFromIso(isoDate);
+            if (!date) return '';
+            date.setUTCFullYear(date.getUTCFullYear() + years);
+            return isoFromUtcDate(date);
         }
 
         function setRecurrenceUntilOneYear() {

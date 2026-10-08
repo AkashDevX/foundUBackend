@@ -557,10 +557,19 @@
                 return (parts[0][0] + parts[1][0]).toUpperCase();
             }
 
+            function displayTimeZone() {
+                var meta = document.querySelector('meta[name="display-timezone"]');
+                return (meta && meta.getAttribute('content')) || 'Australia/Brisbane';
+            }
+
             function formatTime(iso) {
                 if (!iso) return '';
                 try {
-                    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                    return new Date(iso).toLocaleTimeString('en-AU', {
+                        timeZone: displayTimeZone(),
+                        hour: 'numeric',
+                        minute: '2-digit',
+                    });
                 } catch (e) {
                     return '';
                 }

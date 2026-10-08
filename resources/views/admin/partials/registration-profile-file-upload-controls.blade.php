@@ -30,6 +30,11 @@
                 <span class="text-sm font-medium text-brand-text">PDF on file</span>
                 <a href="{{ $fileUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-primary-dark">View PDF</a>
             </div>
+        @elseif (\App\Support\RegistrationDisplay::isLikelyWordPath($storagePath))
+            <div class="flex items-center justify-between gap-3 px-3 py-3" data-reg-doc-preview>
+                <span class="text-sm font-medium text-brand-text">Word document on file</span>
+                <a href="{{ $fileUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-primary-dark">Open document</a>
+            </div>
         @else
             <div class="px-3 py-3" data-reg-doc-preview>
                 <a href="{{ $fileUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex text-xs font-bold text-brand-link hover:underline">Open uploaded file</a>

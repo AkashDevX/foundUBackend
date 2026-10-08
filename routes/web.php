@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminClockInGraceController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
+use App\Http\Controllers\Admin\AdminIncidentReportsController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
 use App\Http\Controllers\Admin\AdminLocationTrackingController;
 use App\Http\Controllers\Admin\AdminMessagesController;
@@ -121,6 +123,9 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
     Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
     Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
+    Route::get('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'index'])->name('admin.employees.time-clock.grace');
+    Route::post('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'update'])->name('admin.employees.time-clock.grace.update');
+    Route::post('/admin/employees/time-clock/grace/{exception}', [AdminClockInGraceController::class, 'clear'])->whereNumber('exception')->name('admin.employees.time-clock.grace.clear');
     Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
     Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
     Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
@@ -272,6 +277,12 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
             ->name('admin.registration.file')
             ->where('slot', '[a-z\\-]+');
+
+        Route::get('/admin/incidents', [AdminIncidentReportsController::class, 'index'])->name('admin.incidents.index');
+        Route::get('/admin/incidents/alerts', [AdminIncidentReportsController::class, 'alerts'])->name('admin.incidents.alerts');
+        Route::get('/admin/incidents/{incident}', [AdminIncidentReportsController::class, 'show'])->whereNumber('incident')->name('admin.incidents.show');
+        Route::post('/admin/incidents/{incident}', [AdminIncidentReportsController::class, 'update'])->whereNumber('incident')->name('admin.incidents.update');
+        Route::get('/admin/incidents/{incident}/attachment', [AdminIncidentReportsController::class, 'attachment'])->whereNumber('incident')->name('admin.incidents.attachment');
     });
 });
 

@@ -16,7 +16,7 @@ use Tests\TestCase;
 
 class PayrollJobTitleWageTest extends TestCase
 {
-    private const TZ = 'Australia/Sydney';
+    private const TZ = 'Australia/Brisbane';
 
     /**
      * Award rates are deliberately different from job-title wages.

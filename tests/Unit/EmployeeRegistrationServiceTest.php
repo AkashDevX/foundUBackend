@@ -50,6 +50,24 @@ class EmployeeRegistrationServiceTest extends TestCase
     }
 
     #[Test]
+    public function normalize_payload_clears_visa_expiry_when_work_rights_are_unrestricted(): void
+    {
+        $cleared = $this->service->normalizePayload([
+            'unrestricted_work_rights' => 'Yes',
+            'visa_expiry' => '2030-04-01',
+            'visa_status' => 'Temporary Visa - Working',
+        ]);
+        $this->assertNull($cleared['visa_expiry']);
+
+        $kept = $this->service->normalizePayload([
+            'unrestricted_work_rights' => 'No',
+            'visa_expiry' => '2030-04-01',
+            'visa_status' => 'Temporary Visa - Student',
+        ]);
+        $this->assertSame('2030-04-01', $kept['visa_expiry']);
+    }
+
+    #[Test]
     public function classify_existing_status_maps_pending_and_active(): void
     {
         $this->assertSame(

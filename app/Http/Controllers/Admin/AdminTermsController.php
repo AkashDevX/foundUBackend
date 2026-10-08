@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\OrganizationPortalUser;
 use App\Models\TermsAndConditions;
+use App\Support\DisplayTimezone;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -51,7 +52,7 @@ class AdminTermsController extends Controller
         $terms = new TermsAndConditions;
         $terms->setConnection($connection);
         $terms->content = '';
-        $terms->last_updated_on = now()->toDateString();
+        $terms->last_updated_on = DisplayTimezone::now()->toDateString();
         $terms->save();
 
         return $terms;

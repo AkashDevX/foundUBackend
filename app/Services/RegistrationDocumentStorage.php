@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Models\Employee;
+use App\Support\RegistrationDisplay;
+use App\Support\RegistrationResume;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * Persists multipart registration files on the employee_registration disk and writes
@@ -21,6 +24,11 @@ class RegistrationDocumentStorage
     public function attach(Request $request, Employee $employee, string $companySlug): void
     {
         $this->applyRemovals($request, $employee);
+        $this->syncVisaDocument(
+            $request,
+            $employee,
+            trim($companySlug, '/').'/'.$employee->public_id,
+        );
 
         $hasUploads = $request->allFiles() !== [];
 
@@ -59,12 +67,35 @@ class RegistrationDocumentStorage
             $employee->vehicle_insurance_path = $file->store($prefix, self::DISK);
         }
 
+        if ($request->hasFile('resume')) {
+            $file = $request->file('resume');
+            $extension = RegistrationResume::extensionOf($file);
+            if ($extension !== null) {
+                $this->deleteStoredPath($employee->resume_path);
+                $employee->resume_path = $file->storeAs(
+                    $prefix,
+                    Str::random(40).'.'.$extension,
+                    self::DISK,
+                );
+            }
+        }
+
         $this->mergeKeyedFileArrayIntoJson(
             $request->file('id_document_upload'),
             $employee,
             'id_documents_json',
             'documentKey',
             $prefix,
+        );
+
+        $this->mergeKeyedFileArrayIntoJson(
+            $request->file('id_document_back_upload'),
+            $employee,
+            'id_documents_json',
+            'documentKey',
+            $prefix,
+            'back_storage_path',
+            true,
         );
 
         $this->mergeKeyedFileArrayIntoJson(
@@ -108,6 +139,11 @@ class RegistrationDocumentStorage
             $employee->vehicle_insurance_path = null;
         }
 
+        if ($request->boolean('remove_resume') && ! $request->hasFile('resume')) {
+            $this->deleteStoredPath($employee->resume_path);
+            $employee->resume_path = null;
+        }
+
         $this->removeFromKeyedJson(
             $request->input('remove_id_document_upload'),
             $request->file('id_document_upload'),
@@ -115,6 +151,17 @@ class RegistrationDocumentStorage
             'id_documents_json',
             'documentKey',
         );
+
+        $this->removeFromKeyedJson(
+            $request->input('remove_id_document_back_upload'),
+            $request->file('id_document_back_upload'),
+            $employee,
+            'id_documents_json',
+            'documentKey',
+            'back_storage_path',
+        );
+
+        $this->clearBackFileWhenNotDriversLicence($employee);
 
         $this->removeFromKeyedJson(
             $request->input('remove_licence_upload'),
@@ -134,6 +181,41 @@ class RegistrationDocumentStorage
     }
 
     /**
+     * Stores a visa file for every status except citizen and permanent resident.
+     * Those two statuses, and an explicit remove, drop any stored copy.
+     */
+    private function syncVisaDocument(Request $request, Employee $employee, string $prefix): void
+    {
+        $status = is_string($employee->visa_status) ? $employee->visa_status : null;
+        $temporary = RegistrationDisplay::requiresVisaDocument($status);
+        $current = is_string($employee->visa_document_path) ? $employee->visa_document_path : '';
+
+        if (! $temporary) {
+            if ($current !== '') {
+                $this->deleteStoredPath($current);
+                $employee->visa_document_path = null;
+            }
+
+            return;
+        }
+
+        if ($request->hasFile('visa_document')) {
+            $file = $request->file('visa_document');
+            if ($current !== '') {
+                $this->deleteStoredPath($current);
+            }
+            $employee->visa_document_path = $file->store($prefix, self::DISK);
+
+            return;
+        }
+
+        if ($request->boolean('remove_visa_document') && $current !== '') {
+            $this->deleteStoredPath($current);
+            $employee->visa_document_path = null;
+        }
+    }
+
+    /**
      * @param  array<string, mixed>|null  $removals
      * @param  array<string, UploadedFile>|null  $uploads
      */
@@ -143,6 +225,7 @@ class RegistrationDocumentStorage
         Employee $employee,
         string $attribute,
         string $rowKeyField,
+        string $pathField = 'storage_path',
     ): void {
         if ($removals === null || $removals === []) {
             return;
@@ -170,8 +253,12 @@ class RegistrationDocumentStorage
             if (! $this->removalRequested($removals, $key)) {
                 continue;
             }
-            $this->deleteStoredPath($row['storage_path'] ?? null);
-            $this->clearJsonFileReferences($row);
+            $this->deleteStoredPath($row[$pathField] ?? null);
+            if ($pathField === 'storage_path') {
+                $this->clearJsonFileReferences($row);
+            } else {
+                unset($row[$pathField]);
+            }
             $changed = true;
         }
         unset($row);
@@ -269,6 +356,38 @@ class RegistrationDocumentStorage
     }
 
     /**
+     * Drops a stored licence back when the row is no longer a driver's licence.
+     */
+    private function clearBackFileWhenNotDriversLicence(Employee $employee): void
+    {
+        /** @var array<int|string, mixed>|null $rows */
+        $rows = $employee->id_documents_json;
+        if (! is_array($rows) || $rows === []) {
+            return;
+        }
+
+        $changed = false;
+
+        foreach ($rows as &$row) {
+            if (! is_array($row) || RegistrationDisplay::isDriversLicenceDocumentRow($row)) {
+                continue;
+            }
+            $path = $row['back_storage_path'] ?? null;
+            if (! is_string($path) || $path === '') {
+                continue;
+            }
+            $this->deleteStoredPath($path);
+            unset($row['back_storage_path'], $row['backImageUploaded'], $row['back_image_uploaded']);
+            $changed = true;
+        }
+        unset($row);
+
+        if ($changed) {
+            $this->assignJsonAttribute($employee, 'id_documents_json', $rows);
+        }
+    }
+
+    /**
      * @param  array<string, UploadedFile>|null  $uploads
      */
     private function mergeKeyedFileArrayIntoJson(
@@ -277,6 +396,8 @@ class RegistrationDocumentStorage
         string $attribute,
         string $rowKeyField,
         string $prefix,
+        string $pathField = 'storage_path',
+        bool $driversLicenceOnly = false,
     ): void {
         if ($uploads === null || $uploads === []) {
             return;
@@ -294,6 +415,9 @@ class RegistrationDocumentStorage
             if (! is_array($row)) {
                 continue;
             }
+            if ($driversLicenceOnly && ! RegistrationDisplay::isDriversLicenceDocumentRow($row)) {
+                continue;
+            }
             $key = $this->rowKey($row, $rowKeyField);
             if ($key === '') {
                 continue;
@@ -302,9 +426,13 @@ class RegistrationDocumentStorage
             if (! $file instanceof UploadedFile || ! $file->isValid()) {
                 continue;
             }
-            $this->deleteStoredPath($row['storage_path'] ?? null);
-            $this->clearJsonFileReferences($row);
-            $row['storage_path'] = $file->store($prefix, self::DISK);
+            $this->deleteStoredPath($row[$pathField] ?? null);
+            if ($pathField === 'storage_path') {
+                $this->clearJsonFileReferences($row);
+            } else {
+                unset($row[$pathField]);
+            }
+            $row[$pathField] = $file->store($prefix, self::DISK);
             $changed = true;
         }
         unset($row);

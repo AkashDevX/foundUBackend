@@ -61,6 +61,12 @@
                 transform: rotate(90deg);
                 color: #003d7a;
             }
+            .workflow-card.incident-alert-card.is-expanded {
+                border-color: rgb(252 165 165);
+            }
+            .workflow-card.incident-alert-card.is-expanded .workflow-card-chevron {
+                color: #b91c1c;
+            }
             .workflow-card.is-expanded {
                 border-color: rgba(0, 61, 122, 0.32);
                 box-shadow: 0 10px 24px rgba(0, 40, 85, 0.1);
@@ -210,6 +216,8 @@
         </div>
     </div>
 
+    @include('admin.partials.clock-in-grace-modal')
+
     @push('scripts')
         <script>
             (function () {
@@ -227,6 +235,7 @@
                     }
 
                     function scheduleClose() {
+                        if (card.classList.contains('incident-alert-card')) return;
                         if (closeTimer) clearTimeout(closeTimer);
                         closeTimer = setTimeout(() => {
                             card.classList.remove('is-expanded');

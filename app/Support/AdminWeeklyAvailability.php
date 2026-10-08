@@ -22,6 +22,17 @@ final class AdminWeeklyAvailability
     public const EVENING_END = '22:00';
 
     /** @var array<string, string> */
+    public const FULL_DAY_LABELS = [
+        'mon' => 'Monday',
+        'tue' => 'Tuesday',
+        'wed' => 'Wednesday',
+        'thu' => 'Thursday',
+        'fri' => 'Friday',
+        'sat' => 'Saturday',
+        'sun' => 'Sunday',
+    ];
+
+    /** @var array<string, string> */
     public const SHORT_DAY_LABELS = [
         'mon' => 'Mo',
         'tue' => 'Tu',
@@ -304,7 +315,7 @@ final class AdminWeeklyAvailability
         $starts = [];
         $ends = [];
 
-        foreach (['slots', 'times', 'ranges', 'hours', 'intervals'] as $k) {
+        foreach (['slots', 'times', 'ranges', 'hours', 'intervals', 'periods'] as $k) {
             if (empty($block[$k]) || ! is_array($block[$k])) {
                 continue;
             }
@@ -372,6 +383,11 @@ final class AdminWeeklyAvailability
 
     public static function encodeFromRequest(Request $request): ?array
     {
+        $posted = $request->input('availability');
+        if (is_array($posted) && self::postedUsesDaySchedule($posted)) {
+            return self::encodeDaySchedule($posted);
+        }
+
         $map = [];
         $hasSelection = false;
         foreach (self::DAY_KEYS as $day) {
@@ -646,7 +662,7 @@ final class AdminWeeklyAvailability
             }
         }
 
-        foreach (['slots', 'times', 'ranges', 'hours', 'intervals'] as $k) {
+        foreach (['slots', 'times', 'ranges', 'hours', 'intervals', 'periods'] as $k) {
             if (empty($block[$k]) || ! is_array($block[$k])) {
                 continue;
             }
@@ -779,5 +795,342 @@ final class AdminWeeklyAvailability
             'afternoon' => 'afternoon',
             default => null,
         };
+    }
+
+    /**
+     * Day-by-day hours from registration JSON. Legacy morning/evening lists become their default ranges.
+     *
+     * @return array<string, array{available: bool, periods: list<array{start: string, end: string}>}>
+     */
+    public static function dayScheduleState(?array $raw): array
+    {
+        $state = self::emptyDaySchedule();
+        if ($raw === null || $raw === []) {
+            return $state;
+        }
+
+        if (self::isDayPeriodSchedule($raw)) {
+            foreach ($raw as $key => $value) {
+                $day = self::normalizeDaySlug((string) $key);
+                if ($day === null || ! is_array($value) || array_is_list($value)) {
+                    continue;
+                }
+                $available = self::blockIsAvailable($value);
+                $periods = $available ? self::periodsFromBlock($value) : [];
+                $state[$day] = [
+                    'available' => $available && $periods !== [],
+                    'periods' => $periods,
+                ];
+                if (($value['status'] ?? null) === 'available' && $periods === []) {
+                    $state[$day]['available'] = true;
+                }
+                if (($value['status'] ?? null) === 'unavailable' || ($value['available'] ?? null) === false) {
+                    $state[$day] = ['available' => false, 'periods' => []];
+                }
+            }
+
+            return $state;
+        }
+
+        if (self::isMobileWeeklyDayMap($raw)) {
+            $grid = self::mobileGridState($raw);
+            foreach (self::DAY_KEYS as $day) {
+                $periods = [];
+                if ($grid[$day]['morning'] ?? false) {
+                    $periods[] = ['start' => self::MORNING_START, 'end' => self::MORNING_END];
+                }
+                if ($grid[$day]['evening'] ?? false) {
+                    $periods[] = ['start' => self::EVENING_START, 'end' => self::EVENING_END];
+                }
+                $state[$day] = [
+                    'available' => $periods !== [],
+                    'periods' => $periods,
+                ];
+            }
+
+            return $state;
+        }
+
+        $calendar = self::calendarState($raw);
+        foreach (self::DAY_KEYS as $day) {
+            if (! ($calendar[$day]['on'] ?? false)) {
+                continue;
+            }
+            $state[$day] = [
+                'available' => true,
+                'periods' => [[
+                    'start' => $calendar[$day]['start'] ?? '09:00',
+                    'end' => $calendar[$day]['end'] ?? '17:00',
+                ]],
+            ];
+        }
+
+        return $state;
+    }
+
+    /**
+     * @return array<string, array{available: bool, periods: list<array{start: string, end: string}>}>
+     */
+    public static function dayScheduleStateForEmployee(?array $raw, ?string $summary = null): array
+    {
+        $state = self::dayScheduleState($raw);
+        if (self::dayScheduleHasAvailability($state) || self::isDayPeriodSchedule($raw)) {
+            return $state;
+        }
+
+        $calendar = self::calendarStateForEmployee(null, $summary);
+        foreach (self::DAY_KEYS as $day) {
+            if (! ($calendar[$day]['on'] ?? false)) {
+                continue;
+            }
+            $state[$day] = [
+                'available' => true,
+                'periods' => [[
+                    'start' => $calendar[$day]['start'] ?? '09:00',
+                    'end' => $calendar[$day]['end'] ?? '17:00',
+                ]],
+            ];
+        }
+
+        return $state;
+    }
+
+    /**
+     * Restore a posted admin form, including incomplete time rows.
+     *
+     * @param  array<string, mixed>  $posted
+     * @return array<string, array{available: bool, periods: list<array{start: string, end: string}>}>
+     */
+    public static function dayScheduleFromPosted(array $posted): array
+    {
+        $state = self::emptyDaySchedule();
+        foreach (self::DAY_KEYS as $day) {
+            $row = $posted[$day] ?? null;
+            if (! is_array($row)) {
+                continue;
+            }
+            $available = strtolower(trim((string) ($row['status'] ?? 'unavailable'))) === 'available';
+            $periods = [];
+            if ($available && isset($row['periods']) && is_array($row['periods'])) {
+                foreach ($row['periods'] as $period) {
+                    if (! is_array($period)) {
+                        continue;
+                    }
+                    $start = trim((string) ($period['start'] ?? ''));
+                    $end = trim((string) ($period['end'] ?? ''));
+                    $periods[] = [
+                        'start' => self::normalizeTimeString($start) ?? '',
+                        'end' => self::normalizeTimeString($end) ?? '',
+                    ];
+                }
+            }
+            if ($available && $periods === []) {
+                $periods[] = ['start' => '', 'end' => ''];
+            }
+            $state[$day] = [
+                'available' => $available,
+                'periods' => $available ? $periods : [],
+            ];
+        }
+
+        return $state;
+    }
+
+    /**
+     * @param  array<string, array{available: bool, periods: list<array{start: string, end: string}>}>  $schedule
+     */
+    public static function summaryTextFromDaySchedule(array $schedule): ?string
+    {
+        $parts = [];
+        foreach (self::DAY_KEYS as $day) {
+            $label = self::MOBILE_DAY_LABELS[$day] ?? ucfirst($day);
+            $dayState = $schedule[$day] ?? ['available' => false, 'periods' => []];
+            if (! ($dayState['available'] ?? false)) {
+                $parts[] = $label.': Not available';
+
+                continue;
+            }
+            $ranges = [];
+            foreach ($dayState['periods'] ?? [] as $period) {
+                $start = self::normalizeTimeString((string) ($period['start'] ?? ''));
+                $end = self::normalizeTimeString((string) ($period['end'] ?? ''));
+                if ($start === null || $end === null || $start === $end) {
+                    continue;
+                }
+                $text = $start.'–'.$end;
+                if ($end < $start) {
+                    $text .= ' (overnight)';
+                }
+                $ranges[] = $text;
+            }
+            $parts[] = $ranges === [] ? $label.': Available' : $label.': '.implode(', ', $ranges);
+        }
+
+        return $parts === [] ? null : implode(' · ', $parts);
+    }
+
+    public static function summaryTextFromStored(?array $raw): ?string
+    {
+        if ($raw === null || $raw === []) {
+            return null;
+        }
+        if (self::isDayPeriodSchedule($raw)) {
+            return self::summaryTextFromDaySchedule(self::dayScheduleState($raw));
+        }
+
+        return self::summaryTextFromMobileGrid(self::mobileGridState($raw));
+    }
+
+    public static function isOvernight(string $start, string $end): bool
+    {
+        $start = self::normalizeTimeString($start);
+        $end = self::normalizeTimeString($end);
+        if ($start === null || $end === null) {
+            return false;
+        }
+
+        return $end < $start;
+    }
+
+    /**
+     * @return array<string, array{available: bool, periods: list<array{start: string, end: string}>}>
+     */
+    private static function emptyDaySchedule(): array
+    {
+        $state = [];
+        foreach (self::DAY_KEYS as $day) {
+            $state[$day] = ['available' => false, 'periods' => []];
+        }
+
+        return $state;
+    }
+
+    /**
+     * @param  array<string, mixed>  $posted
+     */
+    private static function postedUsesDaySchedule(array $posted): bool
+    {
+        foreach (self::DAY_KEYS as $day) {
+            $row = $posted[$day] ?? null;
+            if (is_array($row) && (array_key_exists('status', $row) || array_key_exists('periods', $row))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $posted
+     * @return array<string, array{status: string, periods: list<array{start: string, end: string}>}>|null
+     */
+    private static function encodeDaySchedule(array $posted): ?array
+    {
+        $map = [];
+        foreach (self::DAY_KEYS as $day) {
+            $row = is_array($posted[$day] ?? null) ? $posted[$day] : [];
+            $available = strtolower(trim((string) ($row['status'] ?? 'unavailable'))) === 'available';
+            $periods = [];
+            if ($available && isset($row['periods']) && is_array($row['periods'])) {
+                foreach ($row['periods'] as $period) {
+                    if (! is_array($period)) {
+                        continue;
+                    }
+                    $start = self::normalizeTimeString((string) ($period['start'] ?? ''));
+                    $end = self::normalizeTimeString((string) ($period['end'] ?? ''));
+                    if ($start === null || $end === null || $start === $end) {
+                        continue;
+                    }
+                    $periods[] = ['start' => $start, 'end' => $end];
+                }
+            }
+            $label = self::MOBILE_DAY_LABELS[$day] ?? ucfirst($day);
+            $map[$label] = [
+                'status' => $available ? 'available' : 'unavailable',
+                'periods' => $available ? $periods : [],
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param  array<string, array{available: bool, periods: list<array{start: string, end: string}>}>  $schedule
+     */
+    private static function dayScheduleHasAvailability(array $schedule): bool
+    {
+        foreach (self::DAY_KEYS as $day) {
+            if (($schedule[$day]['available'] ?? false) && ($schedule[$day]['periods'] ?? []) !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<mixed>|null  $raw
+     */
+    private static function isDayPeriodSchedule(?array $raw): bool
+    {
+        if ($raw === null || $raw === [] || ! self::isAssoc($raw)) {
+            return false;
+        }
+
+        foreach ($raw as $key => $value) {
+            if (self::normalizeDaySlug((string) $key) === null || ! is_array($value) || array_is_list($value)) {
+                return false;
+            }
+            if (! array_key_exists('periods', $value) && ! array_key_exists('status', $value) && ! array_key_exists('available', $value)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $block
+     */
+    private static function blockIsAvailable(array $block): bool
+    {
+        if (($block['status'] ?? null) === 'unavailable') {
+            return false;
+        }
+        if (array_key_exists('available', $block) && $block['available'] === false) {
+            return false;
+        }
+        if (($block['status'] ?? null) === 'available' || ($block['available'] ?? null) === true) {
+            return true;
+        }
+
+        return self::periodsFromBlock($block) !== [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $block
+     * @return list<array{start: string, end: string}>
+     */
+    private static function periodsFromBlock(array $block): array
+    {
+        $periods = [];
+        foreach (['periods', 'slots', 'times', 'ranges', 'hours', 'intervals'] as $key) {
+            if (empty($block[$key]) || ! is_array($block[$key])) {
+                continue;
+            }
+            foreach ($block[$key] as $slot) {
+                if (! is_array($slot)) {
+                    continue;
+                }
+                $start = self::normalizeTimeString((string) ($slot['start'] ?? $slot['from'] ?? ''));
+                $end = self::normalizeTimeString((string) ($slot['end'] ?? $slot['to'] ?? ''));
+                if ($start === null || $end === null || $start === $end) {
+                    continue;
+                }
+                $periods[] = ['start' => $start, 'end' => $end];
+            }
+        }
+
+        return $periods;
     }
 }

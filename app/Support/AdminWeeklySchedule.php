@@ -923,7 +923,7 @@ final class AdminWeeklySchedule
      */
     public static function syncTemplateTimesToSchedule(string $connection, Shift $shift, ?CarbonInterface $fromDate = null): int
     {
-        $from = ($fromDate ?? Carbon::today())->toDateString();
+        $from = ($fromDate ?? DisplayTimezone::now()->startOfDay())->toDateString();
         $startTime = self::storedTimeToHm($shift->start_time);
         $endTime = self::storedTimeToHm($shift->end_time);
 

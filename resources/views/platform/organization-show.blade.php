@@ -42,7 +42,7 @@
                 <div class="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4">
                     <dt class="text-brand-text-secondary">Registered</dt>
                     <dd class="text-brand-text">
-                        <time datetime="{{ $company->created_at?->toDateString() }}">{{ $company->created_at?->format('M j, Y') ?? '—' }}</time>
+                        <time datetime="{{ $company->created_at ? \App\Support\DisplayTimezone::format($company->created_at, 'Y-m-d') : '' }}">{{ $company->created_at ? \App\Support\DisplayTimezone::formatDate($company->created_at) : '—' }}</time>
                     </dd>
                 </div>
             </dl>

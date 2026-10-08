@@ -149,7 +149,7 @@
 
 @unless ($archived)
 @php
-    $defaultEffective = old('wage_effective_from', (string) config('payroll.default_rates_effective_from', now()->toDateString()));
+    $defaultEffective = old('wage_effective_from', (string) config('payroll.default_rates_effective_from', \App\Support\DisplayTimezone::now()->toDateString()));
     $selectedAddColor = strtolower((string) old('color', \App\Models\JobTitle::colorPalette()[0]));
     $oldEmployeeIds = array_map('strval', (array) old('employee_ids', []));
     $addEmployeeRows = collect($employees ?? [])->map(function ($employee) use ($oldEmployeeIds) {

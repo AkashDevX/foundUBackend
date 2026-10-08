@@ -20,7 +20,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_2',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
         $entries = new Collection([
             new TimeClockEntry([
@@ -69,7 +69,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $weekStart = Carbon::parse('2025-07-07 08:00:00', $tz);
         $entries = new Collection();
 
@@ -120,7 +120,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $ph = Carbon::parse('2025-07-07 10:00:00', $tz);
         $entries = new Collection([
             new TimeClockEntry([
@@ -161,7 +161,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
 
         $shift = new \App\Models\Shift([
@@ -230,7 +230,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         // Same pattern as the timesheet case: 3m on site, two 1m breaks, 1m paid allocation
         $start = Carbon::parse('2025-07-07 03:38:00', $tz);
 
@@ -306,7 +306,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
 
         $shift = new \App\Models\Shift([
@@ -382,7 +382,7 @@ class PayrollCalculatorTest extends TestCase
             'award_level' => 'level_1',
         ]);
 
-        $tz = 'Australia/Sydney';
+        $tz = 'Australia/Brisbane';
         $monday = Carbon::parse('2025-07-07 09:00:00', $tz);
 
         $entries = new Collection([

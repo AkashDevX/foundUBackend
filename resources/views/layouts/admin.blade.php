@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="display-timezone" content="{{ \App\Support\DisplayTimezone::name() }}">
     <meta name="theme-color" content="#003d7a">
     @if (session('success'))
         <meta name="flash-success" content="{{ e(session('success')) }}">
@@ -127,7 +128,7 @@
                         <svg class="size-4 transition-transform" id="payroll-time-nav-chevron" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                     <div id="payroll-time-nav-submenu" class="ml-12 space-y-1 pb-1 {{ $payrollActive ? '' : 'hidden' }}">
-                        <a href="{{ route('admin.employees.time-clock') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.time-clock*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Time clock records</a>
+                        <a href="{{ route('admin.employees.time-clock') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.employees.time-clock') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Time clock records</a>
                         <a href="{{ route('admin.payroll.runs') }}" class="block rounded-lg px-3 py-2 text-xs {{ request()->routeIs('admin.payroll.runs*') ? 'bg-white/10 text-white' : 'text-white/65 hover:bg-white/[0.07] hover:text-white/90' }}">Payrun</a>
                     </div>
 
@@ -182,6 +183,9 @@
                     <div class="flex items-center gap-2 sm:gap-3">
                         @auth('portal')
                             @include('admin.partials.applicant-search-shell')
+                        @endauth
+                        @auth('portal')
+                            @include('admin.partials.incident-siren')
                         @endauth
                         @auth('portal')
                             @include('admin.partials.account-menu', [

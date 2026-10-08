@@ -440,71 +440,92 @@ const WEEKLY_DAY_LABELS = {
     sun: 'Sun',
 };
 
-function initWeeklyCalendar(root) {
-    const cellOn =
-        'flex aspect-square w-full min-w-[2.25rem] max-w-[2.75rem] items-center justify-center rounded-xl border text-sm font-bold transition duration-150 border-brand-primary bg-brand-primary text-white shadow-sm shadow-brand-primary/25';
-    const cellOff =
-        'flex aspect-square w-full min-w-[2.25rem] max-w-[2.75rem] items-center justify-center rounded-xl border text-sm font-bold transition duration-150 border-brand-border/80 bg-brand-surface/70 text-brand-text-secondary/50';
+function initDaySchedule(root) {
+    const template = root.querySelector('[data-reg-period-template]');
 
-    function syncCell(checkbox) {
-        const label = checkbox.closest('label');
-        const visual = label?.querySelector('[data-reg-weekly-cell]');
-        if (!(visual instanceof HTMLElement)) {
-            return;
+    function reindex(dayEl) {
+        const day = dayEl.dataset.regDay ?? '';
+        const rows = dayEl.querySelectorAll('[data-reg-period-row]');
+        rows.forEach((row, index) => {
+            row.querySelectorAll('input[data-reg-time]').forEach((input) => {
+                if (!(input instanceof HTMLInputElement)) {
+                    return;
+                }
+                const field = input.dataset.regTime === 'end' ? 'end' : 'start';
+                input.name = `availability[${day}][periods][${index}][${field}]`;
+            });
+            const remove = row.querySelector('[data-reg-remove-period]');
+            if (remove instanceof HTMLElement) {
+                remove.classList.toggle('invisible', rows.length < 2);
+            }
+        });
+    }
+
+    function hhmm(value) {
+        const match = value.match(/^(\d{2}:\d{2})/);
+        return match ? match[1] : '';
+    }
+
+    function syncDay(dayEl) {
+        const status = dayEl.querySelector('[data-reg-day-status]');
+        const periods = dayEl.querySelector('[data-reg-periods]');
+        const note = dayEl.querySelector('[data-reg-unavailable-note]');
+        const available = !(status instanceof HTMLSelectElement) || status.value === 'available';
+        periods?.classList.toggle('hidden', !available);
+        if (periods instanceof HTMLElement) {
+            periods.classList.toggle('mt-3', available);
         }
-        const on = checkbox.checked;
-        visual.className = `${on ? cellOn : cellOff} peer-focus-visible:ring-2 peer-focus-visible:ring-brand-primary/40`;
-        visual.textContent = on ? '✓' : '–';
+        note?.classList.toggle('hidden', available);
+        dayEl.querySelectorAll('[data-reg-period-row]').forEach((row) => {
+            const start = row.querySelector('[data-reg-time="start"]');
+            const end = row.querySelector('[data-reg-time="end"]');
+            const hint = row.querySelector('[data-reg-overnight]');
+            const startValue = hhmm(start instanceof HTMLInputElement ? start.value : '');
+            const endValue = hhmm(end instanceof HTMLInputElement ? end.value : '');
+            const overnight = startValue !== '' && endValue !== '' && endValue < startValue;
+            hint?.classList.toggle('hidden', !overnight);
+            row.querySelectorAll('input').forEach((input) => {
+                if (input instanceof HTMLInputElement) {
+                    input.toggleAttribute('disabled', !available);
+                }
+            });
+        });
     }
 
     function buildStatusText() {
-        const parts = [];
-        root.querySelectorAll('input[type="checkbox"][data-reg-day][data-reg-period]').forEach((input) => {
-            if (!(input instanceof HTMLInputElement) || !input.checked) {
-                return;
-            }
-            const day = input.dataset.regDay ?? '';
-            const period = input.dataset.regPeriod ?? '';
-            const dayLabel = WEEKLY_DAY_LABELS[day] ?? day;
-            if (!dayLabel || !period) {
-                return;
-            }
-            parts.push({ day, dayLabel, period });
-        });
-
-        const byDay = new Map();
-        for (const item of parts) {
-            const existing = byDay.get(item.day) ?? { label: item.dayLabel, morning: false, evening: false };
-            if (item.period === 'morning') {
-                existing.morning = true;
-            }
-            if (item.period === 'evening') {
-                existing.evening = true;
-            }
-            byDay.set(item.day, existing);
-        }
-
         const lines = [];
-        for (const entry of byDay.values()) {
-            const slotLabels = [];
-            if (entry.morning) {
-                slotLabels.push('Morning');
+        root.querySelectorAll('[data-reg-day]').forEach((dayEl) => {
+            if (!(dayEl instanceof HTMLElement)) {
+                return;
             }
-            if (entry.evening) {
-                slotLabels.push('Evening');
+            const day = dayEl.dataset.regDay ?? '';
+            const label = WEEKLY_DAY_LABELS[day] ?? day;
+            const status = dayEl.querySelector('[data-reg-day-status]');
+            const available = status instanceof HTMLSelectElement && status.value === 'available';
+            if (!available) {
+                lines.push(`${label}: Not available`);
+                return;
             }
-            if (slotLabels.length > 0) {
-                lines.push(`${entry.label}: ${slotLabels.join(', ')}`);
-            }
-        }
-
-        return lines.length === 0 ? 'No time blocks selected yet.' : lines.join(' · ');
+            const ranges = [];
+            dayEl.querySelectorAll('[data-reg-period-row]').forEach((row) => {
+                const start = row.querySelector('[data-reg-time="start"]');
+                const end = row.querySelector('[data-reg-time="end"]');
+                const startValue = hhmm(start instanceof HTMLInputElement ? start.value : '');
+                const endValue = hhmm(end instanceof HTMLInputElement ? end.value : '');
+                if (!/^\d{2}:\d{2}$/.test(startValue) || !/^\d{2}:\d{2}$/.test(endValue) || startValue === endValue) {
+                    return;
+                }
+                ranges.push(endValue < startValue ? `${startValue}–${endValue} (overnight)` : `${startValue}–${endValue}`);
+            });
+            lines.push(ranges.length ? `${label}: ${ranges.join(', ')}` : `${label}: Available`);
+        });
+        return lines.length ? lines.join(' · ') : 'No availability entered yet.';
     }
 
     function syncAll() {
-        root.querySelectorAll('input[type="checkbox"][data-reg-day]').forEach((input) => {
-            if (input instanceof HTMLInputElement) {
-                syncCell(input);
+        root.querySelectorAll('[data-reg-day]').forEach((dayEl) => {
+            if (dayEl instanceof HTMLElement) {
+                syncDay(dayEl);
             }
         });
         const status = root.querySelector('[data-reg-weekly-status]');
@@ -513,13 +534,74 @@ function initWeeklyCalendar(root) {
         }
     }
 
-    root.querySelectorAll('input[type="checkbox"][data-reg-day]').forEach((input) => {
-        if (input instanceof HTMLInputElement) {
-            input.addEventListener('change', syncAll);
+    root.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) {
+            return;
+        }
+        const add = target.closest('[data-reg-add-period]');
+        if (add && template instanceof HTMLTemplateElement) {
+            const dayEl = add.closest('[data-reg-day]');
+            const list = dayEl?.querySelector('[data-reg-period-list]');
+            if (dayEl instanceof HTMLElement && list) {
+                list.appendChild(template.content.cloneNode(true));
+                reindex(dayEl);
+                syncAll();
+            }
+            return;
+        }
+        const remove = target.closest('[data-reg-remove-period]');
+        if (remove) {
+            const dayEl = remove.closest('[data-reg-day]');
+            const row = remove.closest('[data-reg-period-row]');
+            if (dayEl instanceof HTMLElement && row && dayEl.querySelectorAll('[data-reg-period-row]').length > 1) {
+                row.remove();
+                reindex(dayEl);
+                syncAll();
+            }
         }
     });
 
+    root.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+        if (target.matches('[data-reg-day-status], input[data-reg-time]')) {
+            syncAll();
+        }
+    });
+
+    root.querySelectorAll('[data-reg-day]').forEach((dayEl) => {
+        if (dayEl instanceof HTMLElement) {
+            reindex(dayEl);
+        }
+    });
     syncAll();
+}
+
+function requiresVisaDocument(value) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return !normalized.includes('citizen') && !normalized.includes('permanent resident');
+}
+
+function initVisaDocumentField(select) {
+    const block = document.querySelector('[data-reg-visa-document-field]');
+    if (!block) {
+        return;
+    }
+    function sync() {
+        const show = requiresVisaDocument(select.value);
+        block.classList.toggle('hidden', !show);
+        block.querySelectorAll('input, select, textarea, button').forEach((el) => {
+            el.toggleAttribute('disabled', !show);
+        });
+    }
+    select.addEventListener('change', sync);
+    sync();
 }
 
 function initUnrestrictedVisaFields(select) {
@@ -561,6 +643,53 @@ function initTransportVehicle(select) {
     sync();
 }
 
+function isDriversLicenceType(value) {
+    const normalized = value.trim().toLowerCase().replace(/[’`]/g, "'");
+    return normalized.includes('driver') && normalized.includes('licen');
+}
+
+function initIdDocumentCard(card) {
+    const select = card.querySelector('select[name^="id_document_type["]');
+    const back = card.querySelector('[data-reg-id-doc-back]');
+    const frontLabel = card.querySelector('[data-reg-id-doc-front-label]');
+    if (!(select instanceof HTMLSelectElement) || !(back instanceof HTMLElement)) {
+        return;
+    }
+    function sync() {
+        const licence = isDriversLicenceType(select.value);
+        const keepBack = licence || back.dataset.regIdDocBackHasFile === '1';
+        back.classList.toggle('hidden', !keepBack);
+        back.querySelectorAll('input, button').forEach((el) => {
+            el.toggleAttribute('disabled', !keepBack);
+        });
+        if (frontLabel instanceof HTMLElement) {
+            frontLabel.classList.toggle('hidden', !licence);
+        }
+    }
+    select.addEventListener('change', sync);
+    sync();
+}
+
+function initOtherDocumentType(card) {
+    const select = card.querySelector('[data-reg-doc-type]');
+    const block = card.querySelector('[data-reg-doc-type-other]');
+    if (!(select instanceof HTMLSelectElement) || !(block instanceof HTMLElement)) {
+        return;
+    }
+    function sync() {
+        const show = select.value.trim().toLowerCase() === 'other';
+        block.classList.toggle('hidden', !show);
+        block.querySelectorAll('input, textarea').forEach((el) => {
+            el.toggleAttribute('disabled', !show);
+            if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+                el.required = show;
+            }
+        });
+    }
+    select.addEventListener('change', sync);
+    sync();
+}
+
 function bootRegistrationAdminProfile() {
     initRegDocRemovals();
     initRegPhotoRemovals();
@@ -584,17 +713,27 @@ function bootRegistrationAdminProfile() {
             initRegDocRoot(root);
         }
     });
+    document.querySelectorAll('[data-reg-id-doc-card]').forEach((card) => {
+        if (card instanceof HTMLElement) {
+            initOtherDocumentType(card);
+            initIdDocumentCard(card);
+        }
+    });
     const unrestrictedSelect = document.querySelector('[data-reg-unrestricted-work-rights]');
     if (unrestrictedSelect instanceof HTMLSelectElement) {
         initUnrestrictedVisaFields(unrestrictedSelect);
+    }
+    const visaStatusSelect = document.querySelector('[data-reg-visa-status]');
+    if (visaStatusSelect instanceof HTMLSelectElement) {
+        initVisaDocumentField(visaStatusSelect);
     }
     const modeSelect = document.querySelector('[data-reg-mode-transport]');
     if (modeSelect instanceof HTMLSelectElement) {
         initTransportVehicle(modeSelect);
     }
-    document.querySelectorAll('[data-reg-weekly-calendar]').forEach((root) => {
+    document.querySelectorAll('[data-reg-day-schedule]').forEach((root) => {
         if (root instanceof HTMLElement) {
-            initWeeklyCalendar(root);
+            initDaySchedule(root);
         }
     });
 }

@@ -10,17 +10,25 @@
         $summaryLabel = $summary;
     }
 
-    $shellClass = $highlight
-        ? 'border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-white'
-        : 'border-brand-border bg-white';
-    $iconWellClass = $highlight
-        ? 'bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200/70'
-        : 'bg-brand-surface text-brand-primary ring-1 ring-inset ring-brand-border';
-    $countClass = $highlight
-        ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/25'
-        : 'bg-brand-primary text-white shadow-sm shadow-brand-primary/20';
-    $summaryClass = $highlight ? 'text-amber-950' : 'text-brand-text';
-    $chevronClass = $highlight ? 'text-amber-600/55' : 'text-brand-icon';
+    $isIncidentAlert = ($card['key'] ?? '') === 'incidents';
+    $isClockInGrace = ($card['key'] ?? '') === 'clock_in_exceptions';
+    $shellClass = $isIncidentAlert
+        ? 'border-red-300 bg-gradient-to-br from-red-50 via-white to-white'
+        : ($highlight
+            ? 'border-amber-200/90 bg-gradient-to-br from-amber-50 via-white to-white'
+            : 'border-brand-border bg-white');
+    $iconWellClass = $isIncidentAlert
+        ? 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-200'
+        : ($highlight
+            ? 'bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200/70'
+            : 'bg-brand-surface text-brand-primary ring-1 ring-inset ring-brand-border');
+    $countClass = $isIncidentAlert
+        ? 'bg-red-600 text-white shadow-sm shadow-red-600/25'
+        : ($highlight
+            ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/25'
+            : 'bg-brand-primary text-white shadow-sm shadow-brand-primary/20');
+    $summaryClass = $isIncidentAlert ? 'text-red-950' : ($highlight ? 'text-amber-950' : 'text-brand-text');
+    $chevronClass = $isIncidentAlert ? 'text-red-600/70' : ($highlight ? 'text-amber-600/55' : 'text-brand-icon');
 
     $firstItem = $itemCount === 1 ? ($items[0] ?? null) : null;
     $firstTimeOff = is_array($firstItem) ? ($firstItem['time_off_review'] ?? null) : null;
@@ -29,7 +37,7 @@
 
     $headerIsTimeOff = is_array($firstTimeOff) && ! empty($firstTimeOff['id']);
     $headerUrl = null;
-    if (! $headerIsTimeOff) {
+    if (! $headerIsTimeOff && ! $isClockInGrace) {
         if (is_string($firstUrl) && $firstUrl !== '') {
             $headerUrl = $firstUrl;
         } elseif (is_string($hubUrl) && $hubUrl !== '') {
@@ -41,7 +49,7 @@
 @endphp
 
 <div
-    class="workflow-card rounded-2xl border {{ $shellClass }} shadow-sm ring-1 ring-black/[0.02]"
+    class="workflow-card rounded-2xl border {{ $shellClass }} shadow-sm ring-1 ring-black/[0.02] {{ $isIncidentAlert ? 'is-expanded incident-alert-card' : '' }}"
     data-workflow-card
 >
     @if ($headerIsTimeOff)
@@ -50,6 +58,19 @@
             class="{{ $headerClass }}"
             data-open-time-off-review="{{ (int) $firstTimeOff['id'] }}"
         >
+            @include('admin.partials.dashboard-workflow-card-header', [
+                'card' => $card,
+                'iconWellClass' => $iconWellClass,
+                'countClass' => $countClass,
+                'countValue' => $countValue,
+                'summaryClass' => $summaryClass,
+                'summaryLabel' => $summaryLabel,
+                'chevronClass' => $chevronClass,
+                'highlight' => $highlight,
+            ])
+        </button>
+    @elseif ($isClockInGrace)
+        <button type="button" class="{{ $headerClass }}" data-open-clock-in-grace>
             @include('admin.partials.dashboard-workflow-card-header', [
                 'card' => $card,
                 'iconWellClass' => $iconWellClass,
@@ -89,7 +110,7 @@
         </div>
     @endif
 
-    <div class="workflow-card-details" aria-hidden="true">
+    <div class="workflow-card-details" aria-hidden="{{ $isIncidentAlert ? 'false' : 'true' }}">
         <ul class="space-y-0.5 border-t border-brand-border/70 bg-brand-surface/40 px-2.5 py-2.5">
             @foreach ($items as $item)
                 @php
@@ -107,6 +128,15 @@
                             type="button"
                             class="flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs leading-snug text-brand-text transition hover:bg-white hover:shadow-sm"
                             data-open-time-off-review="{{ (int) $timeOffReview['id'] }}"
+                        >
+                            <span class="mt-1.5 size-1.5 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
+                            <span class="min-w-0 flex-1 whitespace-normal">{{ $item['message'] }}</span>
+                        </button>
+                    @elseif ($isClockInGrace)
+                        <button
+                            type="button"
+                            class="flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs leading-snug text-brand-text transition hover:bg-white hover:shadow-sm"
+                            data-open-clock-in-grace
                         >
                             <span class="mt-1.5 size-1.5 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
                             <span class="min-w-0 flex-1 whitespace-normal">{{ $item['message'] }}</span>

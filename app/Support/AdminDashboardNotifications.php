@@ -2,17 +2,21 @@
 
 namespace App\Support;
 
+use App\Models\ClockInException;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
+use App\Models\IncidentReport;
 use App\Models\TimeClockEntry;
 use App\Models\TimeClockIdleAlert;
 use App\Models\TimeOffRequest;
 use App\Models\TimesheetApproval;
+use App\Support\ClockInGraceSettings;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 final class AdminDashboardNotifications
 {
@@ -44,6 +48,8 @@ final class AdminDashboardNotifications
         'requires_action' => [
             'title' => 'Requires action',
             'keys' => [
+                'incidents',
+                'clock_in_exceptions',
                 'expired_documents',
                 'unapproved_timesheets',
                 'pending_leave',
@@ -127,6 +133,14 @@ final class AdminDashboardNotifications
         'pending_leave' => [
             'one' => '1 pending leave request',
             'many' => '%d pending leave requests',
+        ],
+        'incidents' => [
+            'one' => '1 new incident report',
+            'many' => '%d new incident reports',
+        ],
+        'clock_in_exceptions' => [
+            'one' => '1 clock-in waiting for approval',
+            'many' => '%d clock-ins waiting for approval',
         ],
         'upcoming_renewals' => [
             'one' => '1 upcoming visa, licence, or certification renewal',
@@ -311,10 +325,12 @@ final class AdminDashboardNotifications
             self::upcomingShiftItems($scheduleShifts, $employeeUrl, $name, $now),
         );
 
+        $clockInGraceMinutes = ClockInGraceSettings::current($conn)['grace_minutes'];
+
         $sections[] = self::section(
             'missing_clock_in',
             'Employees who have not clocked in for their scheduled shift',
-            self::missingClockInItems($scheduleShifts, $clockEntries, $excusedAbsences, $employeeUrl, $name, $now, $tz),
+            self::missingClockInItems($scheduleShifts, $clockEntries, $excusedAbsences, $employeeUrl, $name, $now, $tz, $clockInGraceMinutes),
         );
 
         $sections[] = self::section(
@@ -336,7 +352,7 @@ final class AdminDashboardNotifications
         $sections[] = self::section(
             'late_early_punches',
             'Late clock-ins or early clock-outs',
-            self::lateEarlyItems($scheduleShifts, $clockEntries, $excusedAbsences, $employeeUrl, $name, $now, $tz),
+            self::lateEarlyItems($scheduleShifts, $clockEntries, $excusedAbsences, $employeeUrl, $name, $now, $tz, $clockInGraceMinutes),
         );
 
         $sections[] = self::section(
@@ -369,13 +385,17 @@ final class AdminDashboardNotifications
             self::incompleteOnboardingItems($allEmployees, $employeeUrl, $name),
         );
 
-        // $sections[] = self::section(
-        //     'incidents',
-        //     'New incident or hazard reports',
-        //     [],
-        //     true,
-        //     'Incident reporting is not set up yet.',
-        // );
+        $sections[] = self::section(
+            'incidents',
+            'New incident or hazard reports',
+            self::incidentItems($conn),
+        );
+
+        $sections[] = self::section(
+            'clock_in_exceptions',
+            'Clock-ins that need approval',
+            self::clockInExceptionItems($conn),
+        );
 
         $sections[] = self::messagingSection($company, $conn);
 
@@ -527,6 +547,7 @@ final class AdminDashboardNotifications
             'expired_documents', 'upcoming_renewals', 'birthdays', 'birthdays_today', 'recently_joined' => route('admin.employees.profiles'),
             'unapproved_timesheets' => route('admin.employees.time-clock', ['timesheet_status' => 'pending']),
             'pending_leave' => null,
+            'incidents' => route('admin.incidents.index', ['status' => 'new']),
             'schedule_conflicts', 'upcoming_shifts' => route('admin.employees.weekly-schedule'),
             'missing_clock_in', 'no_shows_sick', 'late_early_punches', 'overtime', 'clocked_in' => route('admin.employees.time-clock'),
             'idle_low_movement' => route('admin.employees.location-tracking'),
@@ -869,9 +890,11 @@ final class AdminDashboardNotifications
         callable $name,
         CarbonInterface $now,
         string $tz,
+        ?int $clockInGraceMinutes = null,
     ): array {
         $items = [];
         $today = $now->toDateString();
+        $clockInGraceMinutes ??= ClockInGraceSettings::current()['grace_minutes'];
 
         foreach ($scheduleShifts as $shift) {
             if ($shift->scheduled_date?->toDateString() !== $today) {
@@ -895,7 +918,7 @@ final class AdminDashboardNotifications
                 continue;
             }
 
-            if ($now->lt($shiftStart->copy()->addMinutes(self::LATE_GRACE_MINUTES))) {
+            if ($now->lt($shiftStart->copy()->addMinutes($clockInGraceMinutes))) {
                 continue;
             }
 
@@ -1035,9 +1058,11 @@ final class AdminDashboardNotifications
         callable $name,
         CarbonInterface $now,
         string $tz,
+        ?int $clockInGraceMinutes = null,
     ): array {
         $items = [];
         $today = $now->toDateString();
+        $clockInGraceMinutes ??= ClockInGraceSettings::current()['grace_minutes'];
 
         foreach ($scheduleShifts as $shift) {
             $date = $shift->scheduled_date?->toDateString();
@@ -1075,7 +1100,7 @@ final class AdminDashboardNotifications
             $firstIn = $dayEntries->first(static fn (TimeClockEntry $e): bool => $e->event_type === TimeClockEntry::EVENT_CLOCK_IN);
             if ($firstIn?->clocked_at !== null) {
                 $lateMinutes = (int) $shiftStart->diffInMinutes($firstIn->clocked_at, false);
-                if ($lateMinutes > self::LATE_GRACE_MINUTES) {
+                if ($lateMinutes > $clockInGraceMinutes) {
                     $items[] = [
                         'message' => sprintf(
                             '%s — clocked in %d min late on %s (scheduled %s)',
@@ -1162,6 +1187,45 @@ final class AdminDashboardNotifications
     }
 
     /**
+     * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
+     */
+    private static function clockInExceptionItems(string $conn): array
+    {
+        if (! Schema::connection($conn)->hasTable('clock_in_exceptions')) {
+            return [];
+        }
+
+        $rows = ClockInException::on($conn)
+            ->with('employee')
+            ->where('status', ClockInException::STATUS_PENDING)
+            ->orderByDesc('attempted_at')
+            ->limit(self::MAX_ITEMS_PER_SECTION)
+            ->get();
+
+        $items = [];
+        foreach ($rows as $row) {
+            $employee = $row->employee;
+            $name = $employee instanceof Employee
+                ? trim((string) ($employee->full_legal_name ?: $employee->email ?: 'Employee'))
+                : 'Employee';
+            $when = DisplayTimezone::format($row->shift_starts_at, 'g:i A');
+            $items[] = [
+                'message' => sprintf(
+                    '%s tried to clock in %s. Their shift starts at %s.',
+                    $name,
+                    $row->kind === 'early' ? 'too early' : 'too late',
+                    $when,
+                ),
+                'url' => null,
+                'severity' => 'urgent',
+                'sort_at' => $row->attempted_at?->getTimestamp() ?? $row->id,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
      * @param  Collection<int, Employee>  $employees
      * @param  Collection<int, TimesheetApproval>  $approvals
      * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
@@ -1183,6 +1247,45 @@ final class AdminDashboardNotifications
                 'url' => self::timeClockUrl($employee, 'pending'),
                 'severity' => 'warning',
                 'sort_at' => -strtotime($row['work_date']),
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
+     */
+    private static function incidentItems(string $conn): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::connection($conn)->hasTable('incident_reports')) {
+            return [];
+        }
+
+        $reports = IncidentReport::on($conn)
+            ->with('employee')
+            ->where('status', IncidentReport::STATUS_NEW)
+            ->orderBy('id')
+            ->limit(self::MAX_ITEMS_PER_SECTION)
+            ->get();
+
+        $items = [];
+        foreach ($reports as $report) {
+            $site = trim((string) $report->site_name);
+            $summary = trim((string) $report->summary);
+            $message = $report->reporterName().' reported '.$report->typeLabel();
+            if ($site !== '' && strcasecmp($site, 'Not specified') !== 0) {
+                $message .= ' at '.$site;
+            }
+            $message .= '.';
+            if ($summary !== '' && strcasecmp($summary, 'Not specified') !== 0) {
+                $message .= ' '.$summary;
+            }
+            $items[] = [
+                'message' => $message,
+                'url' => route('admin.incidents.show', $report->id),
+                'severity' => 'urgent',
+                'sort_at' => $report->created_at?->getTimestamp() ?? $report->id,
             ];
         }
 
@@ -1644,12 +1747,6 @@ final class AdminDashboardNotifications
      */
     private static function documentRowTitle(array $row): string
     {
-        foreach (['documentType', 'document_type', 'idType', 'id_type', 'type', 'name', 'title', 'label'] as $key) {
-            if (! empty($row[$key]) && is_scalar($row[$key])) {
-                return trim((string) $row[$key]);
-            }
-        }
-
-        return '';
+        return RegistrationDisplay::documentDisplayTitle($row);
     }
 }

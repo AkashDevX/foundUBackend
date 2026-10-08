@@ -18,7 +18,7 @@ use Tests\TestCase;
 
 class AdminPayrollTest extends TestCase
 {
-    private const TZ = 'Australia/Sydney';
+    private const TZ = 'Australia/Brisbane';
 
     public function test_fortnight_end_is_thirteen_days_after_start(): void
     {
@@ -40,7 +40,7 @@ class AdminPayrollTest extends TestCase
 
     public function test_normalize_fortnight_start_snaps_to_monday_pair(): void
     {
-        Carbon::setTestNow(Carbon::parse('2025-07-10', 'Australia/Sydney'));
+        Carbon::setTestNow(Carbon::parse('2025-07-10', 'Australia/Brisbane'));
         $normalized = AdminPayroll::normalizeFortnightStart('2025-07-10');
         $this->assertSame(Carbon::MONDAY, (int) Carbon::parse($normalized)->dayOfWeek);
         Carbon::setTestNow();

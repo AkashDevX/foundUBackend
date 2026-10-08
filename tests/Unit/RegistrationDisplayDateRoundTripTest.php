@@ -98,6 +98,28 @@ class RegistrationDisplayDateRoundTripTest extends TestCase
         $this->assertSame('Forklift (exp. 2026-03-15) · HR (exp. 2027-01-20)', $summary);
     }
 
+    public function test_other_document_type_summary_uses_specified_name(): void
+    {
+        $summary = RegistrationDisplay::rebuildDocumentRowsSummary([
+            [
+                'id' => '1',
+                'type' => 'Other',
+                'documentType' => 'Other',
+                'documentTypeOther' => 'Working with Children Check',
+                'expiry' => '2026-03-15',
+            ],
+            [
+                'id' => '2',
+                'documentType' => 'Public Liability',
+                'expiry' => '2027-01-20',
+            ],
+        ]);
+        $this->assertSame(
+            'Working with Children Check (exp. 2026-03-15) · Public Liability (exp. 2027-01-20)',
+            $summary
+        );
+    }
+
     public function test_document_row_expiry_input_from_json(): void
     {
         $input = RegistrationDisplay::documentRowExpiryInputValue([

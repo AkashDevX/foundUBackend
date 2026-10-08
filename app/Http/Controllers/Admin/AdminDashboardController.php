@@ -32,6 +32,16 @@ class AdminDashboardController extends Controller
         $notifications = ['sections' => [], 'alert_count' => 0];
         $timeOffLeaveBalances = [];
         $openTimeOffRequestId = null;
+        $clockInGrace = [
+            'ready' => false,
+            'settings' => [
+                'grace_minutes' => 20,
+                'outside_policy' => 'exception',
+                'persisted' => false,
+                'ready' => false,
+            ],
+            'pending' => collect(),
+        ];
 
         try {
             $conn = $company->tenant_connection;
@@ -40,6 +50,7 @@ class AdminDashboardController extends Controller
             $statsActive = Employee::on($conn)->where('employment_status', 'active')->count();
             $statsDeclined = Employee::on($conn)->whereIn('employment_status', ['declined', 'rejected'])->count();
             $notifications = AdminDashboardNotifications::collect($company);
+            $clockInGrace = AdminClockInGraceController::modalData($conn);
 
             $pendingTimeOffEmployees = TimeOffRequest::on($conn)
                 ->where('status', TimeOffRequest::STATUS_PENDING)
@@ -70,6 +81,7 @@ class AdminDashboardController extends Controller
             'notifications' => $notifications,
             'timeOffLeaveBalances' => $timeOffLeaveBalances,
             'openTimeOffRequestId' => $openTimeOffRequestId,
+            'clockInGrace' => $clockInGrace,
         ]);
     }
 

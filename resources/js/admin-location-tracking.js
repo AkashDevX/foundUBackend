@@ -65,11 +65,17 @@ function readJsonScript(root, selector, fallback) {
     }
 }
 
+function displayTimeZone() {
+    const meta = document.querySelector('meta[name="display-timezone"]');
+    return (meta && meta.getAttribute('content')) || 'Australia/Brisbane';
+}
+
 function formatTime(iso, withSeconds = false) {
     if (!iso) return '—';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleTimeString([], {
+    return d.toLocaleTimeString('en-AU', {
+        timeZone: displayTimeZone(),
         hour: 'numeric',
         minute: '2-digit',
         ...(withSeconds ? { second: '2-digit' } : {}),

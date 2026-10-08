@@ -8,6 +8,7 @@ use App\Models\PayrollRun;
 use App\Models\PublicHoliday;
 use App\Models\TimesheetApproval;
 use App\Support\AdminPayroll;
+use App\Support\DisplayTimezone;
 use Illuminate\Console\Command;
 
 class GenerateFortnightPayrollCommand extends Command
@@ -26,7 +27,7 @@ class GenerateFortnightPayrollCommand extends Command
         $fortnightStart = is_string($fortnightOption) && $fortnightOption !== ''
             ? AdminPayroll::normalizeFortnightStart($fortnightOption)
             : AdminPayroll::normalizeFortnightStart(
-                now(config('app.display_timezone', 'Australia/Sydney'))->subDays(14)->toDateString()
+                now(DisplayTimezone::name())->subDays(14)->toDateString()
             );
 
         $fortnightEnd = AdminPayroll::fortnightEndForStart($fortnightStart);
@@ -87,7 +88,7 @@ class GenerateFortnightPayrollCommand extends Command
 
     private function loadEmployees(string $conn, string $fortnightStart, string $fortnightEnd): \Illuminate\Support\Collection
     {
-        $tz = config('app.display_timezone', 'Australia/Sydney');
+        $tz = DisplayTimezone::name();
         $entriesFrom = \Carbon\Carbon::parse($fortnightStart, $tz)->startOfDay()->utc()->subDay();
         $entriesTo = \Carbon\Carbon::parse($fortnightEnd, $tz)->endOfDay()->utc()->addDay();
 

@@ -85,7 +85,7 @@ class AdminPayrollController extends Controller
             $fortnightStart = AdminPayroll::normalizeFortnightStart($fortnightStart);
         } else {
             $recent = AdminPayroll::recentFortnights(1, $existingRuns);
-            $fortnightStart = $recent[0]['start'] ?? AdminPayroll::normalizeFortnightStart(now()->toDateString());
+            $fortnightStart = $recent[0]['start'] ?? AdminPayroll::normalizeFortnightStart(\App\Support\DisplayTimezone::now()->toDateString());
         }
 
         $fortnightEnd = AdminPayroll::fortnightEndForStart($fortnightStart);

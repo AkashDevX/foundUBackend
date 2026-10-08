@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\BreakStartEmployeeController;
 use App\Http\Controllers\Api\V1\ClockInEmployeeController;
 use App\Http\Controllers\Api\V1\ClockOutEmployeeController;
 use App\Http\Controllers\Api\V1\CurrentEmployeeController;
+use App\Http\Controllers\Api\V1\EmployeeIncidentReportsController;
 use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Http\Controllers\Api\V1\EmployeeTasksController;
 use App\Http\Controllers\Api\V1\EmployeeTimeOffRequestsController;
@@ -101,6 +102,8 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::get('/shifts/schedule', EmployeeScheduleController::class);
         Route::get('/time-off/requests', EmployeeTimeOffRequestsController::class);
         Route::post('/time-off/requests', RequestTimeOffController::class);
+        Route::get('/incidents/options', [EmployeeIncidentReportsController::class, 'options']);
+        Route::post('/incidents', [EmployeeIncidentReportsController::class, 'store']);
         Route::get('/tasks', EmployeeTasksController::class);
         Route::patch('/tasks/{task}', UpdateEmployeeTaskCompletionController::class)
             ->where(['task' => '[0-9]+']);

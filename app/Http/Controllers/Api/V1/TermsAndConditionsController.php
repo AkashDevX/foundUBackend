@@ -50,6 +50,7 @@ class TermsAndConditionsController extends Controller
      */
     private function sectionsFromContent(string $content): array
     {
+        $content = str_replace(["\r\n", "\r"], "\n", trim($content));
         if ($content === '') {
             return [];
         }

@@ -8,6 +8,7 @@ use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
 use App\Models\TimeClockIdleAlert;
 use App\Models\WorkLocation;
+use App\Support\ClockInGraceGate;
 use App\Support\TimeClockScheduledShift;
 use App\Support\GeoDistance;
 use Carbon\CarbonInterface;
@@ -42,6 +43,10 @@ class TimeClockService
         $location = $employee->workLocation;
         $hasCoordinates = $this->workLocationHasCoordinates($location);
         $shiftIssue = $isClockedIn ? null : TimeClockScheduledShift::shiftIssue($employee);
+        $grace = $isClockedIn
+            ? ['blocks_clock_in' => false, 'issue' => null, 'window' => null]
+            : ClockInGraceGate::assess($employee);
+        $graceIssue = $grace['blocks_clock_in'] ? $grace['issue'] : null;
         $assignmentReady = $employee->work_location_id !== null && $hasCoordinates;
 
         $breaksPayload = [];
@@ -78,7 +83,7 @@ class TimeClockService
         return [
             'is_clocked_in' => $isClockedIn,
             'is_on_break' => $isOnBreak,
-            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null,
+            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null && $graceIssue === null,
             'can_clock_out' => $isClockedIn,
             'can_break_in' => $isClockedIn && !$isOnBreak,
             'can_break_out' => $isOnBreak,
@@ -109,7 +114,8 @@ class TimeClockService
             'last_event' => $lastEntry instanceof TimeClockEntry ? $lastEntry->toMobilePayload() : null,
             'assignment_ready' => $assignmentReady,
             'assignment_issue' => $this->assignmentIssue($employee, $hasCoordinates),
-            'shift_issue' => $shiftIssue,
+            'shift_issue' => $shiftIssue ?? $graceIssue,
+            'clock_in_window' => $grace['window'],
             'scheduled_shift' => TimeClockScheduledShift::todayShiftForDisplay($employee),
             'work_assignment' => $employee->workAssignmentForApi(),
         ];
@@ -120,6 +126,25 @@ class TimeClockService
      * @return array{entry: TimeClockEntry, time_clock: array<string, mixed>}
      */
     public function clockIn(Employee $employee, array $device): array
+    {
+        try {
+            return $this->clockInWithinTransaction($employee, $device);
+        } catch (TimeClockException $e) {
+            try {
+                ClockInGraceGate::persistBlockedAttempt($e);
+            } catch (\Throwable) {
+                // The punch stays blocked even if the exception row cannot be saved.
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null}  $device
+     * @return array{entry: TimeClockEntry, time_clock: array<string, mixed>}
+     */
+    private function clockInWithinTransaction(Employee $employee, array $device): array
     {
         return DB::transaction(function () use ($employee, $device) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
@@ -147,6 +172,8 @@ class TimeClockService
             );
             $this->assertWithinGeofence($geofence);
 
+            ClockInGraceGate::assertAllowsClockIn($employee, $scheduledShift);
+
             $entry = $this->createEntry(
                 $employee,
                 TimeClockEntry::EVENT_CLOCK_IN,
@@ -156,6 +183,8 @@ class TimeClockService
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
                 $scheduledShift->shift_id,
             );
+
+            ClockInGraceGate::noteSuccessfulClockIn($employee, $scheduledShift);
 
             return [
                 'entry' => $entry,

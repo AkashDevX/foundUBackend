@@ -45,6 +45,10 @@ class AdminRegistrationFileController extends Controller
             'Cache-Control' => 'private, no-cache, must-revalidate',
             'Pragma' => 'no-cache',
         ];
+        $contentType = self::contentTypeForPath($relativePath);
+        if ($contentType !== null) {
+            $headers['Content-Type'] = $contentType;
+        }
 
         $lastModified = $disk->lastModified($relativePath);
         if (is_int($lastModified) && $lastModified > 0) {
@@ -53,5 +57,23 @@ class AdminRegistrationFileController extends Controller
         }
 
         return response()->file($disk->path($relativePath), $headers);
+    }
+
+    /**
+     * Office files are ZIP containers, so content sniffing labels a resume as application/zip.
+     * Prefer the extension the employee uploaded.
+     */
+    private static function contentTypeForPath(string $relativePath): ?string
+    {
+        return match (strtolower(pathinfo($relativePath, PATHINFO_EXTENSION))) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            default => null,
+        };
     }
 }

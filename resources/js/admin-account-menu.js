@@ -1,16 +1,22 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const menus = document.querySelectorAll('[data-account-menu]');
+    const menus = [
+        ...document.querySelectorAll('[data-account-menu]'),
+        ...document.querySelectorAll('[data-incident-menu]'),
+    ];
     if (menus.length === 0) {
         return;
     }
+
+    const toggleFor = (menu) => menu.querySelector('[data-account-menu-toggle], [data-incident-menu-toggle]');
+    const panelFor = (menu) => menu.querySelector('[data-account-menu-panel], [data-incident-menu-panel]');
 
     const closeAll = (except = null) => {
         menus.forEach((menu) => {
             if (menu === except) {
                 return;
             }
-            const toggle = menu.querySelector('[data-account-menu-toggle]');
-            const panel = menu.querySelector('[data-account-menu-panel]');
+            const toggle = toggleFor(menu);
+            const panel = panelFor(menu);
             if (panel) {
                 panel.classList.add('hidden');
             }
@@ -21,8 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     menus.forEach((menu) => {
-        const toggle = menu.querySelector('[data-account-menu-toggle]');
-        const panel = menu.querySelector('[data-account-menu-panel]');
+        const toggle = toggleFor(menu);
+        const panel = panelFor(menu);
         if (!toggle || !panel) {
             return;
         }

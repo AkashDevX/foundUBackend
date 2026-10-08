@@ -986,7 +986,7 @@ final class RegistrationDisplay
      */
     public static function metaLinesForDocumentRow(array $row): array
     {
-        $skip = ['storage_path', 'documentKey', 'id', 'uri', 'localUri', 'expiry', 'expiryDate', 'expiry_date', 'documentExpiry', 'document_expiry', 'expirationDate', 'expiration_date', 'imageUploaded', 'image_uploaded'];
+        $skip = ['storage_path', 'back_storage_path', 'documentKey', 'id', 'uri', 'localUri', 'expiry', 'expiryDate', 'expiry_date', 'documentExpiry', 'document_expiry', 'expirationDate', 'expiration_date', 'imageUploaded', 'image_uploaded', 'backImageUploaded', 'back_image_uploaded'];
         $lines = [];
         foreach ($row as $key => $value) {
             if (in_array($key, $skip, true)) {
@@ -1017,6 +1017,54 @@ final class RegistrationDisplay
         return strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'pdf';
     }
 
+    public static function isLikelyWordPath(?string $path): bool
+    {
+        if ($path === null || $path === '') {
+            return false;
+        }
+
+        return in_array(strtolower(pathinfo($path, PATHINFO_EXTENSION)), ['doc', 'docx'], true);
+    }
+
+    public static function isDriversLicenceType(?string $type): bool
+    {
+        if ($type === null) {
+            return false;
+        }
+
+        $value = strtolower(str_replace(['’', '`'], "'", trim($type)));
+        if ($value === '') {
+            return false;
+        }
+
+        return str_contains($value, 'driver') && str_contains($value, 'licen');
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public static function isDriversLicenceDocumentRow(array $row): bool
+    {
+        return self::isDriversLicenceType(self::pickDocumentTitle($row));
+    }
+
+    /**
+     * Every visa status except Australian citizen and permanent resident requires a visa document.
+     */
+    public static function requiresVisaDocument(?string $status): bool
+    {
+        if ($status === null) {
+            return false;
+        }
+
+        $value = strtolower(trim($status));
+        if ($value === '') {
+            return false;
+        }
+
+        return ! str_contains($value, 'citizen') && ! str_contains($value, 'permanent resident');
+    }
+
     /**
      * @var array<string, string>
      */
@@ -1025,6 +1073,8 @@ final class RegistrationDisplay
         'police-check' => 'police_check_path',
         'fit-to-work' => 'fit_to_work_path',
         'vehicle-insurance' => 'vehicle_insurance_path',
+        'visa-document' => 'visa_document_path',
+        'resume' => 'resume_path',
     ];
 
     public static function registrationStoragePath(Employee $employee, string $slot, ?string $itemKey = null): ?string
@@ -1039,6 +1089,7 @@ final class RegistrationDisplay
 
         return match ($slot) {
             'id-document' => self::registrationStoragePathFromJsonRows($employee->id_documents_json, $decodedKey, 'documentKey'),
+            'id-document-back' => self::registrationStoragePathFromJsonRows($employee->id_documents_json, $decodedKey, 'documentKey', 'back_storage_path'),
             'licence' => self::registrationStoragePathFromJsonRows($employee->licences_json, $decodedKey, 'id'),
             'insurance' => self::registrationStoragePathFromJsonRows($employee->insurances_json, $decodedKey, 'id'),
             default => null,
@@ -1071,7 +1122,7 @@ final class RegistrationDisplay
     /**
      * @param  array<int, mixed>|null  $rows
      */
-    private static function registrationStoragePathFromJsonRows(?array $rows, ?string $itemKey, string $matchField): ?string
+    private static function registrationStoragePathFromJsonRows(?array $rows, ?string $itemKey, string $matchField, string $pathField = 'storage_path'): ?string
     {
         if ($rows === null || $rows === [] || $itemKey === null || $itemKey === '') {
             return null;
@@ -1088,7 +1139,7 @@ final class RegistrationDisplay
             if ((string) $match !== (string) $itemKey) {
                 continue;
             }
-            $path = $row['storage_path'] ?? null;
+            $path = $row[$pathField] ?? null;
 
             return is_string($path) && $path !== '' ? $path : null;
         }
@@ -1117,6 +1168,9 @@ final class RegistrationDisplay
             $subtitle = self::pickDocumentSubtitle($row);
             $meta = self::metaLinesForDocumentRow($row);
             $path = isset($row['storage_path']) && is_string($row['storage_path']) ? $row['storage_path'] : null;
+            $backPath = isset($row['back_storage_path']) && is_string($row['back_storage_path']) && $row['back_storage_path'] !== ''
+                ? $row['back_storage_path']
+                : null;
             $expiryInput = self::documentRowExpiryInputValue($row);
 
             $out[] = [
@@ -1125,6 +1179,7 @@ final class RegistrationDisplay
                 'subtitle' => $subtitle,
                 'meta' => $meta,
                 'storage_path' => $path,
+                'back_storage_path' => $backPath,
                 'row_key' => $key !== '' ? $key : null,
                 'expiry_input' => $expiryInput,
                 'expiry_display' => self::expiryFromDocumentRow($row),
@@ -1134,18 +1189,61 @@ final class RegistrationDisplay
         return $out;
     }
 
+    public static function isOtherDocumentType(?string $value): bool
+    {
+        return is_string($value) && strcasecmp(trim($value), 'Other') === 0;
+    }
+
+    /**
+     * Free-text document name captured when the picklist type is Other.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public static function specifiedDocumentType(array $row): ?string
+    {
+        foreach (['documentTypeOther', 'document_type_other', 'typeOther', 'type_other'] as $key) {
+            if (! empty($row[$key]) && is_scalar($row[$key])) {
+                $text = trim((string) $row[$key]);
+                if ($text !== '') {
+                    return $text;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Display name for a licence, insurance, or ID row.
+     * When the stored type is Other, the specified document name is used.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public static function documentDisplayTitle(array $row): string
+    {
+        $stored = '';
+        foreach (['documentType', 'document_type', 'idType', 'id_type', 'type', 'name', 'title', 'label'] as $key) {
+            if (! empty($row[$key]) && is_scalar($row[$key])) {
+                $stored = trim((string) $row[$key]);
+                break;
+            }
+        }
+        if (self::isOtherDocumentType($stored)) {
+            $specified = self::specifiedDocumentType($row);
+            if ($specified !== null) {
+                return $specified;
+            }
+        }
+
+        return $stored;
+    }
+
     /**
      * @param  array<string, mixed>  $row
      */
     private static function pickDocumentTitle(array $row): string
     {
-        foreach (['documentType', 'document_type', 'idType', 'id_type', 'type', 'name', 'title', 'label'] as $k) {
-            if (! empty($row[$k]) && is_scalar($row[$k])) {
-                return trim((string) $row[$k]);
-            }
-        }
-
-        return '';
+        return self::documentDisplayTitle($row);
     }
 
     /**

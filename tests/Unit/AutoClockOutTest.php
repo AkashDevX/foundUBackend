@@ -8,7 +8,7 @@ use Tests\TestCase;
 
 class AutoClockOutTest extends TestCase
 {
-    private const TZ = 'Australia/Sydney';
+    private const TZ = 'Australia/Brisbane';
 
     private function clockIn(string $local): Carbon
     {

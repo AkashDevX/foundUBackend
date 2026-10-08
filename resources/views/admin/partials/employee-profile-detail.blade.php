@@ -7,7 +7,7 @@
     $e = $employee;
     $showApprovalActions = $showApprovalActions ?? false;
     $line = static function (?string $v): string {
-        return $v !== null && trim($v) !== '' ? e(trim($v)) : '—';
+        return $v !== null && trim($v) !== '' ? trim($v) : '—';
     };
     $yesNo = static function ($v): string {
         if ($v === null || $v === '') {
@@ -21,7 +21,7 @@
             return 'No';
         }
 
-        return e((string) $v);
+        return (string) $v;
     };
     $idDocRows = \App\Support\RegistrationDisplay::idDocumentRows($e->id_documents_json);
     $licenceRows = \App\Support\RegistrationDisplay::licenceRows($e->licences_json);

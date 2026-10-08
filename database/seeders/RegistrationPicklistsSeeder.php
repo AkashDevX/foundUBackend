@@ -21,6 +21,18 @@ class RegistrationPicklistsSeeder extends Seeder
             ['De Facto'],
             ['Separated'],
         ],
+        'emergency_contact_relationship' => [
+            ['Spouse'],
+            ['Partner'],
+            ['Parent'],
+            ['Child'],
+            ['Sibling'],
+            ['Friend'],
+            ['Relative'],
+            ['Guardian'],
+            ['Colleague'],
+            ['Other'],
+        ],
         'visa_status' => [
             ['Australian Citizen'],
             ['Permanent Resident'],

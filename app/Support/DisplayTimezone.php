@@ -6,14 +6,15 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
- * Australian business timezone for all user-facing dates and times.
+ * Brisbane business timezone for all user-facing dates and times.
+ * Australia/Brisbane is AEST (UTC+10) all year and does not observe daylight saving.
  * Database timestamps remain UTC; convert at display boundaries.
  */
 final class DisplayTimezone
 {
     public static function name(): string
     {
-        return (string) config('app.display_timezone', 'Australia/Sydney');
+        return (string) config('app.display_timezone', 'Australia/Brisbane');
     }
 
     public static function locale(): string

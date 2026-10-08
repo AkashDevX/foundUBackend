@@ -17,7 +17,7 @@ class AdminWeeklyScheduleTest extends TestCase
 {
     public function test_build_schedule_renders_saved_shift_blocks(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
 
         $department = new Department(['name' => 'Retail']);
         $department->id = 1;
@@ -81,7 +81,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_build_schedule_shows_time_off_block(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
 
         $employee = new Employee([
             'public_id' => 'emp-2',
@@ -124,7 +124,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_build_schedule_day_off_hides_shifts_for_that_day(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
 
         $shift = new Shift([
             'name' => 'Morning',
@@ -184,7 +184,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_build_schedule_leaves_empty_days_blank_without_assignment_suggestions(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
 
         $shift = new Shift([
             'name' => 'Weekday only',
@@ -219,7 +219,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_build_schedule_does_not_show_multiple_assignment_shifts_on_empty_days(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
 
         $morning = new Shift([
             'name' => 'Morning',
@@ -430,7 +430,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_uncovered_schedule_places_shifts_on_the_weekly_calendar(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
         $employee = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
 
         $uncovered = $this->scheduleTestShift(50, 10, '2026-06-16', [
@@ -468,7 +468,7 @@ class AdminWeeklyScheduleTest extends TestCase
 
     public function test_build_schedule_shows_original_employee_on_covering_shift(): void
     {
-        $weekStart = Carbon::parse('2026-06-15', 'Australia/Sydney')->startOfWeek(Carbon::MONDAY);
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
         $original = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
         $coverEmployee = $this->scheduleTestEmployee(11, 'emp-11', 'Sam Lee');
 

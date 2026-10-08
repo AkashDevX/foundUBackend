@@ -103,14 +103,14 @@
                             </td>
                             <td class="px-5 py-3.5 text-xs text-brand-text/60 whitespace-nowrap">
                                 @if ($row['materials_acknowledged_at'])
-                                    {{ \Carbon\Carbon::parse($row['materials_acknowledged_at'])->timezone(config('app.timezone'))->format('j M Y, g:ia') }}
+                                    {{ \App\Support\DisplayTimezone::format(\Carbon\Carbon::parse($row['materials_acknowledged_at'], 'UTC'), 'j M Y, g:ia') }}
                                 @else
                                     —
                                 @endif
                             </td>
                             <td class="px-5 py-3.5 text-xs text-brand-text/60 whitespace-nowrap">
                                 @if ($row['submitted_at'])
-                                    {{ \Carbon\Carbon::parse($row['submitted_at'])->timezone(config('app.timezone'))->format('j M Y, g:ia') }}
+                                    {{ \App\Support\DisplayTimezone::format(\Carbon\Carbon::parse($row['submitted_at'], 'UTC'), 'j M Y, g:ia') }}
                                 @else
                                     —
                                 @endif
