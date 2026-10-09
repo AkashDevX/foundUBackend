@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Employee;
 use App\Models\TrainingAssignment;
 use App\Support\AdminTraining;
+use App\Support\InductionEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -29,14 +30,17 @@ class SubmitTrainingAttemptController extends Controller
             ->findOrFail($assignment);
 
         try {
-            AdminTraining::submitAttempt($row, $employee, $data['answers'] ?? []);
-            $row->refresh();
-
-            return response()->json(AdminTraining::mobileDetailForAssignment(
+            $attempt = AdminTraining::submitAttempt($row, $employee, $data['answers'] ?? []);
+            $row->unsetRelation('attempt');
+            $row->setRelation('attempt', $attempt);
+            $detail = AdminTraining::mobileDetailForAssignment(
                 $row,
                 $employee,
                 $this->companySlug($request),
-            ));
+            );
+            $detail['induction'] = InductionEligibility::finalizeSubmission($row, $attempt);
+
+            return response()->json($detail);
         } catch (InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage(), 'code' => 'forbidden'], 403);
         }

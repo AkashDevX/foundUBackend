@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\RegisterEmployeeApplicationsController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SubmitTrainingAttemptController;
+use App\Http\Controllers\Api\V1\TrainingSlideImageController;
 use App\Http\Controllers\Api\V1\TermsAndConditionsController;
 use App\Http\Controllers\Api\V1\TimeClockStatusController;
 use App\Http\Controllers\Api\V1\UpdateEmployeeTaskCompletionController;
@@ -117,6 +118,10 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::get('/training', EmployeeTrainingListController::class);
         Route::get('/training/{assignment}', EmployeeTrainingDetailController::class)
             ->where(['assignment' => '[0-9]+']);
+        Route::get('/training/pages/{page}/image', [TrainingSlideImageController::class, 'page'])
+            ->where(['page' => '[0-9]+']);
+        Route::get('/training/sections/{section}/image', [TrainingSlideImageController::class, 'section'])
+            ->where(['section' => '[0-9]+']);
         Route::post('/training/{assignment}/acknowledge-materials', AcknowledgeTrainingMaterialsController::class)
             ->where(['assignment' => '[0-9]+']);
         Route::post('/training/{assignment}/submit', SubmitTrainingAttemptController::class)

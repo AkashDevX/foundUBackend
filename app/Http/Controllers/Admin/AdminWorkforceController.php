@@ -309,6 +309,19 @@ class AdminWorkforceController extends Controller
     }
 
     /**
+     * @return list<string|int>
+     */
+    private function geofenceRadiusRules(): array
+    {
+        return [
+            'required',
+            'integer',
+            'min:'.WorkLocation::GEOFENCE_RADIUS_MIN,
+            'max:'.WorkLocation::GEOFENCE_RADIUS_MAX,
+        ];
+    }
+
+    /**
      * Forward geocode a free-text address via Nominatim search.
      *
      * @return array{lat: float, lng: float, display_name: string}|null
@@ -635,6 +648,7 @@ class AdminWorkforceController extends Controller
             'location_notes' => ['nullable', 'string', 'max:2000'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'geofence_radius_meters' => $this->geofenceRadiusRules(),
         ]);
 
         $lat = isset($data['latitude']) ? (float) $data['latitude'] : null;
@@ -662,6 +676,7 @@ class AdminWorkforceController extends Controller
             'address' => $data['address'] ?? null,
             'latitude' => $lat,
             'longitude' => $lng,
+            'geofence_radius_meters' => (int) $data['geofence_radius_meters'],
             'notes' => $data['location_notes'] ?? null,
             'is_active' => true,
         ]);
@@ -687,6 +702,7 @@ class AdminWorkforceController extends Controller
             'location_notes' => ['nullable', 'string', 'max:2000'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            'geofence_radius_meters' => $this->geofenceRadiusRules(),
         ]);
 
         $lat = isset($data['latitude']) ? (float) $data['latitude'] : null;
@@ -713,6 +729,7 @@ class AdminWorkforceController extends Controller
             'address' => $data['address'] ?? null,
             'latitude' => $lat,
             'longitude' => $lng,
+            'geofence_radius_meters' => (int) $data['geofence_radius_meters'],
             'notes' => $data['location_notes'] ?? null,
         ])->save();
 

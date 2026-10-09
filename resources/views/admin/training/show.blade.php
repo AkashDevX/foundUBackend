@@ -5,26 +5,31 @@
 @section('heading', $module->title)
 
 @section('subheading')
-    {{ $company->name }} — training builder
+    {{ $company->name }}
 @endsection
 
 @section('content')
     @php
         $in = 'w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-sm text-brand-text shadow-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/20';
         $isPublished = $module->status === 'published';
+        $induction = (bool) $module->is_induction;
         $stepMeta = [
-            'overview' => ['label' => 'Overview', 'hint' => 'Title, pass mark, publish'],
-            'study' => ['label' => 'Study pages', 'hint' => 'Content employees read first'],
-            'questions' => ['label' => 'Questions', 'hint' => 'Multiple-choice quiz'],
-            'assign' => ['label' => 'Assign', 'hint' => 'Send to employees'],
+            'overview' => 'Overview',
+            'study' => 'Slides',
+            'questions' => 'Questions',
+            'assign' => $induction ? 'Eligibility' : 'Assign',
         ];
         $stepIndex = array_search($step, $steps, true);
+        $moduleUrl = function (array $params = []) use ($module): string {
+            return route('admin.training.show', ['module' => $module->id] + $params);
+        };
     @endphp
 
     <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <a href="{{ route('admin.training.index') }}" class="text-sm font-semibold text-brand-primary hover:underline">← All training</a>
         <div class="flex flex-wrap gap-2">
             <a href="{{ route('admin.training.results', $module->id) }}" class="rounded-xl border border-brand-border bg-white px-3 py-2 text-sm font-semibold text-brand-text hover:bg-brand-surface">Results</a>
+            @unless ($induction)
             <form method="post"
                   action="{{ route('admin.training.destroy', $module->id) }}"
                   data-confirm="This training module, its study pages, questions, and assignments will be permanently removed."
@@ -35,11 +40,15 @@
                 @csrf
                 <button type="submit" class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100">Delete</button>
             </form>
+            @endunless
         </div>
     </div>
 
     @if (session('status'))
         <div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ session('status') }}</div>
+    @endif
+    @if (session('error'))
+        <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
     @endif
     @if ($errors->any())
         <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -57,13 +66,10 @@
             @foreach ($steps as $i => $key)
                 @php $active = $step === $key; @endphp
                 <li class="flex-1">
-                    <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => $key]) }}"
+                    <a href="{{ $moduleUrl(['step' => $key]) }}"
                        class="flex items-center gap-3 rounded-xl px-3 py-3 transition {{ $active ? 'bg-brand-primary text-white' : 'text-brand-text/70 hover:bg-brand-surface' }}">
                         <span class="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold {{ $active ? 'bg-white/20 text-white' : 'bg-brand-surface text-brand-primary' }}">{{ $i + 1 }}</span>
-                        <span class="min-w-0">
-                            <span class="block text-sm font-semibold">{{ $stepMeta[$key]['label'] }}</span>
-                            <span class="hidden text-[11px] opacity-80 sm:block {{ $active ? 'text-white/80' : 'text-brand-text/45' }}">{{ $stepMeta[$key]['hint'] }}</span>
-                        </span>
+                        <span class="text-sm font-semibold">{{ $stepMeta[$key] }}</span>
                     </a>
                 </li>
             @endforeach
@@ -80,7 +86,6 @@
                         {{ $isPublished ? 'Published' : 'Draft' }}
                     </span>
                 </div>
-                <p class="mt-1 text-sm text-brand-text/60">Publish only after you have study pages and questions.</p>
             </div>
             <form method="post" action="{{ route('admin.training.update', $module->id) }}" class="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-6">
                 @csrf
@@ -102,12 +107,17 @@
                 </label>
                 <label class="block">
                     <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Pass mark %</span>
-                    <input type="number" name="pass_percent" min="1" max="100" value="{{ old('pass_percent', $module->pass_percent ?? 70) }}" class="{{ $in }}">
+                    <input type="number" name="pass_percent" min="1" max="100" value="{{ old('pass_percent', $module->pass_percent ?? ($induction ? 92 : 70)) }}" class="{{ $in }}">
                 </label>
+                @if ($induction)
+                    <label class="block">
+                        <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Max attempts</span>
+                        <input type="number" name="max_attempts" min="1" max="10" value="{{ old('max_attempts', $module->max_attempts ?? 3) }}" class="{{ $in }}">
+                    </label>
+                @endif
                 <label class="block">
                     <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Seconds per question</span>
                     <input type="number" name="question_time_seconds" min="10" max="600" value="{{ old('question_time_seconds', $module->question_time_seconds ?? 45) }}" class="{{ $in }}">
-                    <span class="mt-1 block text-xs text-brand-text/50">Employees get this long on each quiz question.</span>
                 </label>
                 <div class="flex flex-wrap gap-2 sm:col-span-2">
                     <button type="submit" class="rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">Save &amp; continue</button>
@@ -121,21 +131,24 @@
         <div class="grid gap-6 lg:grid-cols-[1fr_360px]">
             <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
                 <div class="border-b border-brand-border px-5 py-5 sm:px-6">
-                    <h2 class="text-lg font-bold text-brand-text">Study pages</h2>
-                    <p class="mt-1 text-sm text-brand-text/60">Employees read these pages in the app before the quiz. Add optional subtopics that expand/collapse on mobile.</p>
+                    <h2 class="text-lg font-bold text-brand-text">Slides</h2>
                 </div>
                 <div class="space-y-3 px-5 py-5 sm:px-6">
                     @forelse ($module->pages as $index => $page)
                         <div class="rounded-xl border border-brand-border bg-brand-surface/30 p-4 {{ $editingPage && (int) $editingPage->id === (int) $page->id ? 'ring-2 ring-brand-primary/30' : '' }}">
                             <div class="flex items-start justify-between gap-3">
                                 <div class="min-w-0">
-                                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Page {{ $index + 1 }}</p>
+                                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Slide {{ $index + 1 }}</p>
                                     <p class="mt-0.5 font-semibold text-brand-text">{{ $page->title }}</p>
+                                    @if (filled($page->image_path))
+                                        <img src="{{ route('admin.training.pages.image', [$module->id, $page->id]) }}" alt="" class="mt-2 max-h-80 w-full max-w-md rounded-lg bg-brand-surface object-contain">
+                                    @endif
                                     @if (filled($page->body))
                                         <p class="mt-1 line-clamp-2 text-sm text-brand-text/60 whitespace-pre-line">{{ $page->body }}</p>
                                     @endif
                                     <p class="mt-2 text-xs text-brand-text/50">
-                                        {{ $page->sections->count() }} subtopic{{ $page->sections->count() === 1 ? '' : 's' }}
+                                        {{ count($page->bullets ?? []) }} bullet{{ count($page->bullets ?? []) === 1 ? '' : 's' }}
+                                        · {{ $page->sections->count() }} toggle{{ $page->sections->count() === 1 ? '' : 's' }}
                                     </p>
                                 </div>
                                 <div class="flex shrink-0 flex-col items-end gap-1">
@@ -151,7 +164,7 @@
                                             <button type="submit" class="rounded-lg border border-brand-border bg-white px-2 py-1 text-xs font-semibold text-brand-text hover:bg-brand-surface" @disabled($index === $module->pages->count() - 1)>↓</button>
                                         </form>
                                     </div>
-                                    <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'study', 'edit_page' => $page->id]) }}" class="text-xs font-semibold text-brand-primary hover:underline">Edit</a>
+                                    <a href="{{ $moduleUrl(['step' => 'study', 'edit_page' => $page->id]) }}" class="text-xs font-semibold text-brand-primary hover:underline">Edit</a>
                                     <form method="post"
                                           action="{{ route('admin.training.pages.destroy', [$module->id, $page->id]) }}"
                                           data-confirm="This study page and its subtopics will be removed from the module."
@@ -167,7 +180,7 @@
 
                             @if ($editingPage && (int) $editingPage->id === (int) $page->id)
                                 <div class="mt-4 border-t border-brand-border pt-4">
-                                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Subtopics (toggleable in app)</p>
+                                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Toggle bars</p>
                                     <div class="mt-3 space-y-2">
                                         @forelse ($editingPage->sections as $sIndex => $section)
                                             <div class="rounded-lg border border-brand-border bg-white px-3 py-3">
@@ -189,7 +202,7 @@
                                                                 <button type="submit" class="rounded border border-brand-border px-1.5 py-0.5 text-[10px] font-semibold" @disabled($sIndex === $editingPage->sections->count() - 1)>↓</button>
                                                             </form>
                                                         </div>
-                                                        <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'study', 'edit_page' => $page->id, 'edit_section' => $section->id]) }}" class="text-[11px] font-semibold text-brand-primary hover:underline">Edit</a>
+                                                        <a href="{{ $moduleUrl(['step' => 'study', 'edit_page' => $page->id, 'edit_section' => $section->id]) }}" class="text-[11px] font-semibold text-brand-primary hover:underline">Edit</a>
                                                         <form method="post"
                                                               action="{{ route('admin.training.sections.destroy', [$module->id, $page->id, $section->id]) }}"
                                                               data-confirm="This subtopic will be removed."
@@ -204,7 +217,7 @@
                                                 </div>
                                             </div>
                                         @empty
-                                            <p class="text-sm text-brand-text/55">No subtopics yet. Add one in the form on the right if this page needs expandable sections.</p>
+                                            <p class="text-sm text-brand-text/55">No toggles yet.</p>
                                         @endforelse
                                     </div>
                                 </div>
@@ -212,13 +225,12 @@
                         </div>
                     @empty
                         <div class="rounded-xl border border-dashed border-brand-border px-4 py-10 text-center">
-                            <p class="text-sm font-semibold text-brand-text">No pages yet</p>
-                            <p class="mt-1 text-sm text-brand-text/55">Add your first study page using the form on the right.</p>
+                            <p class="text-sm font-semibold text-brand-text">No slides yet</p>
                         </div>
                     @endforelse
 
                     <div class="pt-2">
-                        <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'questions']) }}"
+                        <a href="{{ $moduleUrl(['step' => 'questions']) }}"
                            class="inline-flex rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">
                             Continue to questions
                         </a>
@@ -229,27 +241,42 @@
             <aside class="space-y-4 lg:sticky lg:top-6 lg:self-start">
                 <div class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
                     <div class="border-b border-brand-border px-5 py-4">
-                        <h3 class="font-bold text-brand-text">{{ $editingPage ? 'Edit page' : 'Add page' }}</h3>
+                        <h3 class="font-bold text-brand-text">{{ $editingPage ? 'Edit slide' : 'Add slide' }}</h3>
                     </div>
                     <form method="post"
+                          enctype="multipart/form-data"
                           action="{{ $editingPage ? route('admin.training.pages.update', [$module->id, $editingPage->id]) : route('admin.training.pages.store', $module->id) }}"
                           class="space-y-3 px-5 py-4">
                         @csrf
                         <label class="block">
-                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Page title</span>
+                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Slide title</span>
                             <input type="text" name="title" required maxlength="200" class="{{ $in }}"
-                                   value="{{ old('title', $editingPage->title ?? '') }}"
-                                   placeholder="e.g. How to mop floors">
+                                   value="{{ old('title', $editingPage->title ?? '') }}">
                         </label>
                         <label class="block">
-                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Intro content <span class="normal-case font-normal text-brand-text/45">(optional)</span></span>
-                            <textarea name="body" rows="6" class="{{ $in }}" placeholder="Optional intro shown above subtopics…">{{ old('body', $editingPage->body ?? '') }}</textarea>
+                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Picture</span>
+                            <input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" class="block w-full text-sm text-brand-text file:mr-3 file:rounded-lg file:border-0 file:bg-brand-surface file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-text">
+                        </label>
+                        @if ($editingPage && filled($editingPage->image_path))
+                            <img src="{{ route('admin.training.pages.image', [$module->id, $editingPage->id]) }}" alt="" class="max-h-[32rem] w-full rounded-xl bg-brand-surface object-contain">
+                            <label class="inline-flex items-center gap-2 text-sm text-brand-text">
+                                <input type="checkbox" name="remove_image" value="1" class="size-4 rounded border-brand-border text-brand-primary">
+                                Remove picture
+                            </label>
+                        @endif
+                        <label class="block">
+                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Text</span>
+                            <textarea name="body" rows="4" class="{{ $in }}">{{ old('body', $editingPage->body ?? '') }}</textarea>
+                        </label>
+                        <label class="block">
+                            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Bullets</span>
+                            <textarea name="bullets" rows="4" class="{{ $in }}">{{ old('bullets', $editingPage ? implode("\n", $editingPage->bullets ?? []) : '') }}</textarea>
                         </label>
                         <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">
-                            {{ $editingPage ? 'Save page' : 'Add page' }}
+                            {{ $editingPage ? 'Save slide' : 'Add slide' }}
                         </button>
                         @if ($editingPage)
-                            <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'study']) }}" class="block text-center text-sm font-semibold text-brand-text/60 hover:underline">Done editing</a>
+                            <a href="{{ $moduleUrl(['step' => 'study']) }}" class="block text-center text-sm font-semibold text-brand-text/60 hover:underline">Done editing</a>
                         @endif
                     </form>
                 </div>
@@ -257,30 +284,40 @@
                 @if ($editingPage)
                     <div class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
                         <div class="border-b border-brand-border px-5 py-4">
-                            <h3 class="font-bold text-brand-text">{{ $editingSection ? 'Edit subtopic' : 'Add subtopic' }}</h3>
-                            <p class="mt-1 text-xs text-brand-text/55">Shown as a toggle under this page in the mobile app.</p>
+                            <h3 class="font-bold text-brand-text">{{ $editingSection ? 'Edit toggle' : 'Add toggle' }}</h3>
                         </div>
                         <form method="post"
+                              enctype="multipart/form-data"
                               action="{{ $editingSection
                                   ? route('admin.training.sections.update', [$module->id, $editingPage->id, $editingSection->id])
                                   : route('admin.training.sections.store', [$module->id, $editingPage->id]) }}"
                               class="space-y-3 px-5 py-4">
                             @csrf
                             <label class="block">
-                                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Subtopic title</span>
+                                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Toggle title</span>
                                 <input type="text" name="section_title" required maxlength="200" class="{{ $in }}"
-                                       value="{{ old('section_title', $editingSection->title ?? '') }}"
-                                       placeholder="e.g. Safety checklist">
+                                       value="{{ old('section_title', $editingSection->title ?? '') }}">
                             </label>
                             <label class="block">
-                                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Subtopic content</span>
-                                <textarea name="section_body" rows="7" required class="{{ $in }}" placeholder="Content shown when the employee expands this subtopic…">{{ old('section_body', $editingSection->body ?? '') }}</textarea>
+                                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Content</span>
+                                <textarea name="section_body" rows="6" required class="{{ $in }}">{{ old('section_body', $editingSection->body ?? '') }}</textarea>
                             </label>
+                            <label class="block">
+                                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Picture</span>
+                                <input type="file" name="section_image" accept="image/jpeg,image/png,image/webp,image/gif" class="block w-full text-sm text-brand-text file:mr-3 file:rounded-lg file:border-0 file:bg-brand-surface file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-text">
+                            </label>
+                            @if ($editingSection && filled($editingSection->image_path))
+                                <img src="{{ route('admin.training.sections.image', [$module->id, $editingPage->id, $editingSection->id]) }}" alt="" class="max-h-[32rem] w-full rounded-xl bg-brand-surface object-contain">
+                                <label class="inline-flex items-center gap-2 text-sm text-brand-text">
+                                    <input type="checkbox" name="remove_section_image" value="1" class="size-4 rounded border-brand-border text-brand-primary">
+                                    Remove picture
+                                </label>
+                            @endif
                             <button type="submit" class="w-full rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">
-                                {{ $editingSection ? 'Save subtopic' : 'Add subtopic' }}
+                                {{ $editingSection ? 'Save toggle' : 'Add toggle' }}
                             </button>
                             @if ($editingSection)
-                                <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'study', 'edit_page' => $editingPage->id]) }}" class="block text-center text-sm font-semibold text-brand-text/60 hover:underline">Cancel edit</a>
+                                <a href="{{ $moduleUrl(['step' => 'study', 'edit_page' => $editingPage->id]) }}" class="block text-center text-sm font-semibold text-brand-text/60 hover:underline">Cancel edit</a>
                             @endif
                         </form>
                     </div>
@@ -294,8 +331,7 @@
         <div class="grid gap-6 lg:grid-cols-[1fr_400px]">
             <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
                 <div class="border-b border-brand-border px-5 py-5 sm:px-6">
-                    <h2 class="text-lg font-bold text-brand-text">Quiz questions</h2>
-                    <p class="mt-1 text-sm text-brand-text/60">Multiple choice only. Question order is randomized for each employee.</p>
+                    <h2 class="text-lg font-bold text-brand-text">Questions</h2>
                 </div>
                 <div class="space-y-3 px-5 py-5 sm:px-6">
                     @forelse ($module->questions as $index => $question)
@@ -324,14 +360,13 @@
                     @empty
                         <div class="rounded-xl border border-dashed border-brand-border px-4 py-10 text-center">
                             <p class="text-sm font-semibold text-brand-text">No questions yet</p>
-                            <p class="mt-1 text-sm text-brand-text/55">Add quiz questions using the form on the right.</p>
                         </div>
                     @endforelse
 
                     <div class="pt-2">
-                        <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'assign']) }}"
+                        <a href="{{ $moduleUrl(['step' => 'assign']) }}"
                            class="inline-flex rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">
-                            Continue to assign
+                            {{ $induction ? 'Continue to eligibility' : 'Continue to assign' }}
                         </a>
                     </div>
                 </div>
@@ -345,7 +380,7 @@
                     @csrf
                     <label class="block">
                         <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Question</span>
-                        <textarea name="question_text" rows="2" required class="{{ $in }}" placeholder="e.g. How long should disinfectant sit?">{{ old('question_text') }}</textarea>
+                        <textarea name="question_text" rows="2" required class="{{ $in }}">{{ old('question_text') }}</textarea>
                     </label>
                     <label class="block">
                         <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Points</span>
@@ -356,7 +391,7 @@
                         @for ($i = 0; $i < 4; $i++)
                             <div class="flex items-center gap-2">
                                 <input type="radio" name="correct_index" value="{{ $i }}" @checked((int) old('correct_index', 0) === $i) class="size-4 text-brand-primary" {{ $i < 2 ? 'required' : '' }}>
-                                <input type="text" name="options[{{ $i }}][text]" value="{{ old('options.'.$i.'.text') }}" class="{{ $in }}" placeholder="Option {{ $i + 1 }}{{ $i < 2 ? '' : ' (optional)' }}" {{ $i < 2 ? 'required' : '' }}>
+                                <input type="text" name="options[{{ $i }}][text]" value="{{ old('options.'.$i.'.text') }}" class="{{ $in }}" placeholder="Option {{ $i + 1 }}" {{ $i < 2 ? 'required' : '' }}>
                             </div>
                         @endfor
                     </div>
@@ -370,17 +405,7 @@
     @if ($step === 'assign')
         <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
             <div class="border-b border-brand-border px-5 py-5 sm:px-6">
-                <h2 class="text-lg font-bold text-brand-text">Assign to employees</h2>
-                <p class="mt-1 text-sm text-brand-text/60">
-                    @if ($canAssign)
-                        Select who should receive this module. Already-assigned people are skipped.
-                        @if (! $isPublished)
-                            Assigning will also publish this module so employees can see it.
-                        @endif
-                    @else
-                        Add study pages and questions first, then come back here to assign.
-                    @endif
-                </p>
+                <h2 class="text-lg font-bold text-brand-text">{{ $induction ? 'Eligibility' : 'Assign' }}</h2>
                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
                     <span class="rounded-full bg-brand-surface px-2.5 py-1 font-semibold text-brand-text/70">{{ $module->pages->count() }} pages</span>
                     <span class="rounded-full bg-brand-surface px-2.5 py-1 font-semibold text-brand-text/70">{{ $module->questions->count() }} questions</span>
@@ -388,18 +413,21 @@
                 </div>
             </div>
 
-            @if (! $canAssign)
+            @if ($induction)
                 <div class="px-5 py-8 sm:px-6">
-                    <p class="text-sm text-brand-text/65">Checklist before assign:</p>
-                    <ul class="mt-3 space-y-2 text-sm">
+                    <a href="{{ route('admin.training.results', $module->id) }}" class="inline-flex rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white">View results</a>
+                </div>
+            @elseif (! $canAssign)
+                <div class="px-5 py-8 sm:px-6">
+                    <ul class="space-y-2 text-sm">
                         <li class="{{ $module->pages->count() > 0 ? 'text-emerald-700' : 'text-brand-text/70' }}">{{ $module->pages->count() > 0 ? '✓' : '○' }} At least one study page</li>
                         <li class="{{ $module->questions->count() > 0 ? 'text-emerald-700' : 'text-brand-text/70' }}">{{ $module->questions->count() > 0 ? '✓' : '○' }} At least one question</li>
                     </ul>
                     <div class="mt-6 flex flex-wrap gap-2">
                         @if ($module->pages->count() < 1)
-                            <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'study']) }}" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white">Add study pages</a>
+                            <a href="{{ $moduleUrl(['step' => 'study']) }}" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white">Add study pages</a>
                         @else
-                            <a href="{{ route('admin.training.show', ['module' => $module->id, 'step' => 'questions']) }}" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white">Add questions</a>
+                            <a href="{{ $moduleUrl(['step' => 'questions']) }}" class="rounded-xl bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white">Add questions</a>
                         @endif
                     </div>
                 </div>
@@ -412,7 +440,7 @@
                             Select all active
                         </label>
                         <label class="block">
-                            <span class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Due date (optional)</span>
+                            <span class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Due date</span>
                             <input type="date" name="due_date" value="{{ old('due_date') }}" class="{{ $in }} max-w-xs">
                         </label>
                     </div>

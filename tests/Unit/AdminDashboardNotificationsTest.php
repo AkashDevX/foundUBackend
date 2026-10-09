@@ -363,6 +363,8 @@ class AdminDashboardNotificationsTest extends TestCase
     {
         $workflow = AdminDashboardNotifications::workflowColumns([
             ['key' => 'expired_documents', 'total_count' => 1, 'unavailable' => false],
+            ['key' => 'induction_passed', 'total_count' => 1, 'unavailable' => false],
+            ['key' => 'induction_required', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'pending_leave', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'unapproved_timesheets', 'total_count' => 1, 'unavailable' => false],
             ['key' => 'schedule_conflicts', 'total_count' => 1, 'unavailable' => false],
@@ -387,7 +389,7 @@ class AdminDashboardNotificationsTest extends TestCase
         }
 
         $this->assertSame(
-            ['expired_documents', 'unapproved_timesheets', 'pending_leave', 'schedule_conflicts'],
+            ['induction_passed', 'induction_required', 'expired_documents', 'unapproved_timesheets', 'pending_leave', 'schedule_conflicts'],
             $byColumn['requires_action'],
         );
         $this->assertSame(

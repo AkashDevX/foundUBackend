@@ -15,6 +15,7 @@ use App\Models\TimeOffRequest;
 use App\Models\WorkLocation;
 use App\Support\AdminTimeOffRequestReview;
 use App\Support\AdminWeeklySchedule;
+use App\Support\InductionEligibility;
 use App\Support\PayrollEmployeeRates;
 use App\Support\WorkforceShifts;
 use Carbon\CarbonInterface;
@@ -47,6 +48,10 @@ class AdminWeeklyScheduleController extends Controller
         $reviewedBy = $portalUser->name ?: $portalUser->email;
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
+            foreach ($employees as $employee) {
+                InductionEligibility::assertCanBeScheduled($employee);
+            }
+
             $data = $this->resolveScheduleShiftTemplate($data, $conn);
             $dates = AdminWeeklySchedule::recurrenceDates(
                 $data['scheduled_date'],
@@ -258,6 +263,7 @@ class AdminWeeklyScheduleController extends Controller
         $wasTimeOff = $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF;
 
         if ($data['entry_type'] === EmployeeScheduleShift::TYPE_SHIFT) {
+            InductionEligibility::assertCanBeScheduled($employee);
             $data = $this->resolveScheduleShiftTemplate($data, $conn);
             $originalDate = $entry->scheduled_date instanceof CarbonInterface
                 ? $entry->scheduled_date->toDateString()
@@ -528,6 +534,14 @@ class AdminWeeklyScheduleController extends Controller
             $message = sprintf('Updated timing on %d existing shift block(s) from work assignments.', $updated);
         } else {
             $message = 'No empty days were found to fill from assignments.';
+        }
+
+        $skipped = (int) ($result['skipped'] ?? 0);
+        if ($skipped > 0) {
+            $message .= sprintf(
+                ' %d employee(s) were skipped because mandatory induction is not complete.',
+                $skipped,
+            );
         }
 
         return $this->redirectBack($request, $message);
@@ -873,6 +887,10 @@ class AdminWeeklyScheduleController extends Controller
         ?string $previousSeriesId,
         ?string $createdBy,
     ): array {
+        if (($data['entry_type'] ?? EmployeeScheduleShift::TYPE_SHIFT) === EmployeeScheduleShift::TYPE_SHIFT) {
+            InductionEligibility::assertCanBeScheduled($employee);
+        }
+
         $mode = strtolower(trim((string) ($data['recurrence'] ?? 'never')));
         $currentDate = $entry->scheduled_date instanceof CarbonInterface
             ? $entry->scheduled_date->toDateString()
@@ -1293,6 +1311,8 @@ class AdminWeeklyScheduleController extends Controller
                 'cover_employee_public_id' => 'Choose a different employee to cover this shift.',
             ]);
         }
+
+        InductionEligibility::assertCanBeScheduled($coverEmployee);
 
         $scheduledDate = $entry->scheduled_date instanceof CarbonInterface
             ? $entry->scheduled_date->toDateString()

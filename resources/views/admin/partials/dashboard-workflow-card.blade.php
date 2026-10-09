@@ -12,6 +12,7 @@
 
     $isIncidentAlert = ($card['key'] ?? '') === 'incidents';
     $isClockInGrace = ($card['key'] ?? '') === 'clock_in_exceptions';
+    $opensApproval = $isClockInGrace || ($card['key'] ?? '') === 'early_clock_outs';
     $shellClass = $isIncidentAlert
         ? 'border-red-300 bg-gradient-to-br from-red-50 via-white to-white'
         : ($highlight
@@ -37,7 +38,7 @@
 
     $headerIsTimeOff = is_array($firstTimeOff) && ! empty($firstTimeOff['id']);
     $headerUrl = null;
-    if (! $headerIsTimeOff && ! $isClockInGrace) {
+    if (! $headerIsTimeOff && ! $opensApproval) {
         if (is_string($firstUrl) && $firstUrl !== '') {
             $headerUrl = $firstUrl;
         } elseif (is_string($hubUrl) && $hubUrl !== '') {
@@ -69,8 +70,8 @@
                 'highlight' => $highlight,
             ])
         </button>
-    @elseif ($isClockInGrace)
-        <button type="button" class="{{ $headerClass }}" data-open-clock-in-grace>
+    @elseif ($opensApproval)
+        <button type="button" class="{{ $headerClass }}" data-open-clock-in-grace="{{ $card['key'] }}">
             @include('admin.partials.dashboard-workflow-card-header', [
                 'card' => $card,
                 'iconWellClass' => $iconWellClass,
@@ -132,11 +133,11 @@
                             <span class="mt-1.5 size-1.5 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
                             <span class="min-w-0 flex-1 whitespace-normal">{{ $item['message'] }}</span>
                         </button>
-                    @elseif ($isClockInGrace)
+                    @elseif ($opensApproval)
                         <button
                             type="button"
                             class="flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs leading-snug text-brand-text transition hover:bg-white hover:shadow-sm"
-                            data-open-clock-in-grace
+                            data-open-clock-in-grace="{{ $card['key'] }}"
                         >
                             <span class="mt-1.5 size-1.5 shrink-0 rounded-full {{ $dotClass }}" aria-hidden="true"></span>
                             <span class="min-w-0 flex-1 whitespace-normal">{{ $item['message'] }}</span>

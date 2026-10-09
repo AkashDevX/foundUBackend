@@ -950,9 +950,16 @@ final class AdminWeeklySchedule
 
         $created = 0;
         $updated = 0;
+        $skipped = 0;
         $days = self::weekDays($weekStart);
 
         foreach ($employees as $employee) {
+            if (\App\Support\InductionEligibility::blocksWork($employee)) {
+                $skipped++;
+
+                continue;
+            }
+
             $assignmentShifts = self::assignmentShiftsForEmployee($employee);
             if ($assignmentShifts->isEmpty()) {
                 continue;
@@ -1033,7 +1040,7 @@ final class AdminWeeklySchedule
             }
         }
 
-        return ['created' => $created, 'updated' => $updated];
+        return ['created' => $created, 'updated' => $updated, 'skipped' => $skipped];
     }
 
     /**
@@ -1070,6 +1077,10 @@ final class AdminWeeklySchedule
     {
         // See hasAssignmentShiftForDate(): make sure assignmentShifts is loaded so we
         // don't short-circuit on a pre-loaded null legacy `assignedShift`.
+        if (\App\Support\InductionEligibility::blocksWork($employee)) {
+            return 0;
+        }
+
         $employee->loadMissing(['assignmentShifts.shiftTemplate', 'assignedShift']);
 
         $dateString = $date->toDateString();
@@ -1197,7 +1208,7 @@ final class AdminWeeklySchedule
         $hasTimeOff = $entries->contains(
             static fn (EmployeeScheduleShift $entry): bool => $entry->entry_type === EmployeeScheduleShift::TYPE_TIME_OFF
         );
-        if ($hasTimeOff) {
+        if ($hasTimeOff || \App\Support\InductionEligibility::blocksWork($employee)) {
             return null;
         }
 
@@ -1278,13 +1289,30 @@ final class AdminWeeklySchedule
             ];
         }
 
+        $induction = \App\Support\InductionEligibility::mobileSummary($employee);
+        $scheduledSeconds = (int) ($row['week_scheduled_seconds'] ?? 0);
+        $scheduledLabel = is_string($row['week_scheduled_label'] ?? null) ? $row['week_scheduled_label'] : '0h';
+        if (($induction['required'] ?? false) === true) {
+            $scheduledSeconds = 0;
+            $scheduledLabel = '0h';
+            foreach ($days as $index => $day) {
+                $entries = is_array($day['entries'] ?? null) ? $day['entries'] : [];
+                $days[$index]['entries'] = array_values(array_filter(
+                    $entries,
+                    static fn (array $entry): bool => ($entry['type'] ?? '') === EmployeeScheduleShift::TYPE_TIME_OFF
+                        || ($entry['type'] ?? '') === 'time_off',
+                ));
+            }
+        }
+
         return [
             'week_start' => $weekStart->toDateString(),
             'week_end' => $weekEnd->toDateString(),
             'week_label' => self::formatWeekLabel($weekStart),
-            'scheduled_hours_label' => is_string($row['week_scheduled_label'] ?? null) ? $row['week_scheduled_label'] : '0h',
-            'scheduled_seconds' => (int) ($row['week_scheduled_seconds'] ?? 0),
+            'scheduled_hours_label' => $scheduledLabel,
+            'scheduled_seconds' => $scheduledSeconds,
             'days' => $days,
+            'induction' => $induction,
         ];
     }
 

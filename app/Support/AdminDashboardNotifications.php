@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\ClockInException;
+use App\Models\EarlyClockOut;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\EmployeeLeaveRecord;
@@ -49,7 +50,10 @@ final class AdminDashboardNotifications
             'title' => 'Requires action',
             'keys' => [
                 'incidents',
+                'induction_passed',
+                'induction_required',
                 'clock_in_exceptions',
+                'early_clock_outs',
                 'expired_documents',
                 'unapproved_timesheets',
                 'pending_leave',
@@ -142,6 +146,10 @@ final class AdminDashboardNotifications
             'one' => '1 clock-in waiting for approval',
             'many' => '%d clock-ins waiting for approval',
         ],
+        'early_clock_outs' => [
+            'one' => '1 early clock-out waiting for approval',
+            'many' => '%d early clock-outs waiting for approval',
+        ],
         'upcoming_renewals' => [
             'one' => '1 upcoming visa, licence, or certification renewal',
             'many' => '%d upcoming visa, licence, or certification renewals',
@@ -149,6 +157,14 @@ final class AdminDashboardNotifications
         'incomplete_onboarding' => [
             'one' => '1 employee with incomplete onboarding',
             'many' => '%d employees with incomplete onboarding',
+        ],
+        'induction_required' => [
+            'one' => '1 employee must pass induction before shifts',
+            'many' => '%d employees must pass induction before shifts',
+        ],
+        'induction_passed' => [
+            'one' => '1 employee passed induction and can be rostered',
+            'many' => '%d employees passed induction and can be rostered',
         ],
         'open_shifts' => [
             'one' => '1 open shift that still needs to be assigned',
@@ -385,6 +401,18 @@ final class AdminDashboardNotifications
             self::incompleteOnboardingItems($allEmployees, $employeeUrl, $name),
         );
 
+        [$inductionRequired, $inductionPassed] = self::inductionItems($employees, $scheduleShifts, $employeeUrl, $name);
+        $sections[] = self::section(
+            'induction_required',
+            'Employees who must pass induction before shifts',
+            $inductionRequired,
+        );
+        $sections[] = self::section(
+            'induction_passed',
+            'Induction passed — eligible for shifts',
+            $inductionPassed,
+        );
+
         $sections[] = self::section(
             'incidents',
             'New incident or hazard reports',
@@ -395,6 +423,12 @@ final class AdminDashboardNotifications
             'clock_in_exceptions',
             'Clock-ins that need approval',
             self::clockInExceptionItems($conn),
+        );
+
+        $sections[] = self::section(
+            'early_clock_outs',
+            'Early clock-outs that need approval',
+            self::earlyClockOutItems($conn),
         );
 
         $sections[] = self::messagingSection($company, $conn);
@@ -552,6 +586,8 @@ final class AdminDashboardNotifications
             'missing_clock_in', 'no_shows_sick', 'late_early_punches', 'overtime', 'clocked_in' => route('admin.employees.time-clock'),
             'idle_low_movement' => route('admin.employees.location-tracking'),
             'incomplete_onboarding' => route('admin.registrations.index', ['status' => 'pending']),
+            'induction_required' => route('admin.training.index'),
+            'induction_passed' => route('admin.employees.weekly-schedule'),
             'open_shifts' => route('admin.employees.assignments'),
             default => null,
         };
@@ -1226,6 +1262,44 @@ final class AdminDashboardNotifications
     }
 
     /**
+     * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
+     */
+    private static function earlyClockOutItems(string $conn): array
+    {
+        if (! Schema::connection($conn)->hasTable('early_clock_outs')) {
+            return [];
+        }
+
+        $rows = EarlyClockOut::on($conn)
+            ->with('employee')
+            ->where('status', EarlyClockOut::STATUS_PENDING)
+            ->orderByDesc('attempted_at')
+            ->limit(self::MAX_ITEMS_PER_SECTION)
+            ->get();
+
+        $items = [];
+        foreach ($rows as $row) {
+            $employee = $row->employee;
+            $name = $employee instanceof Employee
+                ? trim((string) ($employee->full_legal_name ?: $employee->email ?: 'Employee'))
+                : 'Employee';
+            $when = DisplayTimezone::format($row->shift_ends_at, 'g:i A');
+            $note = trim((string) $row->employee_note);
+            if (mb_strlen($note) > 80) {
+                $note = mb_substr($note, 0, 77).'…';
+            }
+            $items[] = [
+                'message' => sprintf('%s wants to leave before %s. %s', $name, $when, $note),
+                'url' => null,
+                'severity' => 'urgent',
+                'sort_at' => $row->attempted_at?->getTimestamp() ?? $row->id,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
      * @param  Collection<int, Employee>  $employees
      * @param  Collection<int, TimesheetApproval>  $approvals
      * @return list<array{message: string, url: string|null, severity: string, sort_at: int}>
@@ -1467,6 +1541,45 @@ final class AdminDashboardNotifications
         }
 
         return $items;
+    }
+
+    /**
+     * @param  Collection<int, Employee>  $employees
+     * @param  Collection<int, EmployeeScheduleShift>  $scheduleShifts
+     * @return array{0: list<array{message: string, url: string|null, severity: string, sort_at: int}>, 1: list<array{message: string, url: string|null, severity: string, sort_at: int}>}
+     */
+    private static function inductionItems(Collection $employees, Collection $scheduleShifts, callable $employeeUrl, callable $name): array
+    {
+        $rosteredIds = $scheduleShifts
+            ->pluck('employee_id')
+            ->map(static fn ($id) => (int) $id)
+            ->unique();
+
+        $required = [];
+        $passed = [];
+
+        foreach ($employees as $employee) {
+            $status = (string) ($employee->induction_status ?? '');
+            if ($status === 'required') {
+                $required[] = [
+                    'message' => sprintf('%s — induction required before shifts or clock-in', $name($employee)),
+                    'url' => $employeeUrl($employee),
+                    'severity' => 'warning',
+                    'sort_at' => $employee->hired_at?->getTimestamp() ?? $employee->created_at?->getTimestamp() ?? 0,
+                ];
+            }
+
+            if ($status === 'passed' && ! $rosteredIds->contains((int) $employee->id)) {
+                $passed[] = [
+                    'message' => sprintf('%s passed induction and is eligible for shifts', $name($employee)),
+                    'url' => route('admin.employees.weekly-schedule', ['employee' => $employee->public_id]),
+                    'severity' => 'info',
+                    'sort_at' => $employee->induction_passed_at?->getTimestamp() ?? 0,
+                ];
+            }
+        }
+
+        return [$required, $passed];
     }
 
     /**

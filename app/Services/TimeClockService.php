@@ -8,7 +8,10 @@ use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
 use App\Models\TimeClockIdleAlert;
 use App\Models\WorkLocation;
+use App\Support\BreakWindow;
 use App\Support\ClockInGraceGate;
+use App\Support\EarlyClockOutGate;
+use App\Support\InductionEligibility;
 use App\Support\TimeClockScheduledShift;
 use App\Support\GeoDistance;
 use Carbon\CarbonInterface;
@@ -18,9 +21,21 @@ class TimeClockService
 {
     public function geofenceRadiusMeters(): int
     {
-        $radius = (int) config('time_clock.geofence_radius_meters', 300);
+        $radius = (int) config('time_clock.geofence_radius_meters', WorkLocation::GEOFENCE_RADIUS_DEFAULT);
 
-        return max(10, min($radius, 5_000));
+        return max(WorkLocation::GEOFENCE_RADIUS_MIN, min($radius, WorkLocation::GEOFENCE_RADIUS_MAX));
+    }
+
+    /**
+     * Live radius for a site. Admin edits apply immediately, including open sessions.
+     */
+    public function radiusForWorkLocation(?WorkLocation $location): int
+    {
+        if ($location instanceof WorkLocation) {
+            return $location->resolvedGeofenceRadiusMeters();
+        }
+
+        return $this->geofenceRadiusMeters();
     }
 
     /**
@@ -40,14 +55,18 @@ class TimeClockService
         $isOnBreak = $session !== null && $session['is_on_break'];
         $clockInEntry = $session['clock_in'] ?? null;
         $lastEntry = $session['last'] ?? $this->latestEntryFor($employee);
-        $location = $employee->workLocation;
-        $hasCoordinates = $this->workLocationHasCoordinates($location);
+        // Live site is today's allocated shift location, not the work assignment.
+        $geofenceSite = $employee->effectiveWorkLocationForMobile();
+        $hasCoordinates = $this->workLocationHasCoordinates($geofenceSite);
+        $liveRadius = $this->radiusForWorkLocation($geofenceSite instanceof WorkLocation ? $geofenceSite : null);
         $shiftIssue = $isClockedIn ? null : TimeClockScheduledShift::shiftIssue($employee);
         $grace = $isClockedIn
             ? ['blocks_clock_in' => false, 'issue' => null, 'window' => null]
             : ClockInGraceGate::assess($employee);
         $graceIssue = $grace['blocks_clock_in'] ? $grace['issue'] : null;
-        $assignmentReady = $employee->work_location_id !== null && $hasCoordinates;
+        $induction = InductionEligibility::mobileSummary($employee);
+        $inductionIssue = ($induction['required'] ?? false) === true ? InductionEligibility::CLOCK_IN_CODE : null;
+        $assignmentReady = $geofenceSite instanceof WorkLocation && $hasCoordinates;
 
         $breaksPayload = [];
         $totalBreakSeconds = 0;
@@ -80,14 +99,20 @@ class TimeClockService
             }
         }
 
+        $breakWindow = BreakWindow::forEmployee(
+            $employee,
+            $isOnBreak,
+            $session !== null && $session['breaks'] !== [],
+        );
+
         return [
             'is_clocked_in' => $isClockedIn,
             'is_on_break' => $isOnBreak,
-            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null && $graceIssue === null,
+            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null && $graceIssue === null && $inductionIssue === null,
             'can_clock_out' => $isClockedIn,
-            'can_break_in' => $isClockedIn && !$isOnBreak,
+            'can_break_in' => $isClockedIn && !$isOnBreak && BreakWindow::allowsBreakStart($breakWindow),
             'can_break_out' => $isOnBreak,
-            'geofence_radius_meters' => $this->geofenceRadiusMeters(),
+            'geofence_radius_meters' => $liveRadius,
             'open_session' => $isClockedIn && $clockInEntry instanceof TimeClockEntry
                 ? [
                     'entry_id' => $clockInEntry->id,
@@ -100,10 +125,9 @@ class TimeClockService
                     'geofence_longitude' => $clockInEntry->expected_longitude !== null
                         ? (float) $clockInEntry->expected_longitude
                         : null,
-                    // Live config radius (not the punch stamp) so raising
-                    // TIME_CLOCK_GEOFENCE_RADIUS_METERS (e.g. 100 → 300) applies
-                    // immediately to open sessions on the mobile client.
-                    'allowed_radius_meters' => $this->geofenceRadiusMeters(),
+                    // Live site radius (not the punch stamp) so an admin edit
+                    // applies immediately to open sessions on the mobile client.
+                    'allowed_radius_meters' => $liveRadius,
                     'break_started_at' => $isOnBreak
                         ? ($session['open_break_start']?->clocked_at?->toIso8601String())
                         : null,
@@ -113,10 +137,15 @@ class TimeClockService
                 : null,
             'last_event' => $lastEntry instanceof TimeClockEntry ? $lastEntry->toMobilePayload() : null,
             'assignment_ready' => $assignmentReady,
-            'assignment_issue' => $this->assignmentIssue($employee, $hasCoordinates),
+            'assignment_issue' => $this->assignmentIssue($geofenceSite, $hasCoordinates),
             'shift_issue' => $shiftIssue ?? $graceIssue,
+            'induction_required' => $inductionIssue !== null,
+            'induction_message' => $induction['message'] ?? null,
             'clock_in_window' => $grace['window'],
-            'scheduled_shift' => TimeClockScheduledShift::todayShiftForDisplay($employee),
+            'break_window' => $breakWindow,
+            'scheduled_shift' => $inductionIssue !== null
+                ? null
+                : TimeClockScheduledShift::todayShiftForDisplay($employee),
             'work_assignment' => $employee->workAssignmentForApi(),
         ];
     }
@@ -159,9 +188,12 @@ class TimeClockService
 
             $scheduledShift = $this->assertScheduledShiftForClockIn($employee);
 
-            $location = $this->resolveClockInWorkLocation($employee, $scheduledShift);
-            if (!$location instanceof WorkLocation) {
-                throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
+            $location = $this->resolveClockInWorkLocation($scheduledShift);
+            if (!$location instanceof WorkLocation || !$this->workLocationHasCoordinates($location)) {
+                throw new TimeClockException(
+                    'work_location_not_found',
+                    'Today\'s shift does not have a work location with map coordinates. Contact your administrator.',
+                );
             }
 
             $geofence = $this->evaluateGeofence(
@@ -199,9 +231,35 @@ class TimeClockService
      */
     public function clockOut(Employee $employee, array $device): array
     {
+        try {
+            return $this->clockOutWithinTransaction($employee, $device);
+        } catch (TimeClockException $e) {
+            try {
+                EarlyClockOutGate::persistBlockedAttempt($e);
+            } catch (\Throwable) {
+                // The punch stays blocked even if the request row cannot be saved.
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null, comment?: string|null}  $device
+     * @return array{entry: TimeClockEntry, time_clock: array<string, mixed>}
+     */
+    private function clockOutWithinTransaction(Employee $employee, array $device): array
+    {
         return DB::transaction(function () use ($employee, $device) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             $employee->loadMissing(['workLocation', 'assignedDepartment', 'assignedShift']);
+
+            if ($this->resolveOpenSession($employee) === null && InductionEligibility::blocksWork($employee)) {
+                throw new TimeClockException(
+                    InductionEligibility::CLOCK_IN_CODE,
+                    InductionEligibility::BLOCK_MESSAGE,
+                );
+            }
 
             $session = $this->assertCanClockOut($employee);
 
@@ -218,6 +276,11 @@ class TimeClockService
                 $device['accuracy_meters'] ?? null,
             );
             $this->assertWithinGeofence($geofence);
+
+            EarlyClockOutGate::assertAllowsClockOut(
+                $employee,
+                isset($device['comment']) ? (string) $device['comment'] : null,
+            );
 
             if ($session['is_on_break']) {
                 $this->createEntry(
@@ -242,6 +305,7 @@ class TimeClockService
             );
 
             $this->clearIdleAlertsForSession($employee, $session['clock_in']);
+            EarlyClockOutGate::noteSuccessfulClockOut($employee);
 
             return [
                 'entry' => $entry,
@@ -350,10 +414,9 @@ class TimeClockService
 
             $session = $this->assertCanClockOut($employee);
 
-            // Prefer the CURRENT assigned work location so mid-shift reassignment
-            // can auto clock-out when the employee is outside the new site
-            // (even if they are still at the original clock-in coordinates).
-            $liveLocation = $employee->workLocation;
+            // Follow today's allocated shift site so a schedule location change
+            // moves the zone even if the work-assignment site is different.
+            $liveLocation = $employee->effectiveWorkLocationForMobile();
             $sessionLocation = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
 
             if ($liveLocation instanceof WorkLocation && $this->workLocationHasCoordinates($liveLocation)) {
@@ -431,8 +494,12 @@ class TimeClockService
             }
 
             $clockIn = $session['clock_in'];
-            $employee->loadMissing('workLocation');
-            $location = $employee->workLocation;
+            $location = $clockIn->work_location_id !== null
+                ? WorkLocation::query()->find($clockIn->work_location_id)
+                : null;
+            if (! $location instanceof WorkLocation) {
+                $location = $employee->effectiveWorkLocationForMobile();
+            }
             $expectedLat = $this->workLocationHasCoordinates($location) ? (float) $location->latitude : null;
             $expectedLng = $this->workLocationHasCoordinates($location) ? (float) $location->longitude : null;
 
@@ -458,7 +525,9 @@ class TimeClockService
                 'expected_latitude' => $expectedLat,
                 'expected_longitude' => $expectedLng,
                 'distance_from_site_meters' => $expectedLat !== null ? 0 : null,
-                'allowed_radius_meters' => $this->geofenceRadiusMeters(),
+                'allowed_radius_meters' => $this->radiusForWorkLocation(
+                    $location instanceof WorkLocation ? $location : null,
+                ),
                 'within_geofence' => true,
                 'punch_source' => $punchSource,
                 'department_id' => $employee->department_id,
@@ -597,24 +666,17 @@ class TimeClockService
 
     private function assertCanClockIn(Employee $employee): void
     {
-        if ($employee->work_location_id === null) {
-            throw new TimeClockException(
-                'no_work_location_assigned',
-                'No work location has been assigned. Contact your administrator before clocking in.',
-            );
-        }
-
-        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
-            throw new TimeClockException(
-                'work_location_missing_coordinates',
-                'Your assigned work site does not have map coordinates yet. Contact your administrator.',
-            );
-        }
-
         if ($this->resolveOpenSession($employee) !== null) {
             throw new TimeClockException(
                 'already_clocked_in',
                 'You are already clocked in. Clock out before starting another shift.',
+            );
+        }
+
+        if (InductionEligibility::blocksWork($employee)) {
+            throw new TimeClockException(
+                InductionEligibility::CLOCK_IN_CODE,
+                InductionEligibility::BLOCK_MESSAGE,
             );
         }
     }
@@ -640,17 +702,15 @@ class TimeClockService
         return $shift;
     }
 
-    private function resolveClockInWorkLocation(Employee $employee, EmployeeScheduleShift $scheduledShift): ?WorkLocation
+    private function resolveClockInWorkLocation(EmployeeScheduleShift $scheduledShift): ?WorkLocation
     {
-        $scheduledShift->loadMissing('workLocation');
-        $fromShift = $scheduledShift->workLocation;
-        if ($fromShift instanceof WorkLocation && $this->workLocationHasCoordinates($fromShift)) {
-            return $fromShift;
+        if ($scheduledShift->work_location_id === null) {
+            return null;
         }
 
-        $assigned = $employee->workLocation;
+        $fromShift = WorkLocation::query()->find($scheduledShift->work_location_id);
 
-        return $assigned instanceof WorkLocation ? $assigned : null;
+        return $fromShift instanceof WorkLocation ? $fromShift : null;
     }
 
     /**
@@ -664,20 +724,6 @@ class TimeClockService
      */
     private function assertCanClockOut(Employee $employee): array
     {
-        if ($employee->work_location_id === null) {
-            throw new TimeClockException(
-                'no_work_location_assigned',
-                'No work location has been assigned.',
-            );
-        }
-
-        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
-            throw new TimeClockException(
-                'work_location_missing_coordinates',
-                'Your assigned work site does not have map coordinates yet.',
-            );
-        }
-
         $session = $this->resolveOpenSession($employee);
         if ($session === null) {
             throw new TimeClockException(
@@ -700,20 +746,6 @@ class TimeClockService
      */
     private function assertCanBreakStart(Employee $employee): array
     {
-        if ($employee->work_location_id === null) {
-            throw new TimeClockException(
-                'no_work_location_assigned',
-                'No work location has been assigned.',
-            );
-        }
-
-        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
-            throw new TimeClockException(
-                'work_location_missing_coordinates',
-                'Your assigned work site does not have map coordinates yet.',
-            );
-        }
-
         $session = $this->resolveOpenSession($employee);
         if ($session === null) {
             throw new TimeClockException(
@@ -726,6 +758,14 @@ class TimeClockService
             throw new TimeClockException(
                 'already_on_break',
                 'You are already on break. End the current break before starting another.',
+            );
+        }
+
+        $breakWindow = BreakWindow::forEmployee($employee, false, $session['breaks'] !== []);
+        if (! BreakWindow::allowsBreakStart($breakWindow)) {
+            throw new TimeClockException(
+                BreakWindow::ISSUE_OUTSIDE,
+                (string) ($breakWindow['message'] ?? 'You can only take your break during the scheduled break window.'),
             );
         }
 
@@ -743,20 +783,6 @@ class TimeClockService
      */
     private function assertCanBreakEnd(Employee $employee): array
     {
-        if ($employee->work_location_id === null) {
-            throw new TimeClockException(
-                'no_work_location_assigned',
-                'No work location has been assigned.',
-            );
-        }
-
-        if (!$this->workLocationHasCoordinates($employee->workLocation)) {
-            throw new TimeClockException(
-                'work_location_missing_coordinates',
-                'Your assigned work site does not have map coordinates yet.',
-            );
-        }
-
         $session = $this->resolveOpenSession($employee);
         if ($session === null || !$session['is_on_break']) {
             throw new TimeClockException(
@@ -869,9 +895,7 @@ class TimeClockService
             }
         }
 
-        $assigned = $employee->workLocation;
-
-        return $assigned instanceof WorkLocation ? $assigned : null;
+        return $employee->effectiveWorkLocationForMobile();
     }
 
     /**
@@ -896,9 +920,9 @@ class TimeClockService
         $expectedLng = $clockIn->expected_longitude !== null
             ? (float) $clockIn->expected_longitude
             : (float) $location->longitude;
-        // Use current config for live enter/exit checks. The radius stamped on
-        // the clock-in row remains historical audit data only.
-        $radius = $this->geofenceRadiusMeters();
+        // Use the site's current radius for live enter/exit checks. The radius
+        // stamped on the clock-in row remains historical audit data only.
+        $radius = $this->radiusForWorkLocation($location);
         $distance = GeoDistance::metersBetween(
             $deviceLatitude,
             $deviceLongitude,
@@ -933,7 +957,7 @@ class TimeClockService
     ): array {
         $expectedLat = (float) $location->latitude;
         $expectedLng = (float) $location->longitude;
-        $radius = $this->geofenceRadiusMeters();
+        $radius = $this->radiusForWorkLocation($location);
         $distance = GeoDistance::metersBetween(
             $deviceLatitude,
             $deviceLongitude,
@@ -1010,9 +1034,9 @@ class TimeClockService
             && is_finite((float) $location->longitude);
     }
 
-    private function assignmentIssue(Employee $employee, bool $hasCoordinates): ?string
+    private function assignmentIssue(?WorkLocation $location, bool $hasCoordinates): ?string
     {
-        if ($employee->work_location_id === null) {
+        if (! $location instanceof WorkLocation) {
             return 'no_work_location_assigned';
         }
 

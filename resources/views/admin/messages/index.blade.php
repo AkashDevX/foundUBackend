@@ -89,7 +89,14 @@
         };
 
         $isGroup = ($conversationPayload['type'] ?? '') === 'group';
+        $isAnnouncement = ($conversationPayload['type'] ?? '') === 'announcement';
         $participantCount = count($conversationPayload['participants'] ?? []);
+        $recipientCount = 0;
+        foreach ($conversationPayload['participants'] ?? [] as $participant) {
+            if (($participant['type'] ?? '') === 'employee') {
+                $recipientCount++;
+            }
+        }
         $isModerationView = (bool) ($conversationPayload['is_moderation_view'] ?? false);
         $canSendInActive = $activeId
             ? (bool) ($conversationPayload['can_send'] ?? true)
@@ -97,10 +104,13 @@
         $threadSubtitle = $activeId
             ? ($isModerationView
                 ? 'Report review · read only'
-                : ($isGroup
-                    ? $participantCount.' member'.($participantCount === 1 ? '' : 's')
-                    : 'Direct message'))
+                : ($isAnnouncement
+                    ? 'Announcement · '.$recipientCount.' recipient'.($recipientCount === 1 ? '' : 's')
+                    : ($isGroup
+                        ? $participantCount.' member'.($participantCount === 1 ? '' : 's')
+                        : 'Direct message')))
             : '';
+        $announcementIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/></svg>';
 
         $indexUrl = route('admin.messages.index');
         $attachmentUrlTemplate = url('/admin/messages/attachments/__ID__');
@@ -263,6 +273,12 @@
         <aside class="admin-chat__rail">
             <div class="admin-chat__rail-head">
                 <h2 class="admin-chat__rail-title">Chat</h2>
+                <button type="button" class="admin-chat__icon-btn" data-open-modal="announcement" title="Announcement" aria-label="Announcement">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+                        <path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14" />
+                    </svg>
+                </button>
                 <button type="button" class="admin-chat__icon-btn" data-open-modal="group" title="New group" aria-label="New group">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -292,6 +308,7 @@
                         $cid = (int) ($conversation['id'] ?? 0);
                         $unread = (int) ($conversation['unread_count'] ?? 0);
                         $isGroupRow = ($conversation['type'] ?? '') === 'group';
+                        $isAnnouncementRow = ($conversation['type'] ?? '') === 'announcement';
                         $tone = $tones[$cid % count($tones)];
                         $time = $relative($conversation['last_message_at'] ?? ($conversation['last_message']['created_at'] ?? null));
                         $title = (string) ($conversation['title'] ?? 'Conversation');
@@ -305,8 +322,10 @@
                         data-conversation-url="{{ route('admin.messages.show', $cid) }}"
                         data-search="{{ strtolower($title.' '.$preview($conversation)) }}"
                     >
-                        <span class="admin-chat__avatar" style="background: {{ $tone }}">
-                            @if ($isGroupRow)
+                        <span class="admin-chat__avatar" style="background: {{ $isAnnouncementRow ? '#b45309' : $tone }}">
+                            @if ($isAnnouncementRow)
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/></svg>
+                            @elseif ($isGroupRow)
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                             @else
                                 {{ $initials($title) }}
@@ -341,10 +360,11 @@
                     <svg width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" /></svg>
                 </div>
                 <h3>Select a conversation</h3>
-                <p>Pick a chat from the left, or start a new direct message or group with your team.</p>
+                <p>Pick a chat from the left, start a direct message or group, or send an announcement.</p>
                 <div class="admin-chat__empty-actions">
                     <button type="button" class="admin-chat__btn admin-chat__btn--primary" data-open-modal="direct">New chat</button>
                     <button type="button" class="admin-chat__btn admin-chat__btn--ghost" data-open-modal="group">New group</button>
+                    <button type="button" class="admin-chat__btn admin-chat__btn--ghost" data-open-modal="announcement">Announcement</button>
                 </div>
             </div>
 
@@ -367,9 +387,11 @@
                     <button type="button" class="admin-chat__icon-btn admin-chat__back" data-chat-back aria-label="Back to list">
                         <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>
                     </button>
-                    <span class="admin-chat__avatar" data-thread-avatar style="background: {{ $isGroup ? '#188038' : '#1a73e8' }}; width: 2.25rem; height: 2.25rem; font-size: 0.7rem;">
+                    <span class="admin-chat__avatar" data-thread-avatar style="background: {{ $isAnnouncement ? '#b45309' : ($isGroup ? '#188038' : '#1a73e8') }}; width: 2.25rem; height: 2.25rem; font-size: 0.7rem;">
                         @if ($activeId)
-                            @if ($isGroup)
+                            @if ($isAnnouncement)
+                                {!! $announcementIcon !!}
+                            @elseif ($isGroup)
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                             @else
                                 {{ $initials((string) ($conversationPayload['title'] ?? '')) }}
@@ -513,6 +535,55 @@
                         <p class="admin-chat__field-hint">Hold Ctrl / Cmd to select multiple.</p>
                     </label>
                     <button type="submit" class="admin-chat__btn admin-chat__btn--primary" style="width:100%;">Create group</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="admin-chat__modal" data-modal="announcement" role="dialog" aria-modal="true" aria-labelledby="modal-announcement-title">
+            <div class="admin-chat__modal-card admin-chat__modal-card--announce">
+                <div class="admin-chat__modal-head">
+                    <div>
+                        <h3 id="modal-announcement-title">Announcement</h3>
+                        <p>Send to one employee or a set of employees</p>
+                    </div>
+                    <button type="button" class="admin-chat__icon-btn" data-close-modal aria-label="Close">
+                        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <form method="post" action="{{ route('admin.messages.announcements.store') }}" class="admin-chat__modal-body admin-chat__announce" data-announcement-form>
+                    @csrf
+                    <label class="admin-chat__field">
+                        <span>Title</span>
+                        <input type="text" name="title" required maxlength="120" placeholder="e.g. Site closed tomorrow" />
+                    </label>
+                    <label class="admin-chat__field">
+                        <span>Message</span>
+                        <textarea name="body" required maxlength="5000" rows="3" placeholder="Write the announcement…"></textarea>
+                    </label>
+                    <div class="admin-chat__announce-recipients">
+                        <span class="admin-chat__announce-label">Recipients</span>
+                        <label class="admin-chat__announce-all">
+                            <input type="checkbox" data-announcement-all />
+                            All employees
+                        </label>
+                        <input type="search" class="admin-chat__announce-search" data-announcement-search placeholder="Search employees" autocomplete="off" />
+                        <div class="admin-chat__announce-list" data-announcement-list>
+                            @forelse ($directory as $person)
+                                <label
+                                    class="admin-chat__announce-row"
+                                    data-announcement-row
+                                    data-search="{{ strtolower($person['display_name'].' '.($person['email'] ?? '')) }}"
+                                >
+                                    <input type="checkbox" name="member_ids[]" value="{{ $person['id'] }}" data-announcement-member />
+                                    <span>{{ $person['display_name'] }}</span>
+                                </label>
+                            @empty
+                                <p class="admin-chat__field-hint">No employees available.</p>
+                            @endforelse
+                        </div>
+                        <p class="admin-chat__field-hint" data-announcement-count>No employees selected</p>
+                    </div>
+                    <button type="submit" class="admin-chat__btn admin-chat__btn--primary admin-chat__announce-send">Send announcement</button>
                 </form>
             </div>
         </div>
@@ -894,23 +965,32 @@
                 composer.addEventListener('submit', sendMessage);
             }
 
+            var announcementIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/></svg>';
+
             function showThread(payload, url, push) {
                 var conv = payload.conversation || {};
                 var isGroup = conv.type === 'group';
-                var count = (conv.participants || []).length;
+                var isAnnouncement = conv.type === 'announcement';
+                var participants = conv.participants || [];
+                var count = participants.length;
+                var recipientCount = participants.filter(function (p) { return p.type === 'employee'; }).length;
                 var title = conv.title || 'Conversation';
-                var isModeration = !!conv.is_moderation_view || conv.can_send === false;
+                var isModeration = !!conv.is_moderation_view || (conv.can_send === false && !isAnnouncement);
                 var subtitle = isModeration
                     ? 'Report review · read only'
-                    : (isGroup
-                        ? (count + ' member' + (count === 1 ? '' : 's'))
-                        : 'Direct message');
+                    : (isAnnouncement
+                        ? ('Announcement · ' + recipientCount + ' recipient' + (recipientCount === 1 ? '' : 's'))
+                        : (isGroup
+                            ? (count + ' member' + (count === 1 ? '' : 's'))
+                            : 'Direct message'));
 
                 if (titleEl) titleEl.textContent = title;
                 if (subtitleEl) subtitleEl.textContent = subtitle;
                 if (avatarEl) {
-                    avatarEl.style.background = isGroup ? '#188038' : '#1a73e8';
-                    if (isGroup) {
+                    avatarEl.style.background = isAnnouncement ? '#b45309' : (isGroup ? '#188038' : '#1a73e8');
+                    if (isAnnouncement) {
+                        avatarEl.innerHTML = announcementIcon;
+                    } else if (isGroup) {
                         avatarEl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
                     } else {
                         avatarEl.textContent = initials(title);
@@ -1061,6 +1141,66 @@
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') closeModals();
             });
+
+            var announcementForm = root.querySelector('[data-announcement-form]');
+            if (announcementForm) {
+                var selectAll = announcementForm.querySelector('[data-announcement-all]');
+                var searchBox = announcementForm.querySelector('[data-announcement-search]');
+                var countEl = announcementForm.querySelector('[data-announcement-count]');
+                var memberBoxes = function () {
+                    return announcementForm.querySelectorAll('[data-announcement-member]');
+                };
+                var updateAnnouncementCount = function () {
+                    var checked = 0;
+                    var total = 0;
+                    memberBoxes().forEach(function (box) {
+                        total++;
+                        if (box.checked) checked++;
+                    });
+                    if (countEl) {
+                        countEl.textContent = checked === 0
+                            ? 'No employees selected'
+                            : checked + ' selected';
+                    }
+                    if (selectAll) {
+                        selectAll.checked = total > 0 && checked === total;
+                        selectAll.indeterminate = checked > 0 && checked < total;
+                    }
+                };
+                if (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        var on = selectAll.checked;
+                        memberBoxes().forEach(function (box) {
+                            box.checked = on;
+                        });
+                        updateAnnouncementCount();
+                    });
+                }
+                announcementForm.addEventListener('change', function (e) {
+                    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-announcement-member')) {
+                        updateAnnouncementCount();
+                    }
+                });
+                if (searchBox) {
+                    searchBox.addEventListener('input', function () {
+                        var q = (searchBox.value || '').toLowerCase().trim();
+                        announcementForm.querySelectorAll('[data-announcement-row]').forEach(function (row) {
+                            var hay = row.getAttribute('data-search') || '';
+                            row.hidden = q !== '' && hay.indexOf(q) === -1;
+                        });
+                    });
+                }
+                announcementForm.addEventListener('submit', function (e) {
+                    var any = false;
+                    memberBoxes().forEach(function (box) {
+                        if (box.checked) any = true;
+                    });
+                    if (!any) {
+                        e.preventDefault();
+                        alert('Choose at least one employee.');
+                    }
+                });
+            }
 
             if (messagesEl) {
                 messagesEl.addEventListener('scroll', function () {

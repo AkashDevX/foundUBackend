@@ -53,10 +53,8 @@ function initWorkLocationRoot(root) {
     const tabMap = root.querySelector('[data-wf-tab="map"]');
     const panelManual = root.querySelector('[data-wf-panel="manual"]');
     const panelMap = root.querySelector('[data-wf-panel="map"]');
-    const inputLat = root.querySelector('input[type="hidden"][data-wf-lat]');
-    const inputLng = root.querySelector('input[type="hidden"][data-wf-lng]');
-    const displayLat = root.querySelector('[data-wf-lat-display]');
-    const displayLng = root.querySelector('[data-wf-lng-display]');
+    const inputLat = root.querySelector('input[data-wf-lat]');
+    const inputLng = root.querySelector('input[data-wf-lng]');
     const inputAddress = root.querySelector('[data-wf-address]');
     const addressSuggestions = root.querySelector('[data-wf-address-suggestions]');
     const geocodeStatus = root.querySelector('[data-wf-geocode-status]');
@@ -77,11 +75,9 @@ function initWorkLocationRoot(root) {
     const mapLoaderText = mapWrap?.querySelector('[data-wf-map-loader-text]') ?? null;
 
     if (!mapOnly) {
-        if (!tabManual || !tabMap || !panelManual || !panelMap || !displayLat || !displayLng) {
+        if (!tabManual || !tabMap || !panelManual || !panelMap) {
             return;
         }
-    } else if (!displayLat || !displayLng) {
-        return;
     }
 
     const defaultZoom = Number.parseInt(root.dataset.defaultZoom ?? '12', 10);
@@ -89,6 +85,7 @@ function initWorkLocationRoot(root) {
 
     let map = null;
     let marker = null;
+    let radiusCircle = null;
     let mapInited = false;
     let mapInitPromise = null;
     let hasPin = false;
@@ -103,6 +100,46 @@ function initWorkLocationRoot(root) {
         iconSize: [28, 28],
         iconAnchor: [14, 28],
     });
+
+    const radiusInput = form?.querySelector('[data-wf-radius]') ?? null;
+
+    function readRadiusMeters() {
+        const parsed = Number.parseInt(String(radiusInput?.value ?? ''), 10);
+        if (!Number.isFinite(parsed)) {
+            return 300;
+        }
+        return Math.min(5000, Math.max(10, parsed));
+    }
+
+    function syncRadiusCircle(options) {
+        const fit = Boolean(options && options.fit);
+        if (!map || !marker || !hasPin) {
+            if (radiusCircle && map) {
+                map.removeLayer(radiusCircle);
+            }
+            radiusCircle = null;
+            return;
+        }
+
+        const radius = readRadiusMeters();
+        const latlng = marker.getLatLng();
+        if (!radiusCircle) {
+            radiusCircle = L.circle(latlng, {
+                radius,
+                color: '#0052a2',
+                weight: 2,
+                fillColor: '#0052a2',
+                fillOpacity: 0.12,
+            }).addTo(map);
+        } else {
+            radiusCircle.setLatLng(latlng);
+            radiusCircle.setRadius(radius);
+        }
+
+        if (fit) {
+            map.fitBounds(radiusCircle.getBounds(), { padding: [24, 24], maxZoom: 18 });
+        }
+    }
 
     function setMapSurfaceLoading(visible, text) {
         if (!mapLoader) {
@@ -152,8 +189,6 @@ function initWorkLocationRoot(root) {
         hasPin = false;
         inputLat.value = '';
         inputLng.value = '';
-        displayLat.value = '';
-        displayLng.value = '';
         syncAddressClearVisibility();
         setStatus('Address cleared. Search again or click the map to set a pin.', 'warn');
         if (marker && map) {
@@ -161,6 +196,7 @@ function initWorkLocationRoot(root) {
             marker.setLatLng([r.lat, r.lng]);
             map.panTo([r.lat, r.lng]);
         }
+        syncRadiusCircle();
         setTimeout(() => {
             applyingSuggestion = false;
         }, 0);
@@ -184,12 +220,11 @@ function initWorkLocationRoot(root) {
         if (typeof item.lat === 'number' && typeof item.lng === 'number') {
             inputLat.value = item.lat.toFixed(7);
             inputLng.value = item.lng.toFixed(7);
-            displayLat.value = inputLat.value;
-            displayLng.value = inputLng.value;
             hasPin = true;
             if (marker && map) {
                 marker.setLatLng([item.lat, item.lng]);
                 map.setView([item.lat, item.lng], Math.max(map.getZoom(), 16));
+                syncRadiusCircle({ fit: true });
             } else {
                 scheduleEnsureMap();
             }
@@ -271,8 +306,35 @@ function initWorkLocationRoot(root) {
         const ln = ll.lng.toFixed(7);
         inputLat.value = la;
         inputLng.value = ln;
-        displayLat.value = la;
-        displayLng.value = ln;
+        syncRadiusCircle();
+    }
+
+    function readTypedCoords() {
+        const lat = Number.parseFloat(String(inputLat.value).trim());
+        const lng = Number.parseFloat(String(inputLng.value).trim());
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) return null;
+        if (!Number.isFinite(lng) || lng < -180 || lng > 180) return null;
+        return { lat, lng };
+    }
+
+    function placePinFromTypedCoords(options) {
+        const coords = readTypedCoords();
+        if (!coords) return;
+        hasPin = true;
+        if (marker && map) {
+            marker.setLatLng([coords.lat, coords.lng]);
+            if (options && options.fit) {
+                map.setView([coords.lat, coords.lng], Math.max(map.getZoom(), 16));
+            } else {
+                map.panTo([coords.lat, coords.lng]);
+            }
+            syncRadiusCircle({ fit: Boolean(options && options.fit) });
+        } else {
+            scheduleEnsureMap();
+        }
+        if (options && options.geocode) {
+            void reverseGeocode(coords.lat, coords.lng);
+        }
     }
 
     async function reverseGeocode(lat, lng) {
@@ -386,6 +448,7 @@ function initWorkLocationRoot(root) {
                     icon: pinIcon,
                 }).addTo(map);
                 syncInputsFromMarker();
+                syncRadiusCircle({ fit: true });
 
                 setMapSurfaceLoading(false);
 
@@ -464,15 +527,25 @@ function initWorkLocationRoot(root) {
         hasPin = false;
         inputLat.value = '';
         inputLng.value = '';
-        displayLat.value = '';
-        displayLng.value = '';
-        setStatus('Pin cleared. Click the map to place a new one.', 'warn');
+        setStatus('Pin cleared. Click the map or type coordinates to place a new one.', 'warn');
         if (marker && map) {
             const r = randomPinNearBrisbane();
             marker.setLatLng([r.lat, r.lng]);
             map.panTo([r.lat, r.lng]);
         }
+        syncRadiusCircle();
     });
+
+    radiusInput?.addEventListener('input', () => {
+        syncRadiusCircle();
+    });
+
+    const onCoordInput = () => placePinFromTypedCoords();
+    const onCoordCommit = () => placePinFromTypedCoords({ fit: true, geocode: true });
+    inputLat.addEventListener('input', onCoordInput);
+    inputLng.addEventListener('input', onCoordInput);
+    inputLat.addEventListener('change', onCoordCommit);
+    inputLng.addEventListener('change', onCoordCommit);
 
     clearAddressBtn?.addEventListener('mousedown', (event) => {
         event.preventDefault();
@@ -492,14 +565,10 @@ function initWorkLocationRoot(root) {
                     hasPin = false;
                     inputLat.value = '';
                     inputLng.value = '';
-                    displayLat.value = '';
-                    displayLng.value = '';
                 } else if (query === '') {
                     hasPin = false;
                     inputLat.value = '';
                     inputLng.value = '';
-                    displayLat.value = '';
-                    displayLng.value = '';
                 }
             }
             if (query.length < 2) {

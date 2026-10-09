@@ -10,7 +10,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'title',
     'description',
     'status',
+    'is_induction',
     'pass_percent',
+    'max_attempts',
     'question_time_seconds',
     'created_by',
 ])]
@@ -39,7 +41,9 @@ class TrainingModule extends Model
     protected function casts(): array
     {
         return [
+            'is_induction' => 'boolean',
             'pass_percent' => 'integer',
+            'max_attempts' => 'integer',
             'question_time_seconds' => 'integer',
         ];
     }

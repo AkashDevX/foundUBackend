@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Services\TimeClockService;
+use App\Support\InductionEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +17,7 @@ class CurrentEmployeeController extends Controller
     {
         /** @var Employee $employee */
         $employee = $request->user();
+        InductionEligibility::ensureAssigned($employee);
         // Always re-query relations so a just-edited work location name/address/coords
         // are not served from a stale in-memory relation on the authenticated model.
         $employee->unsetRelation('workLocation');

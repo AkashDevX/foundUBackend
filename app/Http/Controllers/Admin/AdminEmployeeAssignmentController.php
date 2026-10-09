@@ -1157,8 +1157,11 @@ class AdminEmployeeAssignmentController extends Controller
             'assignment_notes' => $data['assignment_notes'] ?? null,
         ];
 
-        if ($syncAssignmentShifts) {
+        if ($syncAssignmentShifts && $assignmentShifts->isNotEmpty()) {
+            \App\Support\InductionEligibility::assertCanBeScheduled($employee);
             $fill['shift_id'] = $assignmentShifts->first()['shift_id'] ?? null;
+        } elseif ($syncAssignmentShifts) {
+            $fill['shift_id'] = null;
         }
 
         $employee->forceFill($fill)->save();

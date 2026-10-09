@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
 use App\Support\DisplayTimezone;
+use App\Support\InductionEligibility;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,11 @@ class AdminRegistrationDecisionController extends Controller
             'hired_at' => DisplayTimezone::now()->toDateString(),
         ])->save();
 
-        return back()->with('success', 'Registration approved. The employee must open the mobile app and sign in with their registration email and password — no automatic access.');
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $message = InductionEligibility::requireForNewHire($employee, $portalUser->name ?: $portalUser->email);
+
+        return back()->with('success', $message);
     }
 
     public function decline(Request $request, string $companySlug, string $publicId): RedirectResponse
@@ -81,6 +86,32 @@ class AdminRegistrationDecisionController extends Controller
         ])->save();
 
         return back()->with('success', 'Employee reactivated. They can sign in to the mobile app again and will appear in payroll, schedules, and assignments.');
+    }
+
+    public function overrideInduction(Request $request, string $companySlug, string $publicId): RedirectResponse
+    {
+        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+        $data = $request->validate([
+            'override_reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        InductionEligibility::grantOverride(
+            $employee,
+            $portalUser->name ?: $portalUser->email ?: 'Administrator',
+            trim($data['override_reason']),
+        );
+
+        return back()->with('success', 'Induction override saved. This employee can now be assigned shifts and clock in.');
+    }
+
+    public function clearInductionOverride(Request $request, string $companySlug, string $publicId): RedirectResponse
+    {
+        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+        InductionEligibility::clearOverride($employee);
+
+        return back()->with('success', 'Induction override removed.');
     }
 
     private function employeeForPortalSession(Request $request, string $companySlug, string $publicId): Employee

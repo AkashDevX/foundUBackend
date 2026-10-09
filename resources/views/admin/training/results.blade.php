@@ -51,14 +51,18 @@
         <div class="rounded-2xl border border-brand-border bg-white px-5 py-4 shadow-sm">
             <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Pass rate</p>
             <p class="mt-1 text-3xl font-bold text-brand-text">{{ $summary['pass_rate'] !== null ? $summary['pass_rate'].'%' : '—' }}</p>
-            <p class="mt-1 text-xs text-brand-text/50">Pass mark {{ $module->pass_percent ?? 70 }}%</p>
+            <p class="mt-1 text-xs text-brand-text/50">
+                Pass mark {{ $module->pass_percent ?? 70 }}%
+                @if ($module->is_induction)
+                    · {{ $module->max_attempts ?? 3 }} attempts
+                @endif
+            </p>
         </div>
     </div>
 
     <section class="overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
         <div class="border-b border-brand-border px-5 py-5 sm:px-6">
             <h2 class="text-lg font-bold text-brand-text">Employee scores</h2>
-            <p class="mt-1 text-sm text-brand-text/60">How each assigned employee performed on this module.</p>
         </div>
 
         <div class="overflow-x-auto">
@@ -80,6 +84,17 @@
                             <td class="px-5 py-3.5">
                                 <p class="font-semibold text-brand-text">{{ $row['employee_name'] }}</p>
                                 <p class="text-xs text-brand-text/50">{{ $row['employee_email'] }}</p>
+                                @if ($module->is_induction && ! empty($row['induction_attempts']))
+                                    <ul class="mt-2 space-y-0.5 text-xs text-brand-text/60">
+                                        @foreach ($row['induction_attempts'] as $attempt)
+                                            <li>
+                                                Attempt {{ $attempt['attempt_number'] }}:
+                                                {{ $attempt['percent'] !== null ? rtrim(rtrim(number_format((float) $attempt['percent'], 1), '0'), '.').'%' : '—' }}
+                                                {{ $attempt['passed'] ? 'passed' : 'not passed' }}
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                @endif
                             </td>
                             <td class="px-5 py-3.5 text-brand-text/75">{{ $statusLabels[$row['status']] ?? $row['status'] }}</td>
                             <td class="px-5 py-3.5">
@@ -117,6 +132,9 @@
                             </td>
                             <td class="px-5 py-3.5 text-right">
                                 <div class="flex flex-wrap justify-end gap-3">
+                                    @if ($module->is_induction && ($row['induction_status'] ?? '') === 'required' && ! empty($row['employee_public_id']))
+                                        <a href="{{ route('admin.registrations.show', ['companySlug' => $company->slug, 'publicId' => $row['employee_public_id']]) }}" class="text-xs font-semibold text-amber-700 hover:underline">Override</a>
+                                    @endif
                                     @if ($row['status'] !== 'not_started')
                                         <form method="post"
                                               action="{{ route('admin.training.assignments.reset', [$module->id, $row['assignment_id']]) }}"

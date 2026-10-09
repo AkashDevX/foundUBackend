@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClockInException;
+use App\Models\EarlyClockOut;
 use App\Models\OrganizationPortalUser;
 use App\Support\ClockInGrace;
 use App\Support\ClockInGraceSettings;
@@ -25,7 +26,8 @@ class AdminClockInGraceController extends Controller
      * @return array{
      *     ready: bool,
      *     settings: array{grace_minutes: int, outside_policy: string, persisted: bool, ready: bool},
-     *     pending: \Illuminate\Support\Collection<int, ClockInException>
+     *     pending: \Illuminate\Support\Collection<int, ClockInException>,
+     *     early_clock_outs: \Illuminate\Support\Collection<int, EarlyClockOut>
      * }
      */
     public static function modalData(string $connection): array
@@ -34,6 +36,7 @@ class AdminClockInGraceController extends Controller
             && Schema::connection($connection)->hasTable('clock_in_exceptions');
         $settings = ClockInGraceSettings::current($connection);
         $pending = collect();
+        $earlyClockOuts = collect();
 
         if ($ready) {
             $pending = ClockInException::on($connection)
@@ -44,10 +47,20 @@ class AdminClockInGraceController extends Controller
                 ->get();
         }
 
+        if (Schema::connection($connection)->hasTable('early_clock_outs')) {
+            $earlyClockOuts = EarlyClockOut::on($connection)
+                ->with('employee')
+                ->where('status', EarlyClockOut::STATUS_PENDING)
+                ->orderByDesc('attempted_at')
+                ->limit(100)
+                ->get();
+        }
+
         return [
             'ready' => $ready,
             'settings' => $settings,
             'pending' => $pending,
+            'early_clock_outs' => $earlyClockOuts,
         ];
     }
 
@@ -121,9 +134,47 @@ class AdminClockInGraceController extends Controller
         return $this->dashboardRedirect()->with('success', $message);
     }
 
-    private function dashboardRedirect(): RedirectResponse
+    public function clearEarlyClockOut(Request $request, int $earlyClockOut): RedirectResponse
     {
-        return redirect()->route('admin.dashboard', ['open_clock_in' => 1]);
+        $ctx = $this->pageContext($request);
+        $this->useTenant($ctx['connection']);
+
+        $data = $request->validate([
+            'action' => ['required', 'string', Rule::in(['allow', 'dismiss'])],
+            'admin_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $row = EarlyClockOut::on($ctx['connection'])->where('status', EarlyClockOut::STATUS_PENDING)->find($earlyClockOut);
+        if (! $row instanceof EarlyClockOut) {
+            return $this->dashboardRedirect('early_clock_outs')
+                ->with('error', 'That request is no longer waiting for approval.');
+        }
+
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $note = isset($data['admin_note']) ? trim((string) $data['admin_note']) : '';
+
+        $row->admin_note = $note !== '' ? $note : $row->admin_note;
+        $row->cleared_by = trim((string) ($portalUser->name ?: $portalUser->email));
+        $row->cleared_at = DisplayTimezone::now()->utc();
+        $row->status = $data['action'] === 'allow'
+            ? EarlyClockOut::STATUS_CLEARED
+            : EarlyClockOut::STATUS_VOID;
+        $row->save();
+
+        $message = $row->status === EarlyClockOut::STATUS_CLEARED
+            ? 'Clock-out allowed. They can leave now.'
+            : 'Request dismissed. They stay clocked in until the shift ends.';
+
+        return $this->dashboardRedirect('early_clock_outs')->with('success', $message);
+    }
+
+    private function dashboardRedirect(string $section = 'clock_in_exceptions'): RedirectResponse
+    {
+        return redirect()->route('admin.dashboard', [
+            'open_clock_in' => 1,
+            'approval' => $section,
+        ]);
     }
 
     private function tablesReady(string $connection): bool

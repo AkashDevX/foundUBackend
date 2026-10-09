@@ -4,11 +4,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Geofence radius (meters)
+    | Geofence radius fallback (meters)
     |--------------------------------------------------------------------------
     |
-    | Mobile clock-in/out must be within this distance of the assigned work
-    | location coordinates (Haversine great-circle distance).
+    | Used only when a work location has no radius of its own. Each work
+    | location stores geofence_radius_meters (admin: Organization setup →
+    | Work locations). Clock-in and automatic clock-out use that site radius.
     |
     */
 
@@ -35,6 +36,35 @@ return [
     'clock_in_grace_minutes' => (int) env('TIME_CLOCK_CLOCK_IN_GRACE_MINUTES', 20),
 
     'clock_in_outside_grace_policy' => env('TIME_CLOCK_OUTSIDE_GRACE_POLICY', 'exception'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Meal-break window
+    |--------------------------------------------------------------------------
+    |
+    | Employees take their meal break only inside this part of the shift, not
+    | at any time. The defaults follow a common Australian workplace rule: a
+    | meal break is required when the shift is longer than 5 hours, and it is
+    | taken from the 4th hour through the 6th hour.
+    |
+    | A 6:00 AM shift then reads: "Please take your break between 10:00 AM and
+    | 12:00 PM." Organizations can override these values from Time clock records
+    | once the break-window columns exist. These env values are the fallback.
+    |
+    | - start_minutes: window opens this many minutes after shift start (240 = 4h)
+    | - end_minutes: window closes this many minutes after shift start (360 = 6h)
+    | - required_after_minutes: shifts this long or shorter have no meal break
+    | - reminder_lead_minutes: notify the employee this long before the window opens
+    |
+    */
+
+    'break_window' => [
+        'enabled' => (bool) env('TIME_CLOCK_BREAK_WINDOW_ENABLED', true),
+        'start_minutes' => (int) env('TIME_CLOCK_BREAK_WINDOW_START_MINUTES', 240),
+        'end_minutes' => (int) env('TIME_CLOCK_BREAK_WINDOW_END_MINUTES', 360),
+        'required_after_minutes' => (int) env('TIME_CLOCK_BREAK_REQUIRED_AFTER_MINUTES', 300),
+        'reminder_lead_minutes' => (int) env('TIME_CLOCK_BREAK_REMINDER_LEAD_MINUTES', 15),
+    ],
 
     /*
     |--------------------------------------------------------------------------

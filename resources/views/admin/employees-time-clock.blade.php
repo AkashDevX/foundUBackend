@@ -13,6 +13,8 @@
 @endpush
 
 @section('content')
+    @include('admin.partials.break-window-settings')
+
     @php
         /** @var list<array<string, mixed>> $weekIndex */
         /** @var list<array<string, mixed>> $timesheetGroups */

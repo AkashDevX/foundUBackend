@@ -418,20 +418,18 @@
                                 <button type="button" data-wf-clear-pin class="rounded-lg border border-brand-border bg-white px-3 py-1.5 text-xs font-semibold text-brand-text shadow-sm transition hover:bg-brand-surface">
                                     Clear pin
                                 </button>
-                                <span class="text-xs text-brand-text-secondary">Click map to place pin · drag to adjust</span>
+                                <span class="text-xs text-brand-text-secondary">Type coordinates, or click and drag the pin</span>
                             </div>
                             <div class="{{ $wfGrid }}">
                                 <span class="{{ $lbl }} sm:pt-2.5">Coordinates</span>
                                 <div class="grid gap-3 sm:grid-cols-2">
                                     <div>
-                                        <span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Latitude</span>
-                                        <input type="hidden" name="latitude" value="{{ old('latitude') }}" data-wf-lat />
-                                        <input type="text" readonly class="{{ $in }} cursor-default bg-brand-surface/80 font-mono text-xs" value="{{ old('latitude') }}" data-wf-lat-display tabindex="-1" />
+                                        <label for="loc-lat" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Latitude</label>
+                                        <input id="loc-lat" name="latitude" type="text" inputmode="decimal" autocomplete="off" data-wf-lat class="{{ $in }} font-mono text-xs" value="{{ old('latitude') }}" placeholder="-27.4698000" />
                                     </div>
                                     <div>
-                                        <span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Longitude</span>
-                                        <input type="hidden" name="longitude" value="{{ old('longitude') }}" data-wf-lng />
-                                        <input type="text" readonly class="{{ $in }} cursor-default bg-brand-surface/80 font-mono text-xs" value="{{ old('longitude') }}" data-wf-lng-display tabindex="-1" />
+                                        <label for="loc-lng" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Longitude</label>
+                                        <input id="loc-lng" name="longitude" type="text" inputmode="decimal" autocomplete="off" data-wf-lng class="{{ $in }} font-mono text-xs" value="{{ old('longitude') }}" placeholder="153.0251000" />
                                     </div>
                                 </div>
                             </div>
@@ -441,6 +439,14 @@
                     @error('latitude')
                         <p class="text-sm font-medium text-red-700">{{ $message }}</p>
                     @enderror
+
+                    @include('admin.partials.work-location-geofence-radius', [
+                        'inputId' => 'loc-radius',
+                        'value' => old('geofence_radius_meters', \App\Models\WorkLocation::GEOFENCE_RADIUS_DEFAULT),
+                        'wfGrid' => $wfGrid,
+                        'lbl' => $lbl,
+                        'in' => $in,
+                    ])
 
                     <div class="{{ $wfGrid }}">
                         <label for="loc-notes" class="{{ $lbl }} sm:pt-2.5">Notes</label>
@@ -483,11 +489,13 @@
                         $coordsSearch = $hasCoords
                             ? number_format((float) $loc->latitude, 5).' '.number_format((float) $loc->longitude, 5)
                             : 'no pin';
+                        $geofenceRadiusMeters = $loc->resolvedGeofenceRadiusMeters();
                         $workLocationSearch = strtolower(trim(
                             ($loc->name ?? '').' '.
                             ($loc->address ?? '').' '.
                             ($loc->notes ?? '').' '.
                             ($loc->id ?? '').' '.
+                            $geofenceRadiusMeters.' m geofence '.
                             $coordsSearch
                         ));
                     @endphp
@@ -515,6 +523,7 @@
                                     @else
                                         <span class="inline-flex items-center rounded-lg border border-brand-border/80 bg-brand-surface/80 px-2 py-0.5 text-[10px] font-semibold text-brand-text-secondary shadow-sm">No pin saved</span>
                                     @endif
+                                    <span class="inline-flex items-center rounded-lg border border-brand-primary/20 bg-brand-primary/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-primary shadow-sm">Geofence {{ $geofenceRadiusMeters }} m</span>
                                 </div>
                                 <p class="mt-1 text-[11px] font-medium text-brand-text-secondary">Work location · ID {{ $loc->id }}</p>
                                 @if ($loc->address)
@@ -609,25 +618,30 @@
                                                 <button type="button" data-wf-clear-pin class="rounded-lg border border-brand-border bg-white px-3 py-1.5 text-xs font-semibold text-brand-text shadow-sm transition hover:bg-brand-surface">
                                                     Clear pin
                                                 </button>
-                                                <span class="text-xs text-brand-text-secondary">Click map to place pin · drag to adjust</span>
+                                                <span class="text-xs text-brand-text-secondary">Type coordinates, or click and drag the pin</span>
                                             </div>
                                             <div class="{{ $wfGrid }}">
                                                 <span class="{{ $lbl }} sm:pt-2.5">Coordinates</span>
                                                 <div class="grid gap-3 sm:grid-cols-2">
                                                     <div>
-                                                        <span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Latitude</span>
-                                                        <input type="hidden" name="latitude" value="{{ $loc->latitude }}" data-wf-lat />
-                                                        <input type="text" readonly class="{{ $in }} cursor-default bg-brand-surface/80 font-mono text-xs" value="{{ $loc->latitude }}" data-wf-lat-display tabindex="-1" />
+                                                        <label for="loc-edit-lat-{{ $loc->id }}" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Latitude</label>
+                                                        <input id="loc-edit-lat-{{ $loc->id }}" name="latitude" type="text" inputmode="decimal" autocomplete="off" data-wf-lat class="{{ $in }} font-mono text-xs" value="{{ $loc->latitude }}" />
                                                     </div>
                                                     <div>
-                                                        <span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Longitude</span>
-                                                        <input type="hidden" name="longitude" value="{{ $loc->longitude }}" data-wf-lng />
-                                                        <input type="text" readonly class="{{ $in }} cursor-default bg-brand-surface/80 font-mono text-xs" value="{{ $loc->longitude }}" data-wf-lng-display tabindex="-1" />
+                                                        <label for="loc-edit-lng-{{ $loc->id }}" class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand-text-secondary">Longitude</label>
+                                                        <input id="loc-edit-lng-{{ $loc->id }}" name="longitude" type="text" inputmode="decimal" autocomplete="off" data-wf-lng class="{{ $in }} font-mono text-xs" value="{{ $loc->longitude }}" />
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+                                    @include('admin.partials.work-location-geofence-radius', [
+                                        'inputId' => 'loc-edit-radius-'.$loc->id,
+                                        'value' => $loc->geofence_radius_meters ?? \App\Models\WorkLocation::GEOFENCE_RADIUS_DEFAULT,
+                                        'wfGrid' => $wfGrid,
+                                        'lbl' => $lbl,
+                                        'in' => $in,
+                                    ])
                                     <div class="{{ $wfGrid }}">
                                         <label for="loc-edit-notes-{{ $loc->id }}" class="{{ $lbl }} sm:pt-2.5">Notes</label>
                                         <textarea id="loc-edit-notes-{{ $loc->id }}" name="location_notes" rows="2" maxlength="2000" class="{{ $in }} min-h-[4.5rem] resize-y" placeholder="Parking, gate code, site contact…">{{ $loc->notes }}</textarea>

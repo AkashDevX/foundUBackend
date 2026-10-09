@@ -80,6 +80,11 @@ use Laravel\Sanctum\HasApiTokens;
     'assignment_effective_from',
     'assignment_notes',
     'employment_status',
+    'induction_status',
+    'induction_passed_at',
+    'induction_overridden_at',
+    'induction_overridden_by',
+    'induction_override_reason',
     'employment_type',
     'award_level',
     'payroll_rates_json',
@@ -194,8 +199,8 @@ class Employee extends Model
         }
 
         $dept = $this->assignedDepartment;
-        // Prefer today's scheduled shift site (same rule as clock-in) so admin schedule
-        // location edits show up on mobile map + label together.
+        // Dashboard map + geofence use today's allocated shift site, not the
+        // work-assignment location on the employee record.
         $loc = $this->effectiveWorkLocationForMobile();
         $primaryShift = $shiftPayloads[0] ?? null;
 
@@ -214,6 +219,7 @@ class Employee extends Model
                 'notes' => $loc->notes,
                 'latitude' => $loc->latitude,
                 'longitude' => $loc->longitude,
+                'geofence_radius_meters' => $loc->resolvedGeofenceRadiusMeters(),
             ] : null,
             'shifts' => $shiftPayloads,
             'shift' => $primaryShift,
@@ -221,8 +227,9 @@ class Employee extends Model
     }
 
     /**
-     * Work site the mobile client should treat as current: today's schedule row when present,
-     * otherwise the employee's assigned location. Read-only (does not materialize rows).
+     * Work site the mobile dashboard should treat as current: the work location on
+     * today's allocated schedule shift. The employee's work-assignment location is
+     * not used. Read-only (does not materialize rows).
      */
     public function effectiveWorkLocationForMobile(): ?WorkLocation
     {
@@ -232,18 +239,13 @@ class Employee extends Model
             $now,
         );
 
-        if ($scheduled instanceof EmployeeScheduleShift) {
-            $scheduled->loadMissing('workLocation');
-            $fromSchedule = $scheduled->workLocation;
-            if ($fromSchedule instanceof WorkLocation) {
-                return $fromSchedule;
-            }
+        if (! $scheduled instanceof EmployeeScheduleShift || $scheduled->work_location_id === null) {
+            return null;
         }
 
-        $this->loadMissing('workLocation');
-        $assigned = $this->workLocation;
+        $location = WorkLocation::query()->find($scheduled->work_location_id);
 
-        return $assigned instanceof WorkLocation ? $assigned : null;
+        return $location instanceof WorkLocation ? $location : null;
     }
 
     /**
@@ -376,6 +378,7 @@ class Employee extends Model
             ),
             'vehicle_insurance_uploaded' => $this->vehicle_insurance_uploaded,
             'employment_status' => $this->employment_status,
+            'induction' => \App\Support\InductionEligibility::mobileSummary($this),
             'employee_code' => $this->employee_code,
             'job_title' => $jobTitleDisplay,
             'department' => $this->department,
@@ -396,6 +399,7 @@ class Employee extends Model
             'assigned_work_location_address' => $assignedWorkLocation['address'] ?? null,
             'assigned_work_location_lat' => $assignedWorkLocation['latitude'] ?? null,
             'assigned_work_location_lng' => $assignedWorkLocation['longitude'] ?? null,
+            'assigned_work_location_geofence_radius_meters' => $assignedWorkLocation['geofence_radius_meters'] ?? null,
             'assigned_shift_date' => RegistrationDisplay::toNullableIsoDate($assignment['effective_from'] ?? null),
             'assigned_shift_status' => $this->employment_status,
             'assigned_department_code' => $assignedDepartment['code'] ?? null,
@@ -436,6 +440,8 @@ class Employee extends Model
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
             'messaging_disabled_at' => 'datetime',
+            'induction_passed_at' => 'datetime',
+            'induction_overridden_at' => 'datetime',
             'weekly_availability_json' => 'array',
             'id_documents_json' => 'array',
             'licences_json' => 'array',

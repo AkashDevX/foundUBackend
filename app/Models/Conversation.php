@@ -20,6 +20,8 @@ class Conversation extends Model
 
     public const TYPE_GROUP = 'group';
 
+    public const TYPE_ANNOUNCEMENT = 'announcement';
+
     protected function casts(): array
     {
         return [

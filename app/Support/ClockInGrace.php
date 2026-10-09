@@ -124,10 +124,10 @@ final class ClockInGrace
         }
 
         if ($deviation === self::KIND_EARLY) {
-            return "You're early for this shift. Clock-in opens at {$earliestLabel}, or an administrator can clear the exception so you can clock in now.";
+            return "You're early for this shift. Clock-in opens at {$earliestLabel}, or an administrator can clear the exception so you can clock in now. Please contact the admin for further assistance.";
         }
 
-        return "You're outside the {$graceMinutes}-minute clock-in window ({$earliestLabel}–{$latestLabel}). An administrator must clear the exception before you can clock in.";
+        return "You're outside the {$graceMinutes}-minute clock-in window ({$earliestLabel}–{$latestLabel}). An administrator must clear the exception before you can clock in. Please contact the admin for further assistance.";
     }
 
     public static function shiftStart(EmployeeScheduleShift $shift, ?CarbonInterface $fallbackDate = null): Carbon

@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'training_module_id',
     'title',
     'body',
+    'image_path',
+    'bullets',
     'sort_order',
 ])]
 class TrainingPage extends Model
@@ -29,6 +31,7 @@ class TrainingPage extends Model
     {
         return [
             'sort_order' => 'integer',
+            'bullets' => 'array',
         ];
     }
 }

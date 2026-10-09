@@ -652,6 +652,82 @@ class MessagingService
     }
 
     /**
+     * One-way announcement to one employee or a set of employees.
+     * The opening message is delivered immediately and pushes a notification.
+     *
+     * @param  list<int>  $memberEmployeeIds
+     */
+    public function createAnnouncementForAdmin(
+        string $title,
+        string $body,
+        array $memberEmployeeIds,
+        string $companySlug,
+    ): Conversation {
+        $title = trim($title);
+        $body = trim($body);
+        if ($title === '') {
+            throw ValidationException::withMessages(['title' => 'Announcement title is required.']);
+        }
+        if ($body === '') {
+            throw ValidationException::withMessages(['body' => 'Announcement message is required.']);
+        }
+
+        $memberEmployeeIds = array_values(array_unique(array_map('intval', $memberEmployeeIds)));
+        if ($memberEmployeeIds === []) {
+            throw ValidationException::withMessages(['member_ids' => 'Choose at least one employee.']);
+        }
+
+        $validMembers = Employee::query()
+            ->whereIn('id', $memberEmployeeIds)
+            ->where('employment_status', 'active')
+            ->whereNull('messaging_disabled_at')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if (count($validMembers) !== count($memberEmployeeIds)) {
+            throw ValidationException::withMessages(['member_ids' => 'One or more employees are invalid.']);
+        }
+
+        $conversation = DB::transaction(function () use ($title, $validMembers) {
+            $conversation = Conversation::query()->create([
+                'type' => Conversation::TYPE_ANNOUNCEMENT,
+                'title' => $title,
+                'created_by_type' => ConversationParticipant::TYPE_COMPANY_ADMIN,
+                'created_by_id' => ConversationParticipant::COMPANY_ADMIN_ID,
+                'last_message_at' => null,
+            ]);
+
+            ConversationParticipant::query()->create([
+                'conversation_id' => $conversation->id,
+                'participant_type' => ConversationParticipant::TYPE_COMPANY_ADMIN,
+                'participant_id' => ConversationParticipant::COMPANY_ADMIN_ID,
+            ]);
+
+            foreach ($validMembers as $memberId) {
+                ConversationParticipant::query()->create([
+                    'conversation_id' => $conversation->id,
+                    'participant_type' => ConversationParticipant::TYPE_EMPLOYEE,
+                    'participant_id' => $memberId,
+                ]);
+            }
+
+            return $conversation;
+        });
+
+        $this->createMessage(
+            $conversation,
+            ConversationParticipant::TYPE_COMPANY_ADMIN,
+            ConversationParticipant::COMPANY_ADMIN_ID,
+            $body,
+            null,
+            $companySlug,
+        );
+
+        return $conversation->fresh(['activeParticipants']);
+    }
+
+    /**
      * @param  list<int>  $addEmployeeIds
      * @param  list<int>  $removeEmployeeIds
      */
@@ -823,6 +899,10 @@ class MessagingService
             ConversationParticipant::TYPE_EMPLOYEE,
             $employee->id,
         );
+
+        if ($conversation->type === Conversation::TYPE_ANNOUNCEMENT) {
+            throw new AccessDeniedHttpException('Announcements are read-only.');
+        }
 
         if ($conversation->type === Conversation::TYPE_DIRECT) {
             $peerEmployeeId = $this->directPeerEmployeeId($conversation, $employee->id);
@@ -1231,19 +1311,32 @@ class MessagingService
             }
 
             $senderName = $this->senderDisplayName($senderType, $senderId);
+            $isAnnouncement = $conversation->type === Conversation::TYPE_ANNOUNCEMENT;
             $isGroup = $conversation->type === Conversation::TYPE_GROUP;
-            $groupTitle = is_string($conversation->title) ? trim($conversation->title) : '';
-            $title = ($isGroup && $groupTitle !== '') ? $groupTitle : $senderName;
+            $namedTitle = is_string($conversation->title) ? trim($conversation->title) : '';
+            $title = ($isGroup && $namedTitle !== '') ? $namedTitle : $senderName;
 
             $textBody = is_string($message->body) ? trim($message->body) : '';
-            if ($message->message_type === Message::TYPE_IMAGE) {
+            $preview = $textBody !== ''
+                ? (mb_strlen($textBody) > 120 ? mb_substr($textBody, 0, 117).'...' : $textBody)
+                : '';
+
+            if ($isAnnouncement) {
+                $title = $namedTitle !== '' ? 'Announcement: '.$namedTitle : 'Announcement';
+                if ($message->message_type === Message::TYPE_IMAGE) {
+                    $body = 'Photo announcement';
+                } elseif ($message->message_type === Message::TYPE_FILE) {
+                    $body = 'File announcement';
+                } elseif ($preview !== '') {
+                    $body = $preview;
+                } else {
+                    $body = 'New announcement';
+                }
+            } elseif ($message->message_type === Message::TYPE_IMAGE) {
                 $body = $isGroup ? "{$senderName} sent a photo" : 'Sent a photo';
             } elseif ($message->message_type === Message::TYPE_FILE) {
                 $body = $isGroup ? "{$senderName} sent a file" : 'Sent a file';
-            } elseif ($textBody !== '') {
-                $preview = mb_strlen($textBody) > 120
-                    ? mb_substr($textBody, 0, 117).'...'
-                    : $textBody;
+            } elseif ($preview !== '') {
                 $body = $isGroup ? "{$senderName}: {$preview}" : $preview;
             } else {
                 $body = $isGroup ? "{$senderName} sent a message" : 'Sent a message';
@@ -1254,6 +1347,7 @@ class MessagingService
                 'body' => $body,
                 'data' => [
                     'type' => 'chat_message',
+                    'kind' => $isAnnouncement ? 'announcement' : 'chat_message',
                     'conversation_id' => (string) $conversation->id,
                 ],
             ]);
@@ -1517,6 +1611,13 @@ class MessagingService
 
     private function canSendInConversation(Conversation $conversation, string $viewerType, int $viewerId): bool
     {
+        if (
+            $conversation->type === Conversation::TYPE_ANNOUNCEMENT
+            && $viewerType === ConversationParticipant::TYPE_EMPLOYEE
+        ) {
+            return false;
+        }
+
         return $this->blockStatusForViewer($conversation, $viewerType, $viewerId) === 'none';
     }
 
@@ -1568,7 +1669,11 @@ class MessagingService
         string $viewerType,
         int $viewerId,
     ): string {
-        if ($conversation->type === Conversation::TYPE_GROUP && is_string($conversation->title) && $conversation->title !== '') {
+        if (
+            in_array($conversation->type, [Conversation::TYPE_GROUP, Conversation::TYPE_ANNOUNCEMENT], true)
+            && is_string($conversation->title)
+            && $conversation->title !== ''
+        ) {
             return $conversation->title;
         }
 

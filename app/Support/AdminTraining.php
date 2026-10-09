@@ -421,6 +421,7 @@ final class AdminTraining
      */
     public static function mobileListForEmployee(Employee $employee): array
     {
+        InductionEligibility::ensureAssigned($employee);
         $conn = $employee->getConnectionName();
 
         $assignments = TrainingAssignment::on($conn)
@@ -429,7 +430,7 @@ final class AdminTraining
             ->orderByDesc('assigned_at')
             ->orderByDesc('id')
             ->get()
-            ->filter(fn (TrainingAssignment $a) => $a->module !== null && $a->module->isPublished())
+            ->filter(fn (TrainingAssignment $a) => $a->module !== null && ($a->module->isPublished() || $a->module->is_induction))
             ->values();
 
         return [
@@ -454,7 +455,7 @@ final class AdminTraining
         $assignment->loadMissing(['module.pages.sections', 'module.questions.options', 'attempt.answers']);
 
         $module = $assignment->module;
-        if ($module === null || ! $module->isPublished()) {
+        if ($module === null || (! $module->isPublished() && ! $module->is_induction)) {
             throw ValidationException::withMessages([
                 'assignment' => 'This training is no longer available.',
             ]);
@@ -466,16 +467,21 @@ final class AdminTraining
         return [
             'assignment' => self::mobileAssignmentSummary($assignment),
             'pages' => $module->pages->map(static function ($page): array {
+                $bullets = is_array($page->bullets) ? $page->bullets : [];
+
                 return [
                     'id' => $page->id,
                     'title' => $page->title,
                     'body' => $page->body ?? '',
+                    'bullets' => array_values(array_filter($bullets, static fn ($line): bool => is_string($line) && trim($line) !== '')),
+                    'has_image' => is_string($page->image_path) && $page->image_path !== '',
                     'sort_order' => $page->sort_order,
                     'sections' => $page->sections->map(static function ($section): array {
                         return [
                             'id' => $section->id,
                             'title' => $section->title,
                             'body' => $section->body,
+                            'has_image' => is_string($section->image_path) && $section->image_path !== '',
                             'sort_order' => $section->sort_order,
                         ];
                     })->values()->all(),
@@ -484,6 +490,7 @@ final class AdminTraining
             'quiz_unlocked' => $attempt?->materialsAcknowledged() === true,
             'questions' => self::orderedQuestionsForAttempt($module, $attempt, $revealCorrect),
             'result' => $revealCorrect ? self::mobileResultPayload($assignment, $attempt) : null,
+            'induction' => InductionEligibility::detailContext($assignment),
         ];
     }
 
@@ -518,6 +525,7 @@ final class AdminTraining
                 $attempt?->percent !== null ? (float) $attempt->percent : null,
                 $module?->pass_percent
             ),
+            ...InductionEligibility::summaryFields($assignment),
         ];
     }
 

@@ -1052,9 +1052,114 @@
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .admin-chat__field input:focus,
-.admin-chat__field select:focus {
+.admin-chat__field select:focus,
+.admin-chat__field textarea:focus,
+.admin-chat__announce-search:focus {
     border-color: var(--color-brand-primary);
     box-shadow: 0 0 0 3px rgba(0, 61, 122, 0.12);
+}
+.admin-chat__field textarea {
+    width: 100%;
+    min-height: 4.25rem;
+    padding: 0.65rem 0.8rem;
+    border-radius: 0.75rem;
+    border: 1px solid #dadce0;
+    background: #fff;
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: #202124;
+    outline: none;
+    resize: none;
+}
+.admin-chat__modal-card--announce {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100% - 1.5rem);
+    min-height: 0;
+    overflow: hidden;
+}
+.admin-chat__announce {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: auto;
+}
+.admin-chat__announce-recipients {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    margin-bottom: 0.85rem;
+}
+.admin-chat__announce-label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-brand-label);
+}
+.admin-chat__announce-all {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0 0 0.45rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #202124;
+    cursor: pointer;
+}
+.admin-chat__announce-all input,
+.admin-chat__announce-row input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    flex: none;
+    accent-color: var(--color-brand-primary);
+}
+.admin-chat__announce-search {
+    width: 100%;
+    margin-bottom: 0.45rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.75rem;
+    border: 1px solid #dadce0;
+    background: #fff;
+    font-size: 0.9rem;
+    color: #202124;
+    outline: none;
+}
+.admin-chat__announce-list {
+    flex: none;
+    height: 11rem;
+    min-height: 11rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border: 1px solid #dadce0;
+    border-radius: 0.75rem;
+    padding: 0.2rem;
+}
+.admin-chat__announce-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0;
+    padding: 0.45rem 0.55rem;
+    border-radius: 0.55rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #202124;
+    cursor: pointer;
+}
+.admin-chat__announce-row:hover {
+    background: #f8f9fa;
+}
+.admin-chat__announce-send {
+    width: 100%;
+    flex: none;
+    position: sticky;
+    bottom: 0;
 }
 .admin-chat__field-hint {
     margin: 0.35rem 0 0;

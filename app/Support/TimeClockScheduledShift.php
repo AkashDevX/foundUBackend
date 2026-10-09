@@ -54,6 +54,10 @@ final class TimeClockScheduledShift
             return false;
         }
 
+        if (InductionEligibility::blocksWork($employee)) {
+            return false;
+        }
+
         return AdminWeeklySchedule::hasAssignmentShiftForDate($employee, $now);
     }
 
@@ -68,6 +72,10 @@ final class TimeClockScheduledShift
         }
 
         if (self::hasTimeOffForDate($employee, $date)) {
+            return null;
+        }
+
+        if (InductionEligibility::blocksWork($employee)) {
             return null;
         }
 

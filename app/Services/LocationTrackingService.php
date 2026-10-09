@@ -292,9 +292,11 @@ class LocationTrackingService
                     : ($clockIn->distance_from_site_meters !== null ? (float) $clockIn->distance_from_site_meters : null),
                 'site_latitude' => $siteLat,
                 'site_longitude' => $siteLng,
-                'allowed_radius_meters' => $clockIn->allowed_radius_meters !== null
-                    ? (int) $clockIn->allowed_radius_meters
-                    : $this->timeClock->geofenceRadiusMeters(),
+                'allowed_radius_meters' => $workLocation instanceof WorkLocation
+                    ? $workLocation->resolvedGeofenceRadiusMeters()
+                    : ($clockIn->allowed_radius_meters !== null
+                        ? (int) $clockIn->allowed_radius_meters
+                        : $this->timeClock->geofenceRadiusMeters()),
                 'has_idle_alert' => $idleAlert !== null,
                 'idle_alert' => $idleAlert?->toMobilePayload(),
                 'detail_url' => route('admin.employees.location-tracking', [
@@ -544,7 +546,9 @@ class LocationTrackingService
         float $deviceLongitude,
         ?float $accuracyMeters,
     ): array {
-        $radius = $this->timeClock->geofenceRadiusMeters();
+        $radius = $location instanceof WorkLocation
+            ? $location->resolvedGeofenceRadiusMeters()
+            : $this->timeClock->geofenceRadiusMeters();
         $expectedLat = $location?->latitude !== null
             ? (float) $location->latitude
             : ($clockIn->expected_latitude !== null ? (float) $clockIn->expected_latitude : null);

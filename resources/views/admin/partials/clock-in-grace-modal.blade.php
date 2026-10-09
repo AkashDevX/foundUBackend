@@ -8,6 +8,20 @@
         || $errors->has('outside_policy')
         || $errors->has('action')
         || $errors->has('admin_note');
+    $approvalSection = (string) request()->query('approval', old('approval_section', 'clock_in_exceptions'));
+    if (! in_array($approvalSection, ['clock_in_exceptions', 'early_clock_outs'], true)) {
+        $approvalSection = 'clock_in_exceptions';
+    }
+    $approvalCopy = [
+        'clock_in_exceptions' => [
+            'title' => 'Clock-in waiting for approval',
+            'subtitle' => 'Allow a clock-in that is outside the grace window, or dismiss it.',
+        ],
+        'early_clock_outs' => [
+            'title' => 'Early clock-out waiting for approval',
+            'subtitle' => 'They want to leave before the shift ends. Allow clock-out so they can go.',
+        ],
+    ];
 @endphp
 
 <div
@@ -23,9 +37,9 @@
             <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                     <p class="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Requires action</p>
-                    <h2 id="clock-in-grace-title" class="mt-1 text-lg font-bold text-brand-text">Clock-in needs approval</h2>
-                    <p class="mt-1 text-xs leading-relaxed text-brand-text-secondary">
-                        These employees tried to clock in too early or too late for their shift. Allow the clock-in so they can start, or dismiss the request.
+                    <h2 id="clock-in-grace-title" class="mt-1 text-lg font-bold text-brand-text">{{ $approvalCopy[$approvalSection]['title'] }}</h2>
+                    <p id="clock-in-grace-subtitle" class="mt-1 text-xs leading-relaxed text-brand-text-secondary">
+                        {{ $approvalCopy[$approvalSection]['subtitle'] }}
                     </p>
                 </div>
                 <button
@@ -40,13 +54,17 @@
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            @php
+                $earlyClockOuts = $clockInGrace['early_clock_outs'] ?? collect();
+            @endphp
+            <div data-approval-panel="clock_in_exceptions" class="{{ $approvalSection === 'clock_in_exceptions' ? '' : 'hidden' }}">
             @if (! $clockInGrace['ready'])
                 <p class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     Clock-in approval is not available for this organization yet. Apply the latest update, then refresh this page.
                 </p>
             @elseif ($clockInGrace['pending']->isEmpty())
                 <p class="rounded-xl border border-brand-border bg-brand-surface/60 px-4 py-6 text-center text-sm text-brand-text-secondary">
-                    No clock-ins need approval.
+                    No clock-ins are waiting for approval.
                 </p>
             @else
                 <ul class="space-y-3">
@@ -71,6 +89,7 @@
                             <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <form method="post" action="{{ route('admin.employees.time-clock.grace.clear', $row->id) }}" class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
                                     @csrf
+                                    <input type="hidden" name="approval_section" value="clock_in_exceptions">
                                     <input type="hidden" name="action" value="allow">
                                     <input
                                         type="text"
@@ -83,6 +102,7 @@
                                 </form>
                                 <form method="post" action="{{ route('admin.employees.time-clock.grace.clear', $row->id) }}">
                                     @csrf
+                                    <input type="hidden" name="approval_section" value="clock_in_exceptions">
                                     <input type="hidden" name="action" value="dismiss">
                                     <button type="submit" class="rounded-lg border border-brand-border px-3 py-2 text-xs font-semibold text-brand-text-secondary hover:bg-brand-surface">Dismiss</button>
                                 </form>
@@ -108,10 +128,11 @@
                 </button>
             <form method="post" action="{{ route('admin.employees.time-clock.grace.update') }}" id="clock-in-grace-settings" class="{{ $graceSettingsOpen ? '' : 'hidden' }} mt-3 space-y-3">
                 @csrf
-                <p class="text-xs leading-relaxed text-brand-text-secondary">
+                <input type="hidden" name="approval_section" value="clock_in_exceptions">
+                <!-- <p class="text-xs leading-relaxed text-brand-text-secondary">
                     Staff can clock in this many minutes before or after their shift starts.
                     For example, a {{ $graceExample['start'] }} shift can be clocked in from {{ $graceExample['earliest'] }} to {{ $graceExample['latest'] }}.
-                </p>
+                </p> -->
                 <div class="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)]">
                     <label class="block">
                         <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Minutes</span>
@@ -152,6 +173,55 @@
                 </button>
             </form>
             </div>
+            </div>
+
+            <div data-approval-panel="early_clock_outs" class="{{ $approvalSection === 'early_clock_outs' ? '' : 'hidden' }}">
+                @if ($earlyClockOuts->isEmpty())
+                    <p class="rounded-xl border border-brand-border bg-brand-surface/60 px-4 py-6 text-center text-sm text-brand-text-secondary">
+                        No early clock-outs are waiting for approval.
+                    </p>
+                @else
+                    <ul class="space-y-3">
+                        @foreach ($earlyClockOuts as $row)
+                            @php
+                                $employee = $row->employee;
+                                $name = $employee?->full_legal_name ?: ($employee?->email ?: 'Employee');
+                            @endphp
+                            <li class="rounded-xl border border-brand-border bg-white p-3 shadow-sm">
+                                <p class="font-semibold text-brand-text">{{ $name }}</p>
+                                <p class="mt-0.5 text-xs text-brand-text-secondary">
+                                    Shift ends {{ \App\Support\DisplayTimezone::formatDateTime($row->shift_ends_at) }}
+                                </p>
+                                <p class="mt-0.5 text-xs text-brand-text-secondary">
+                                    Tried to clock out {{ \App\Support\DisplayTimezone::formatDateTime($row->attempted_at) }}
+                                </p>
+                                <p class="mt-2 rounded-lg bg-brand-surface px-3 py-2 text-sm text-brand-text">{{ $row->employee_note }}</p>
+                                <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <form method="post" action="{{ route('admin.employees.time-clock.early-clock-out.clear', $row->id) }}" class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+                                        @csrf
+                                        <input type="hidden" name="approval_section" value="early_clock_outs">
+                                        <input type="hidden" name="action" value="allow">
+                                        <input
+                                            type="text"
+                                            name="admin_note"
+                                            maxlength="2000"
+                                            placeholder="Note (optional)"
+                                            class="w-full flex-1 rounded-lg border border-brand-border px-3 py-2 text-sm text-brand-text"
+                                        >
+                                        <button type="submit" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Allow clock-out</button>
+                                    </form>
+                                    <form method="post" action="{{ route('admin.employees.time-clock.early-clock-out.clear', $row->id) }}">
+                                        @csrf
+                                        <input type="hidden" name="approval_section" value="early_clock_outs">
+                                        <input type="hidden" name="action" value="dismiss">
+                                        <button type="submit" class="rounded-lg border border-brand-border px-3 py-2 text-xs font-semibold text-brand-text-secondary hover:bg-brand-surface">Dismiss</button>
+                                    </form>
+                                </div>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
         </div>
     </div>
 </div>
@@ -162,7 +232,23 @@
             const modal = document.getElementById('clock-in-grace-modal');
             if (!modal) return;
 
-            function openModal() {
+            const approvalCopy = @json($approvalCopy);
+            const titleEl = document.getElementById('clock-in-grace-title');
+            const subtitleEl = document.getElementById('clock-in-grace-subtitle');
+
+            function showSection(section) {
+                const key = Object.prototype.hasOwnProperty.call(approvalCopy, section)
+                    ? section
+                    : 'clock_in_exceptions';
+                modal.querySelectorAll('[data-approval-panel]').forEach((panel) => {
+                    panel.classList.toggle('hidden', panel.getAttribute('data-approval-panel') !== key);
+                });
+                if (titleEl) titleEl.textContent = approvalCopy[key].title;
+                if (subtitleEl) subtitleEl.textContent = approvalCopy[key].subtitle;
+            }
+
+            function openModal(section) {
+                showSection(section);
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
                 modal.setAttribute('aria-hidden', 'false');
@@ -177,7 +263,7 @@
             document.querySelectorAll('[data-open-clock-in-grace]').forEach((button) => {
                 button.addEventListener('click', (event) => {
                     event.preventDefault();
-                    openModal();
+                    openModal(button.getAttribute('data-open-clock-in-grace'));
                 });
             });
 
@@ -199,7 +285,7 @@
                 if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
             });
 
-            if (@json($openClockInGrace)) openModal();
+            if (@json($openClockInGrace)) openModal(@json($approvalSection));
         })();
     </script>
 @endpush

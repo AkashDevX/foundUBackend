@@ -223,6 +223,62 @@
     </div>
 </div>
 
+@php
+    $inductionCard = \App\Support\InductionEligibility::adminCard($e);
+@endphp
+@if ($inductionCard)
+    <section class="mb-10 overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
+        <div class="border-b border-brand-border px-6 py-4 sm:px-8">
+            <h3 class="text-lg font-bold text-brand-text">Induction</h3>
+        </div>
+        <div class="space-y-4 px-6 py-6 sm:px-8">
+            <p class="text-base font-semibold text-brand-text">{{ $inductionCard['label'] }}</p>
+            @if ($inductionCard['passed_at'])
+                <p class="text-sm text-brand-text-secondary">Passed {{ \App\Support\DisplayTimezone::formatDateTime($inductionCard['passed_at']) }}</p>
+            @endif
+            @if ($inductionCard['status'] === 'overridden')
+                <p class="text-sm text-brand-text-secondary">
+                    Override by {{ $line($inductionCard['overridden_by']) }}
+                    @if ($inductionCard['overridden_at'])
+                        on {{ \App\Support\DisplayTimezone::formatDateTime($inductionCard['overridden_at']) }}
+                    @endif
+                </p>
+                <p class="whitespace-pre-wrap text-sm text-brand-text">{{ $line($inductionCard['override_reason']) }}</p>
+            @endif
+            @if ($inductionCard['attempts'] !== [])
+                <ul class="space-y-1 text-sm text-brand-text-secondary">
+                    @foreach ($inductionCard['attempts'] as $attempt)
+                        <li>
+                            Attempt {{ $attempt['attempt_number'] }}:
+                            {{ $attempt['percent'] !== null ? rtrim(rtrim(number_format((float) $attempt['percent'], 1), '0'), '.').'%' : '—' }}
+                            ({{ $attempt['score'] }}/{{ $attempt['max_score'] }})
+                            — {{ $attempt['passed'] ? 'passed' : 'not passed' }}
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+            @if ($inductionCard['can_override'])
+                <form method="post" action="{{ route('admin.registrations.induction-override', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}" class="grid max-w-xl gap-3">
+                    @csrf
+                    <label class="block">
+                        <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-brand-label">Override reason</span>
+                        <textarea name="override_reason" rows="3" required maxlength="500" class="w-full rounded-xl border border-brand-border px-3 py-2.5 text-sm">{{ old('override_reason') }}</textarea>
+                    </label>
+                    @error('override_reason') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                    @error('induction') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                    <button type="submit" class="inline-flex w-fit items-center justify-center rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-700">Allow shifts before induction</button>
+                </form>
+            @endif
+            @if ($inductionCard['can_clear_override'])
+                <form method="post" action="{{ route('admin.registrations.induction-override.clear', ['companySlug' => $company->slug, 'publicId' => $e->public_id]) }}">
+                    @csrf
+                    <button type="submit" class="text-sm font-semibold text-brand-primary hover:underline">Remove override</button>
+                </form>
+            @endif
+        </div>
+    </section>
+@endif
+
 <section class="mb-10 overflow-hidden rounded-2xl border border-brand-border bg-white shadow-sm">
     <div class="border-b border-brand-border bg-gradient-to-r from-brand-surface to-white px-6 py-4 sm:px-8">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -255,6 +311,9 @@
                 <p class="mt-2 text-sm text-brand-text-secondary">
                     Schedule this employee on the
                     <a href="{{ route('admin.employees.weekly-schedule') }}" class="font-semibold text-brand-primary hover:underline">weekly calendar</a>.
+                    @if (($inductionCard['status'] ?? '') === 'required')
+                        Shifts stay blocked until induction is passed or an override is saved above.
+                    @endif
                 </p>
             </div>
             <div class="rounded-xl border border-brand-border bg-brand-surface/50 p-4 sm:col-span-2 lg:col-span-1">

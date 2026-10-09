@@ -12,8 +12,12 @@ use App\Models\TrainingPageSection;
 use App\Models\TrainingQuestion;
 use App\Models\TrainingQuestionOption;
 use App\Support\AdminTraining;
+use App\Support\InductionEligibility;
+use App\Support\TrainingSlideMedia;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -27,9 +31,17 @@ class AdminTrainingController extends Controller
     {
         $ctx = $this->tenantContext($request);
         $conn = $ctx['conn'];
+        $hasInduction = Schema::connection($conn)->hasColumn('training_modules', 'is_induction');
+
+        if ($hasInduction) {
+            /** @var OrganizationPortalUser $portalUser */
+            $portalUser = $request->user('portal');
+            InductionEligibility::ensureSingleton($conn, $portalUser->name ?: $portalUser->email);
+        }
 
         $modules = TrainingModule::on($conn)
             ->withCount(['pages', 'questions', 'assignments'])
+            ->when($hasInduction, fn ($query) => $query->orderByDesc('is_induction'))
             ->orderByDesc('updated_at')
             ->get()
             ->map(function (TrainingModule $module) use ($conn): array {
@@ -76,6 +88,7 @@ class AdminTrainingController extends Controller
             'description' => $data['description'] ?? null,
             'status' => $data['status'],
             'pass_percent' => $data['pass_percent'],
+            'max_attempts' => 1,
             'question_time_seconds' => $data['question_time_seconds'],
             'created_by' => $portalUser->name,
         ]);
@@ -85,12 +98,30 @@ class AdminTrainingController extends Controller
             ->with('status', 'Module created. Add study pages next.');
     }
 
+    public function induction(Request $request): RedirectResponse
+    {
+        $ctx = $this->tenantContext($request);
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $trainingModule = InductionEligibility::ensureSingleton($ctx['conn'], $portalUser->name ?: $portalUser->email);
+
+        return redirect()->route('admin.training.show', ['module' => $trainingModule->id] + $request->query());
+    }
+
     public function show(Request $request, int $module): View
     {
         $ctx = $this->tenantContext($request);
         $trainingModule = TrainingModule::on($ctx['conn'])
             ->with(['pages.sections', 'questions.options'])
             ->findOrFail($module);
+
+        return $this->renderModule($request, $trainingModule);
+    }
+
+    private function renderModule(Request $request, TrainingModule $trainingModule): View
+    {
+        $ctx = $this->tenantContext($request);
+        $trainingModule->loadMissing(['pages.sections', 'questions.options']);
 
         $step = $this->resolveStep($request);
 
@@ -135,7 +166,7 @@ class AdminTrainingController extends Controller
     {
         $ctx = $this->tenantContext($request);
         $trainingModule = TrainingModule::on($ctx['conn'])->findOrFail($module);
-        $data = $this->validatedModule($request);
+        $data = $this->validatedModule($request, $trainingModule);
 
         if ($data['status'] === 'published') {
             if ($trainingModule->pages()->count() < 1) {
@@ -155,22 +186,39 @@ class AdminTrainingController extends Controller
             'description' => $data['description'] ?? null,
             'status' => $data['status'],
             'pass_percent' => $data['pass_percent'],
+            'max_attempts' => $data['max_attempts'],
             'question_time_seconds' => $data['question_time_seconds'],
         ]);
         $trainingModule->save();
+        $assigned = $trainingModule->is_induction
+            ? InductionEligibility::assignRequiredEmployees($trainingModule, $request->user('portal')?->name)
+            : 0;
 
         $next = $request->input('next_step');
         $step = in_array($next, self::STEPS, true) ? $next : 'overview';
 
+        $status = 'Overview saved.';
+        if ($assigned > 0) {
+            $status .= sprintf(' Induction assigned to %d employee(s) waiting to pass.', $assigned);
+        }
+        if ($trainingModule->is_induction && $data['status'] === 'published' && $trainingModule->questions()->count() !== InductionEligibility::RECOMMENDED_QUESTIONS) {
+            $status .= sprintf(' Induction quizzes are usually %d questions.', InductionEligibility::RECOMMENDED_QUESTIONS);
+        }
+
         return redirect()
             ->route('admin.training.show', ['module' => $trainingModule->id, 'step' => $step])
-            ->with('status', 'Overview saved.');
+            ->with('status', $status);
     }
 
     public function destroy(Request $request, int $module): RedirectResponse
     {
         $ctx = $this->tenantContext($request);
         $trainingModule = TrainingModule::on($ctx['conn'])->findOrFail($module);
+        if ($trainingModule->is_induction) {
+            return redirect()
+                ->route('admin.training.show', ['module' => $trainingModule->id, 'step' => 'overview'])
+                ->with('error', 'The induction module cannot be deleted. Set it back to draft if it should not be assigned yet.');
+        }
         $trainingModule->delete();
 
         return redirect()
@@ -192,8 +240,10 @@ class AdminTrainingController extends Controller
             'training_module_id' => $trainingModule->id,
             'title' => $data['title'],
             'body' => $data['body'],
+            'bullets' => $data['bullets'] !== [] ? $data['bullets'] : null,
             'sort_order' => is_numeric($maxOrder) ? ((int) $maxOrder) + 1 : 0,
         ]);
+        $this->syncSlideImage($page, $request->file('image'), false);
 
         return redirect()
             ->route('admin.training.show', [
@@ -201,7 +251,7 @@ class AdminTrainingController extends Controller
                 'step' => 'study',
                 'edit_page' => $page->id,
             ])
-            ->with('status', 'Study page added. Optionally add toggleable subtopics below.');
+            ->with('status', 'Slide added. Add a picture, bullets, or toggle bars if this slide needs them.');
     }
 
     public function updatePage(Request $request, int $module, int $page): RedirectResponse
@@ -216,8 +266,10 @@ class AdminTrainingController extends Controller
         $row->fill([
             'title' => $data['title'],
             'body' => $data['body'],
+            'bullets' => $data['bullets'] !== [] ? $data['bullets'] : null,
         ]);
         $row->save();
+        $this->syncSlideImage($row, $request->file('image'), $request->boolean('remove_image'));
 
         return redirect()
             ->route('admin.training.show', [
@@ -225,7 +277,7 @@ class AdminTrainingController extends Controller
                 'step' => 'study',
                 'edit_page' => $row->id,
             ])
-            ->with('status', 'Study page updated.');
+            ->with('status', 'Slide updated.');
     }
 
     public function destroyPage(Request $request, int $module, int $page): RedirectResponse
@@ -234,7 +286,12 @@ class AdminTrainingController extends Controller
         $trainingModule = TrainingModule::on($ctx['conn'])->findOrFail($module);
         $row = TrainingPage::on($ctx['conn'])
             ->where('training_module_id', $trainingModule->id)
+            ->with('sections')
             ->findOrFail($page);
+        TrainingSlideMedia::delete($row->image_path);
+        foreach ($row->sections as $section) {
+            TrainingSlideMedia::delete($section->image_path);
+        }
         $row->delete();
 
         return redirect()
@@ -299,12 +356,13 @@ class AdminTrainingController extends Controller
             ->where('training_page_id', $pageRow->id)
             ->max('sort_order');
 
-        TrainingPageSection::on($ctx['conn'])->create([
+        $section = TrainingPageSection::on($ctx['conn'])->create([
             'training_page_id' => $pageRow->id,
             'title' => $data['title'],
             'body' => $data['body'],
             'sort_order' => is_numeric($maxOrder) ? ((int) $maxOrder) + 1 : 0,
         ]);
+        $this->syncSlideImage($section, $request->file('section_image'), false);
 
         return redirect()
             ->route('admin.training.show', [
@@ -312,7 +370,7 @@ class AdminTrainingController extends Controller
                 'step' => 'study',
                 'edit_page' => $pageRow->id,
             ])
-            ->with('status', 'Subtopic added.');
+            ->with('status', 'Toggle added.');
     }
 
     public function updateSection(Request $request, int $module, int $page, int $section): RedirectResponse
@@ -332,6 +390,7 @@ class AdminTrainingController extends Controller
             'body' => $data['body'],
         ]);
         $row->save();
+        $this->syncSlideImage($row, $request->file('section_image'), $request->boolean('remove_section_image'));
 
         return redirect()
             ->route('admin.training.show', [
@@ -339,7 +398,7 @@ class AdminTrainingController extends Controller
                 'step' => 'study',
                 'edit_page' => $pageRow->id,
             ])
-            ->with('status', 'Subtopic updated.');
+            ->with('status', 'Toggle updated.');
     }
 
     public function destroySection(Request $request, int $module, int $page, int $section): RedirectResponse
@@ -352,6 +411,7 @@ class AdminTrainingController extends Controller
         $row = TrainingPageSection::on($ctx['conn'])
             ->where('training_page_id', $pageRow->id)
             ->findOrFail($section);
+        TrainingSlideMedia::delete($row->image_path);
         $row->delete();
 
         return redirect()
@@ -532,12 +592,17 @@ class AdminTrainingController extends Controller
             $created++;
         }
 
+        $autoAssigned = InductionEligibility::assignRequiredEmployees($trainingModule, $portalUser->name);
+
         $skipped = count($existing);
         $message = $created > 0
             ? "Assigned to {$created} employee(s)."
             : 'No new assignments (selected employees already have this module).';
         if ($skipped > 0 && $created > 0) {
             $message .= " {$skipped} already assigned were skipped.";
+        }
+        if ($autoAssigned > 0) {
+            $message .= " Induction also assigned to {$autoAssigned} employee(s) waiting to pass.";
         }
 
         return redirect()
@@ -557,11 +622,16 @@ class AdminTrainingController extends Controller
                 ->get()
         );
 
+        $rows = AdminTraining::moduleResultRows($trainingModule);
+        if ($trainingModule->is_induction) {
+            $rows = InductionEligibility::decorateResultRows($ctx['conn'], $rows);
+        }
+
         return view('admin.training.results', [
             'company' => $ctx['company'],
             'module' => $trainingModule,
             'summary' => AdminTraining::moduleResultsSummary($trainingModule),
-            'rows' => AdminTraining::moduleResultRows($trainingModule),
+            'rows' => $rows,
         ]);
     }
 
@@ -574,6 +644,7 @@ class AdminTrainingController extends Controller
             ->findOrFail($assignment);
 
         AdminTraining::resetAttempt($row);
+        InductionEligibility::onAdminReset($row);
 
         return redirect()
             ->route('admin.training.results', $trainingModule->id)
@@ -617,15 +688,17 @@ class AdminTrainingController extends Controller
     }
 
     /**
-     * @return array{title: string, description: ?string, status: string, pass_percent: int, question_time_seconds: int}
+     * @return array{title: string, description: ?string, status: string, pass_percent: int, max_attempts: int, question_time_seconds: int}
      */
-    private function validatedModule(Request $request): array
+    private function validatedModule(Request $request, ?TrainingModule $existing = null): array
     {
+        $isInduction = (bool) ($existing?->is_induction ?? false);
         $data = $request->validate([
             'title' => ['required', 'string', 'max:200'],
             'description' => ['nullable', 'string', 'max:5000'],
             'status' => ['required', Rule::in(['draft', 'published'])],
             'pass_percent' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'max_attempts' => ['nullable', 'integer', 'min:1', 'max:10'],
             'question_time_seconds' => ['nullable', 'integer', 'min:10', 'max:600'],
         ]);
 
@@ -636,7 +709,12 @@ class AdminTrainingController extends Controller
         }
         $data['pass_percent'] = array_key_exists('pass_percent', $data) && $data['pass_percent'] !== null
             ? (int) $data['pass_percent']
-            : 70;
+            : ($isInduction ? InductionEligibility::DEFAULT_PASS_PERCENT : 70);
+        $data['max_attempts'] = $isInduction
+            ? (array_key_exists('max_attempts', $data) && $data['max_attempts'] !== null
+                ? (int) $data['max_attempts']
+                : (int) ($existing?->max_attempts ?: InductionEligibility::DEFAULT_MAX_ATTEMPTS))
+            : 1;
         $data['question_time_seconds'] = array_key_exists('question_time_seconds', $data) && $data['question_time_seconds'] !== null
             ? (int) $data['question_time_seconds']
             : 45;
@@ -644,19 +722,46 @@ class AdminTrainingController extends Controller
         return $data;
     }
 
+    public function pageImage(Request $request, int $module, int $page): StreamedResponse
+    {
+        $ctx = $this->tenantContext($request);
+        $row = TrainingPage::on($ctx['conn'])
+            ->where('training_module_id', $module)
+            ->findOrFail($page);
+
+        return TrainingSlideMedia::response($row->image_path);
+    }
+
+    public function sectionImage(Request $request, int $module, int $page, int $section): StreamedResponse
+    {
+        $ctx = $this->tenantContext($request);
+        $pageRow = TrainingPage::on($ctx['conn'])
+            ->where('training_module_id', $module)
+            ->findOrFail($page);
+        $row = TrainingPageSection::on($ctx['conn'])
+            ->where('training_page_id', $pageRow->id)
+            ->findOrFail($section);
+
+        return TrainingSlideMedia::response($row->image_path);
+    }
+
     /**
-     * @return array{title: string, body: string}
+     * @return array{title: string, body: string, bullets: list<string>}
      */
     private function validatedPage(Request $request): array
     {
         $data = $request->validate([
             'title' => ['required', 'string', 'max:200'],
             'body' => ['nullable', 'string', 'max:20000'],
+            'bullets' => ['nullable', 'string', 'max:4000'],
+            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp,gif', 'max:4096'],
+            'remove_image' => ['nullable', 'boolean'],
         ]);
 
         return [
             'title' => trim($data['title']),
             'body' => trim((string) ($data['body'] ?? '')),
+            'bullets' => TrainingSlideMedia::bulletsFromText($data['bullets'] ?? null),
         ];
     }
 
@@ -668,12 +773,37 @@ class AdminTrainingController extends Controller
         $data = $request->validate([
             'section_title' => ['required', 'string', 'max:200'],
             'section_body' => ['required', 'string', 'max:20000'],
+            'section_image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,webp,gif', 'max:4096'],
+            'remove_section_image' => ['nullable', 'boolean'],
         ]);
 
         return [
             'title' => trim($data['section_title']),
             'body' => trim($data['section_body']),
         ];
+    }
+
+    private function syncSlideImage(TrainingPage|TrainingPageSection $row, mixed $file, bool $remove): void
+    {
+        if ($remove && ! $file instanceof \Illuminate\Http\UploadedFile) {
+            TrainingSlideMedia::delete($row->image_path);
+            $row->image_path = null;
+            $row->save();
+
+            return;
+        }
+
+        if (! $file instanceof \Illuminate\Http\UploadedFile) {
+            return;
+        }
+
+        $folder = $row instanceof TrainingPage
+            ? 'pages/'.$row->id
+            : 'sections/'.$row->id;
+        $stored = TrainingSlideMedia::store($file, $folder);
+        TrainingSlideMedia::delete($row->image_path);
+        $row->image_path = $stored;
+        $row->save();
     }
 
     /**

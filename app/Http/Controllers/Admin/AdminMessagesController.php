@@ -139,6 +139,31 @@ class AdminMessagesController extends Controller
             ->with('success', 'Group created.');
     }
 
+    public function storeAnnouncement(Request $request): RedirectResponse
+    {
+        $ctx = $this->pageContext($request);
+        $this->useTenant($ctx['connection']);
+
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:120'],
+            'body' => ['required', 'string', 'max:5000'],
+            'member_ids' => ['required', 'array', 'min:1'],
+            'member_ids.*' => ['integer', 'min:1'],
+        ]);
+
+        $conversation = $this->messaging->createAnnouncementForAdmin(
+            $data['title'],
+            $data['body'],
+            $data['member_ids'],
+            $ctx['company']->slug,
+        );
+
+        $count = count(array_unique(array_map('intval', $data['member_ids'])));
+
+        return redirect()->route('admin.messages.index', ['c' => $conversation->id])
+            ->with('success', 'Announcement sent to '.$count.' '.($count === 1 ? 'employee' : 'employees').'.');
+    }
+
     public function send(Request $request, int $conversation): RedirectResponse|JsonResponse
     {
         $ctx = $this->pageContext($request);

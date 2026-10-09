@@ -24,11 +24,13 @@
     @if (session('status'))
         <div class="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ session('status') }}</div>
     @endif
+    @if (session('error'))
+        <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
+    @endif
 
     @if ($modules->isEmpty())
         <section class="rounded-2xl border border-dashed border-brand-border bg-white px-6 py-20 text-center shadow-sm">
             <p class="text-lg font-bold text-brand-text">No training modules yet</p>
-            <p class="mx-auto mt-2 max-w-md text-sm text-brand-text/60">Create something like “Bathroom cleaning standards” or “Chemical safety”, write the study pages, then add a quiz.</p>
             <a href="{{ route('admin.training.create') }}" class="mt-8 inline-flex rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white">Create first module</a>
         </section>
     @else
@@ -44,16 +46,23 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-2">
                                 <h2 class="text-lg font-bold text-brand-text">{{ $module->title }}</h2>
+                                @if ($module->is_induction)
+                                    <span class="rounded-full bg-brand-primary/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand-primary">Induction</span>
+                                @endif
                                 <span class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide {{ $isPublished ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
                                     {{ $isPublished ? 'Published' : 'Draft' }}
                                 </span>
                             </div>
-                            @if ($module->description)
+                            @if ($module->description && ! $module->is_induction)
                                 <p class="mt-1 line-clamp-1 text-sm text-brand-text/60">{{ $module->description }}</p>
                             @endif
                             <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-text/50">
                                 <span>{{ $module->pages_count }} page{{ $module->pages_count === 1 ? '' : 's' }}</span>
                                 <span>{{ $module->questions_count }} question{{ $module->questions_count === 1 ? '' : 's' }}</span>
+                                @if ($module->is_induction)
+                                    <span>Pass {{ $module->pass_percent }}%</span>
+                                    <span>{{ $module->max_attempts }} attempts</span>
+                                @endif
                                 <span>{{ $summary['assigned'] }} assigned</span>
                                 <span>{{ $summary['completed'] }} completed</span>
                                 @if ($summary['average_percent'] !== null)

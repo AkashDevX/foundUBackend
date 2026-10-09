@@ -41,6 +41,7 @@ class AdminDashboardController extends Controller
                 'ready' => false,
             ],
             'pending' => collect(),
+            'early_clock_outs' => collect(),
         ];
 
         try {

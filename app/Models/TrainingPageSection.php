@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'training_page_id',
     'title',
     'body',
+    'image_path',
     'sort_order',
 ])]
 class TrainingPageSection extends Model

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminBreakWindowController;
 use App\Http\Controllers\Admin\AdminClockInGraceController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
@@ -98,6 +99,7 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'update'])->name('admin.employees.tasks.update');
     Route::delete('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'destroy'])->name('admin.employees.tasks.destroy');
 
+    Route::get('/admin/induction', [AdminTrainingController::class, 'induction'])->name('admin.induction');
     Route::get('/admin/training', [AdminTrainingController::class, 'index'])->name('admin.training.index');
     Route::get('/admin/training/create', [AdminTrainingController::class, 'create'])->name('admin.training.create');
     Route::post('/admin/training', [AdminTrainingController::class, 'store'])->name('admin.training.store');
@@ -105,6 +107,8 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::post('/admin/training/{module}', [AdminTrainingController::class, 'update'])->name('admin.training.update')->whereNumber('module');
     Route::post('/admin/training/{module}/delete', [AdminTrainingController::class, 'destroy'])->name('admin.training.destroy')->whereNumber('module');
     Route::post('/admin/training/{module}/pages', [AdminTrainingController::class, 'storePage'])->name('admin.training.pages.store')->whereNumber('module');
+    Route::get('/admin/training/{module}/pages/{page}/image', [AdminTrainingController::class, 'pageImage'])->name('admin.training.pages.image')->whereNumber(['module', 'page']);
+    Route::get('/admin/training/{module}/pages/{page}/sections/{section}/image', [AdminTrainingController::class, 'sectionImage'])->name('admin.training.sections.image')->whereNumber(['module', 'page', 'section']);
     Route::post('/admin/training/{module}/pages/{page}', [AdminTrainingController::class, 'updatePage'])->name('admin.training.pages.update')->whereNumber(['module', 'page']);
     Route::post('/admin/training/{module}/pages/{page}/delete', [AdminTrainingController::class, 'destroyPage'])->name('admin.training.pages.destroy')->whereNumber(['module', 'page']);
     Route::post('/admin/training/{module}/pages/{page}/move', [AdminTrainingController::class, 'movePage'])->name('admin.training.pages.move')->whereNumber(['module', 'page']);
@@ -126,6 +130,8 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'index'])->name('admin.employees.time-clock.grace');
     Route::post('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'update'])->name('admin.employees.time-clock.grace.update');
     Route::post('/admin/employees/time-clock/grace/{exception}', [AdminClockInGraceController::class, 'clear'])->whereNumber('exception')->name('admin.employees.time-clock.grace.clear');
+    Route::post('/admin/employees/time-clock/early-clock-out/{earlyClockOut}', [AdminClockInGraceController::class, 'clearEarlyClockOut'])->whereNumber('earlyClockOut')->name('admin.employees.time-clock.early-clock-out.clear');
+    Route::post('/admin/employees/time-clock/break-window', [AdminBreakWindowController::class, 'update'])->name('admin.employees.time-clock.break-window.update');
     Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
     Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
     Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
@@ -144,6 +150,7 @@ Route::middleware('auth:portal')->group(function (): void {
     Route::get('/admin/messages', [AdminMessagesController::class, 'index'])->name('admin.messages.index');
     Route::post('/admin/messages/direct', [AdminMessagesController::class, 'storeDirect'])->name('admin.messages.direct.store');
     Route::post('/admin/messages/groups', [AdminMessagesController::class, 'storeGroup'])->name('admin.messages.groups.store');
+    Route::post('/admin/messages/announcements', [AdminMessagesController::class, 'storeAnnouncement'])->name('admin.messages.announcements.store');
     Route::post('/admin/messages/reports/{report}/resolve', [AdminMessagesController::class, 'resolveReport'])
         ->whereNumber('report')
         ->name('admin.messages.reports.resolve');
@@ -174,6 +181,10 @@ Route::middleware('auth:portal')->group(function (): void {
         ->name('admin.registrations.mark-inactive');
     Route::post('/admin/registrations/{companySlug}/{publicId}/reactivate', [AdminRegistrationDecisionController::class, 'reactivate'])
         ->name('admin.registrations.reactivate');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override', [AdminRegistrationDecisionController::class, 'overrideInduction'])
+        ->name('admin.registrations.induction-override');
+    Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override/clear', [AdminRegistrationDecisionController::class, 'clearInductionOverride'])
+        ->name('admin.registrations.induction-override.clear');
     Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
         ->name('admin.registration.file')
         ->where('slot', '[a-z\\-]+');
@@ -274,6 +285,10 @@ Route::middleware('auth:portal')->group(function (): void {
             ->name('admin.registrations.mark-inactive');
         Route::post('/admin/registrations/{companySlug}/{publicId}/reactivate', [AdminRegistrationDecisionController::class, 'reactivate'])
             ->name('admin.registrations.reactivate');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override', [AdminRegistrationDecisionController::class, 'overrideInduction'])
+            ->name('admin.registrations.induction-override');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override/clear', [AdminRegistrationDecisionController::class, 'clearInductionOverride'])
+            ->name('admin.registrations.induction-override.clear');
         Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
             ->name('admin.registration.file')
             ->where('slot', '[a-z\\-]+');

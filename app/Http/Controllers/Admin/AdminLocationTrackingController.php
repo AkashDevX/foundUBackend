@@ -126,9 +126,11 @@ class AdminLocationTrackingController extends Controller
                 'recorded_at' => null,
                 'site_latitude' => $clockInEntry->expected_latitude !== null ? (float) $clockInEntry->expected_latitude : null,
                 'site_longitude' => $clockInEntry->expected_longitude !== null ? (float) $clockInEntry->expected_longitude : null,
-                'allowed_radius_meters' => $clockInEntry->allowed_radius_meters !== null
-                    ? (int) $clockInEntry->allowed_radius_meters
-                    : $timeClock->geofenceRadiusMeters(),
+                'allowed_radius_meters' => $scheduleLocation instanceof WorkLocation
+                    ? $scheduleLocation->resolvedGeofenceRadiusMeters()
+                    : ($clockInEntry->allowed_radius_meters !== null
+                        ? (int) $clockInEntry->allowed_radius_meters
+                        : $timeClock->geofenceRadiusMeters()),
                 'within_geofence' => null,
                 'distance_from_site_meters' => null,
             ];
@@ -253,6 +255,9 @@ class AdminLocationTrackingController extends Controller
         $trail = $tracking->trailForSession((int) $employee->id, (int) $clockIn->id);
         $idleAlerts = $tracking->idleAlertsForSession((int) $employee->id, (int) $clockIn->id);
 
+        $clockIn->loadMissing('workLocation');
+        $siteLocation = $clockIn->workLocation;
+
         return response()->json([
             'employee' => [
                 'public_id' => $employee->public_id,
@@ -262,9 +267,11 @@ class AdminLocationTrackingController extends Controller
             'clocked_in_at' => $clockIn->clocked_at?->toIso8601String(),
             'site_latitude' => $clockIn->expected_latitude !== null ? (float) $clockIn->expected_latitude : null,
             'site_longitude' => $clockIn->expected_longitude !== null ? (float) $clockIn->expected_longitude : null,
-            'allowed_radius_meters' => $clockIn->allowed_radius_meters !== null
-                ? (int) $clockIn->allowed_radius_meters
-                : (int) config('time_clock.geofence_radius_meters', 300),
+            'allowed_radius_meters' => $siteLocation instanceof WorkLocation
+                ? $siteLocation->resolvedGeofenceRadiusMeters()
+                : ($clockIn->allowed_radius_meters !== null
+                    ? (int) $clockIn->allowed_radius_meters
+                    : (int) config('time_clock.geofence_radius_meters', WorkLocation::GEOFENCE_RADIUS_DEFAULT)),
             'trail' => $trail,
             'idle_alerts' => $idleAlerts,
             'movement_stats' => $tracking->movementStatsForTrail($trail, $idleAlerts),
@@ -326,7 +333,7 @@ class AdminLocationTrackingController extends Controller
             'address' => $location->address,
             'latitude' => $siteLat,
             'longitude' => $siteLng,
-            'allowed_radius_meters' => (int) config('time_clock.geofence_radius_meters', 300),
+            'allowed_radius_meters' => $location->resolvedGeofenceRadiusMeters(),
             'staff_count' => count($siteEmployees),
             'idle_count' => count(array_filter($siteEmployees, static fn (array $e): bool => ! empty($e['has_idle_alert']))),
         ];
