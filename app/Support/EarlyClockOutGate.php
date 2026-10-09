@@ -32,6 +32,67 @@ final class EarlyClockOutGate
         return $end;
     }
 
+    /**
+     * What the mobile clock-out screen should show for the open shift.
+     *
+     * @return array{needs_approval: bool, approved: bool, shift_end_label: string|null}
+     */
+    public static function mobileStatus(Employee $employee, ?CarbonInterface $now = null): array
+    {
+        $empty = [
+            'needs_approval' => false,
+            'approved' => false,
+            'shift_end_label' => null,
+        ];
+
+        $now = ($now ?? DisplayTimezone::now())->copy();
+        $shift = self::scheduledShift($employee, $now);
+        if (! $shift instanceof EmployeeScheduleShift) {
+            return $empty;
+        }
+
+        return self::mobileStatusForShift($employee, $shift, $now);
+    }
+
+    /**
+     * @return array{needs_approval: bool, approved: bool, shift_end_label: string|null}
+     */
+    public static function mobileStatusForShift(
+        Employee $employee,
+        EmployeeScheduleShift $shift,
+        ?CarbonInterface $now = null,
+    ): array {
+        $now = ($now ?? DisplayTimezone::now())->copy();
+        $end = self::shiftEnd($shift, $now);
+        $label = $end->format('g:i A');
+        $moment = $now->copy()->timezone($end->timezone)->seconds(0);
+        if ($moment->greaterThanOrEqualTo($end->copy()->seconds(0))) {
+            return [
+                'needs_approval' => false,
+                'approved' => false,
+                'shift_end_label' => $label,
+            ];
+        }
+
+        $connection = self::connectionName($employee);
+        if (! Schema::connection($connection)->hasTable('early_clock_outs')) {
+            return [
+                'needs_approval' => false,
+                'approved' => false,
+                'shift_end_label' => $label,
+            ];
+        }
+
+        $scheduleShiftId = $shift->id ? (int) $shift->id : null;
+        $approved = self::clearanceStatus($employee, $scheduleShiftId, $end) === ClockInGrace::CLEARANCE_CLEARED;
+
+        return [
+            'needs_approval' => ! $approved,
+            'approved' => $approved,
+            'shift_end_label' => $label,
+        ];
+    }
+
     public static function assertAllowsClockOut(Employee $employee, ?string $note, ?CarbonInterface $now = null): void
     {
         $now = ($now ?? DisplayTimezone::now())->copy();

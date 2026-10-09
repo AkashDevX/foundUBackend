@@ -75,6 +75,15 @@ class EarlyClockOutTest extends TestCase
         $row->save();
 
         EarlyClockOutGate::assertForShift($employee, $shift, null, $this->at('16:30'));
+
+        $this->assertSame(
+            [
+                'needs_approval' => false,
+                'approved' => true,
+                'shift_end_label' => '5:00 PM',
+            ],
+            EarlyClockOutGate::mobileStatusForShift($employee, $shift, $this->at('16:30')),
+        );
     }
 
     private function employee(): Employee

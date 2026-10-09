@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\OrganizationPortalUser;
+use App\Services\EmployeeApplicationMailer;
 use App\Support\DisplayTimezone;
 use App\Support\InductionEligibility;
 use Illuminate\Http\RedirectResponse;
@@ -14,9 +16,13 @@ use Illuminate\Support\Facades\Schema;
 
 class AdminRegistrationDecisionController extends Controller
 {
+    public function __construct(
+        private readonly EmployeeApplicationMailer $applicationMailer,
+    ) {}
+
     public function accept(Request $request, string $companySlug, string $publicId): RedirectResponse
     {
-        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+        ['employee' => $employee, 'company' => $company] = $this->portalContext($request, $companySlug, $publicId);
 
         if ($employee->employment_status !== 'pending') {
             return back()->with('error', 'This application is not awaiting approval.');
@@ -30,6 +36,8 @@ class AdminRegistrationDecisionController extends Controller
             'hired_at' => DisplayTimezone::now()->toDateString(),
         ])->save();
 
+        $this->applicationMailer->sendApproved($employee, $company);
+
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $message = InductionEligibility::requireForNewHire($employee, $portalUser->name ?: $portalUser->email);
@@ -39,7 +47,7 @@ class AdminRegistrationDecisionController extends Controller
 
     public function decline(Request $request, string $companySlug, string $publicId): RedirectResponse
     {
-        $employee = $this->employeeForPortalSession($request, $companySlug, $publicId);
+        ['employee' => $employee, 'company' => $company] = $this->portalContext($request, $companySlug, $publicId);
 
         if ($employee->employment_status !== 'pending') {
             return back()->with('error', 'This application is not awaiting approval.');
@@ -50,6 +58,8 @@ class AdminRegistrationDecisionController extends Controller
         ])->save();
 
         $this->revokeEmployeeTokens($employee);
+
+        $this->applicationMailer->sendDeclined($employee, $company);
 
         return back()->with('success', 'Registration declined. This person will not be able to sign in to the mobile app.');
     }
@@ -116,6 +126,14 @@ class AdminRegistrationDecisionController extends Controller
 
     private function employeeForPortalSession(Request $request, string $companySlug, string $publicId): Employee
     {
+        return $this->portalContext($request, $companySlug, $publicId)['employee'];
+    }
+
+    /**
+     * @return array{employee: Employee, company: Company}
+     */
+    private function portalContext(Request $request, string $companySlug, string $publicId): array
+    {
         /** @var OrganizationPortalUser $portalUser */
         $portalUser = $request->user('portal');
         $sessionCompany = $portalUser->company()->firstOrFail();
@@ -127,7 +145,10 @@ class AdminRegistrationDecisionController extends Controller
             ->where('public_id', $publicId)
             ->firstOrFail();
 
-        return $employee;
+        return [
+            'employee' => $employee,
+            'company' => $sessionCompany,
+        ];
     }
 
     private function revokeEmployeeTokens(Employee $employee): void

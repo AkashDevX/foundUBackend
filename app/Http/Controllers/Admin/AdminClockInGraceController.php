@@ -19,7 +19,7 @@ class AdminClockInGraceController extends Controller
 {
     public function index(): RedirectResponse
     {
-        return redirect()->route('admin.dashboard', ['open_clock_in' => 1]);
+        return redirect()->route('admin.dashboard');
     }
 
     /**
@@ -146,7 +146,7 @@ class AdminClockInGraceController extends Controller
 
         $row = EarlyClockOut::on($ctx['connection'])->where('status', EarlyClockOut::STATUS_PENDING)->find($earlyClockOut);
         if (! $row instanceof EarlyClockOut) {
-            return $this->dashboardRedirect('early_clock_outs')
+            return $this->dashboardRedirect()
                 ->with('error', 'That request is no longer waiting for approval.');
         }
 
@@ -166,15 +166,12 @@ class AdminClockInGraceController extends Controller
             ? 'Clock-out allowed. They can leave now.'
             : 'Request dismissed. They stay clocked in until the shift ends.';
 
-        return $this->dashboardRedirect('early_clock_outs')->with('success', $message);
+        return $this->dashboardRedirect()->with('success', $message);
     }
 
-    private function dashboardRedirect(string $section = 'clock_in_exceptions'): RedirectResponse
+    private function dashboardRedirect(): RedirectResponse
     {
-        return redirect()->route('admin.dashboard', [
-            'open_clock_in' => 1,
-            'approval' => $section,
-        ]);
+        return redirect()->route('admin.dashboard');
     }
 
     private function tablesReady(string $connection): bool

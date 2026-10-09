@@ -3,8 +3,7 @@
     $graceMinutes = old('grace_minutes', $clockInGrace['settings']['grace_minutes']);
     $gracePolicy = old('outside_policy', $clockInGrace['settings']['outside_policy']);
     $graceExample = \App\Support\ClockInGrace::exampleLabels((int) $graceMinutes);
-    $openClockInGrace = request()->query('open_clock_in') === '1'
-        || $errors->has('grace_minutes')
+    $openClockInGrace = $errors->has('grace_minutes')
         || $errors->has('outside_policy')
         || $errors->has('action')
         || $errors->has('admin_note');
@@ -284,6 +283,14 @@
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
             });
+
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('open_clock_in') || url.searchParams.has('approval')) {
+                url.searchParams.delete('open_clock_in');
+                url.searchParams.delete('approval');
+                const query = url.searchParams.toString();
+                window.history.replaceState(window.history.state, '', url.pathname + (query ? '?' + query : '') + url.hash);
+            }
 
             if (@json($openClockInGrace)) openModal(@json($approvalSection));
         })();

@@ -15,6 +15,10 @@ use Throwable;
  */
 class EmployeeRegistrationService
 {
+    public function __construct(
+        private readonly EmployeeApplicationMailer $applicationMailer,
+    ) {}
+
     public const STATUS_CREATED = 'created';
 
     public const STATUS_ALREADY_APPLIED = 'already_applied';
@@ -271,11 +275,12 @@ class EmployeeRegistrationService
         $tenantPayload['email'] = $email;
 
         $previous = DB::getDefaultConnection();
+        $result = null;
 
         try {
             DB::setDefaultConnection($connection);
 
-            return DB::connection($connection)->transaction(function () use (
+            $result = DB::connection($connection)->transaction(function () use (
                 $company,
                 $request,
                 $tenantPayload,
@@ -348,7 +353,7 @@ class EmployeeRegistrationService
         } catch (Throwable $e) {
             report($e);
 
-            return [
+            $result = [
                 'slug' => $company->slug,
                 'name' => $company->name,
                 'status' => self::STATUS_FAILED,
@@ -357,5 +362,11 @@ class EmployeeRegistrationService
         } finally {
             DB::setDefaultConnection($previous);
         }
+
+        if (($result['status'] ?? null) === self::STATUS_CREATED && ($result['employee'] ?? null) instanceof Employee) {
+            $this->applicationMailer->sendReceived($result['employee'], $company);
+        }
+
+        return $result;
     }
 }

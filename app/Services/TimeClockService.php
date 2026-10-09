@@ -142,6 +142,13 @@ class TimeClockService
             'induction_required' => $inductionIssue !== null,
             'induction_message' => $induction['message'] ?? null,
             'clock_in_window' => $grace['window'],
+            'early_clock_out' => $isClockedIn
+                ? EarlyClockOutGate::mobileStatus($employee)
+                : [
+                    'needs_approval' => false,
+                    'approved' => false,
+                    'shift_end_label' => null,
+                ],
             'break_window' => $breakWindow,
             'scheduled_shift' => $inductionIssue !== null
                 ? null
