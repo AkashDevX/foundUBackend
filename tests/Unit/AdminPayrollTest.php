@@ -46,6 +46,52 @@ class AdminPayrollTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_fortnight_list_pages_older_periods_newest_first(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-08 12:00:00', self::TZ));
+        config(['app.display_timezone' => self::TZ]);
+
+        $current = AdminPayroll::currentFortnightStart();
+        $this->assertSame(8, AdminPayroll::fortnightWindowCount($current, 1));
+        $this->assertSame(16, AdminPayroll::fortnightWindowCount($current, 9));
+
+        $older = Carbon::parse($current, self::TZ)->subWeeks(20)->toDateString();
+        $this->assertSame(16, AdminPayroll::fortnightWindowCount($older, 8));
+        $this->assertSame(208, AdminPayroll::fortnightWindowCount($current, 500));
+
+        $rows = AdminPayroll::recentFortnights(16);
+        $this->assertCount(16, $rows);
+        $this->assertSame($current, $rows[0]['start']);
+        $this->assertTrue($rows[0]['start'] > $rows[15]['start']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_pay_line_labels_hide_internal_rate_keys_and_stay_sorted(): void
+    {
+        $this->assertSame('Hourly wage', AdminPayroll::payLineLabel([
+            'rate_type' => 'job_title_12',
+            'label' => 'job_title_12',
+        ]));
+        $this->assertSame('Cook', AdminPayroll::payLineLabel([
+            'rate_type' => 'job_title_9',
+            'label' => 'Cook',
+        ]));
+        $this->assertSame('Saturday', AdminPayroll::payLineLabel([
+            'rate_type' => 'saturday',
+            'label' => 'saturday',
+        ]));
+
+        $lines = AdminPayroll::payableLines([
+            ['rate_type' => 'allowance', 'label' => 'Travel', 'hours' => 0, 'rate' => 10, 'amount' => 10],
+            ['rate_type' => 'weekday_ordinary', 'label' => 'weekday_ordinary', 'hours' => 8, 'rate' => 25, 'amount' => 200],
+            ['rate_type' => 'sunday', 'label' => 'Sunday', 'hours' => 4, 'rate' => 40, 'amount' => 160],
+        ]);
+
+        $this->assertSame(['weekday_ordinary', 'sunday', 'allowance'], array_column($lines, 'rate_type'));
+        $this->assertSame('Mon–Fri ordinary (6am–6pm)', AdminPayroll::payLineLabel($lines[0]));
+    }
+
     public function test_job_title_wage_is_enough_without_employment_type(): void
     {
         $title = new JobTitle(['name' => 'Cook', 'hourly_wage' => 32.50]);
@@ -73,7 +119,7 @@ class AdminPayrollTest extends TestCase
         $employee->setRelation('jobTitles', new Collection());
 
         $this->assertSame(
-            'No job title wage — set an hourly wage on the job title for this shift',
+            'No hourly wage on this job title. Set the wage, then assign that title on the weekly schedule.',
             AdminPayroll::missingWageSkipReason($employee, collect())
         );
     }

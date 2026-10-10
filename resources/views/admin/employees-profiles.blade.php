@@ -75,7 +75,7 @@
                             <a
                                 href="{{ route('admin.employees.profiles', ['employee' => $employee->public_id]) }}"
                                 @class([
-                                    'flex h-full items-center gap-3 rounded-xl border px-3 py-2.5 transition',
+                                    'flex h-full min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 transition',
                                     'border-brand-primary bg-brand-primary/[0.06] ring-1 ring-brand-primary/20' => $isSelected,
                                     'border-brand-border bg-white hover:border-brand-primary/40 hover:bg-brand-surface' => ! $isSelected,
                                 ])
@@ -119,14 +119,20 @@
                             <span class="text-xs text-brand-text-secondary">Registered {{ DisplayTimezone::formatDateTime($selectedEmployee->created_at) }}</span>
                         @endif
                     </div>
-                    <a
-                        href="{{ route('admin.employees.profiles') }}"
-                        class="shrink-0 rounded-xl border border-brand-border bg-white p-2 text-brand-text-secondary shadow-sm transition hover:bg-brand-surface hover:text-brand-text"
-                        aria-label="Close"
-                        data-employee-profile-close
-                    >
-                        <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </a>
+                    <div class="flex shrink-0 items-center gap-2">
+                        <a href="{{ route('admin.employees.profiles.pdf', $selectedEmployee->public_id) }}" class="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                            Export PDF
+                        </a>
+                        <a
+                            href="{{ route('admin.employees.profiles') }}"
+                            class="rounded-xl border border-brand-border bg-white p-2 text-brand-text-secondary shadow-sm transition hover:bg-brand-surface hover:text-brand-text"
+                            aria-label="Close"
+                            data-employee-profile-close
+                        >
+                            <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </a>
+                    </div>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto px-4 pt-5 pb-0 sm:px-6">
                     @include('admin.partials.employee-profile-detail', [

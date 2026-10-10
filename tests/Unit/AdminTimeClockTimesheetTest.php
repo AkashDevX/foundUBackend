@@ -4,9 +4,11 @@ namespace Tests\Unit;
 
 use App\Models\Employee;
 use App\Models\EmployeeScheduleShift;
+use App\Models\Shift;
 use App\Models\TimeClockEntry;
 use App\Models\TimesheetApproval;
 use App\Support\AdminTimeClockTimesheet;
+use App\Support\AdminWeeklySchedule;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
@@ -64,7 +66,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$scheduleShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -87,10 +89,64 @@ class AdminTimeClockTimesheetTest extends TestCase
         $this->assertSame('0.083', $row['difference_hours']);
         $this->assertTrue($row['can_review']);
         $this->assertFalse($row['can_reset']);
+        $this->assertTrue($row['can_reopen']);
         $this->assertIsArray($row['clock_in_map']);
         $this->assertTrue($row['clock_in_map']['within_geofence']);
         $this->assertSame(-27.47, $row['clock_in_map']['device_latitude']);
         $this->assertSame('Left early for appointment', $row['modal']['clock_out_comment']);
+    }
+
+    public function test_only_the_latest_clock_out_can_be_reopened(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        $weekStart = Carbon::parse('2026-06-29', 'UTC')->startOfWeek(Carbon::MONDAY);
+
+        $employee = new Employee([
+            'public_id' => 'emp-1',
+            'full_legal_name' => 'Aimee Fromm',
+            'email' => 'aimee@example.com',
+        ]);
+        $employee->id = 1;
+
+        $firstIn = new TimeClockEntry([
+            'employee_id' => 1,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 08:00:00', 'UTC'),
+        ]);
+        $firstOut = new TimeClockEntry([
+            'employee_id' => 1,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 09:00:00', 'UTC'),
+        ]);
+        $secondIn = new TimeClockEntry([
+            'employee_id' => 1,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_IN,
+            'clocked_at' => Carbon::parse('2026-06-29 13:00:00', 'UTC'),
+        ]);
+        $secondOut = new TimeClockEntry([
+            'employee_id' => 1,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'clocked_at' => Carbon::parse('2026-06-29 17:00:00', 'UTC'),
+        ]);
+        $firstIn->id = 1;
+        $firstOut->id = 2;
+        $secondIn->id = 3;
+        $secondOut->id = 4;
+
+        $employee->setRelation('timeClockEntries', new Collection([$firstIn, $firstOut, $secondIn, $secondOut]));
+
+        $result = AdminTimeClockTimesheet::buildGroups(
+            new Collection([$employee]),
+            $weekStart,
+            new Collection,
+            new Collection,
+            null
+        );
+
+        $rows = $result['groups'][0]['rows'];
+        $this->assertFalse($rows[0]['can_reopen']);
+        $this->assertTrue($rows[1]['can_reopen']);
+        $this->assertSame('5:00 PM', $rows[1]['clock_out']);
     }
 
     public function test_approved_row_can_reset_to_pending(): void
@@ -127,7 +183,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         $result = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
+            new Collection,
             new Collection([$approval]),
             'approved'
         );
@@ -171,14 +227,14 @@ class AdminTimeClockTimesheetTest extends TestCase
         $pending = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
+            new Collection,
             new Collection([$approval]),
             'pending'
         );
         $approved = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
+            new Collection,
             new Collection([$approval]),
             'approved'
         );
@@ -215,14 +271,37 @@ class AdminTimeClockTimesheetTest extends TestCase
 
         $weeks = AdminTimeClockTimesheet::buildWeekIndex(
             new Collection([$employee]),
-            new Collection(),
-            new Collection(),
+            new Collection,
+            new Collection,
             3
         );
 
         $this->assertCount(3, $weeks);
         $this->assertTrue($weeks[0]['is_current']);
         $this->assertSame(1, $weeks[1]['stats']['employees']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_build_week_index_can_page_into_older_weeks(): void
+    {
+        config(['app.display_timezone' => 'UTC']);
+        Carbon::setTestNow('2026-07-07 12:00:00');
+
+        $current = AdminWeeklySchedule::resolveWeekStart(null);
+        $this->assertSame(12, AdminTimeClockTimesheet::olderPageStartOffset($current, '2026-04-20'));
+
+        $weeks = AdminTimeClockTimesheet::buildWeekIndex(
+            new Collection,
+            new Collection,
+            new Collection,
+            2,
+            12
+        );
+
+        $this->assertSame(['2026-04-13', '2026-04-06'], array_column($weeks, 'week_start'));
+        $this->assertFalse($weeks[0]['is_current']);
+        $this->assertFalse($weeks[1]['is_current']);
 
         Carbon::setTestNow();
     }
@@ -239,7 +318,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             'employment_type' => 'full_time',
         ]);
         $employee->id = 1;
-        $employee->setRelation('timeClockEntries', new Collection());
+        $employee->setRelation('timeClockEntries', new Collection);
 
         $currentWeekShift = new EmployeeScheduleShift([
             'employee_id' => 1,
@@ -263,7 +342,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$currentWeekShift, $otherWeekShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -282,7 +361,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             'employment_type' => 'full_time',
         ]);
         $employee->id = 1;
-        $employee->setRelation('timeClockEntries', new Collection());
+        $employee->setRelation('timeClockEntries', new Collection);
 
         $scheduledShift = new EmployeeScheduleShift([
             'employee_id' => 1,
@@ -297,7 +376,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$scheduledShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -349,8 +428,8 @@ class AdminTimeClockTimesheetTest extends TestCase
         $result = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
-            new Collection(),
+            new Collection,
+            new Collection,
             null
         );
 
@@ -408,7 +487,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$morningShift, $afternoonShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -467,7 +546,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$morningShift, $afternoonShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -527,7 +606,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         $result = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
+            new Collection,
             new Collection([$approval]),
             null
         );
@@ -606,8 +685,8 @@ class AdminTimeClockTimesheetTest extends TestCase
         $result = AdminTimeClockTimesheet::buildGroups(
             new Collection([$employee]),
             $weekStart,
-            new Collection(),
-            new Collection(),
+            new Collection,
+            new Collection,
             null
         );
 
@@ -646,7 +725,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         ]);
         $employee->id = 11;
 
-        $shift = new \App\Models\Shift([
+        $shift = new Shift([
             'name' => 'Day',
             'breaks' => [
                 ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
@@ -722,7 +801,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$scheduleShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -752,7 +831,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         ]);
         $employee->id = 13;
 
-        $shift = new \App\Models\Shift([
+        $shift = new Shift([
             'name' => 'Short',
             'breaks' => [
                 ['label' => 'Paid break', 'minutes' => 1, 'paid' => true],
@@ -828,7 +907,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$scheduleShift]),
-            new Collection(),
+            new Collection,
             null
         );
 
@@ -853,7 +932,7 @@ class AdminTimeClockTimesheetTest extends TestCase
         ]);
         $employee->id = 12;
 
-        $shift = new \App\Models\Shift([
+        $shift = new Shift([
             'name' => 'Day',
             'breaks' => [
                 ['label' => 'Tea', 'minutes' => 15, 'paid' => true],
@@ -929,7 +1008,7 @@ class AdminTimeClockTimesheetTest extends TestCase
             new Collection([$employee]),
             $weekStart,
             new Collection([$scheduleShift]),
-            new Collection(),
+            new Collection,
             null
         );
 

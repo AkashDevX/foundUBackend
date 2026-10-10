@@ -101,6 +101,13 @@
         $canSendInActive = $activeId
             ? (bool) ($conversationPayload['can_send'] ?? true)
             : false;
+        $groupMemberNames = [];
+        if ($isGroup) {
+            foreach ($conversationPayload['participants'] ?? [] as $participant) {
+                $name = trim((string) ($participant['display_name'] ?? ''));
+                $groupMemberNames[] = $name !== '' ? $name : 'Member';
+            }
+        }
         $threadSubtitle = $activeId
             ? ($isModerationView
                 ? 'Report review · read only'
@@ -400,7 +407,23 @@
                     </span>
                     <div class="admin-chat__thread-meta">
                         <h2 data-thread-title>{{ $conversationPayload['title'] ?? 'Conversation' }}</h2>
-                        <p data-thread-subtitle>{{ $threadSubtitle }}</p>
+                        <div data-thread-subtitle>
+                            @if ($isGroup && $activeId && ! $isModerationView && $groupMemberNames !== [])
+                                <div class="admin-chat__members" tabindex="0">
+                                    <span class="admin-chat__members-label">{{ $threadSubtitle }}</span>
+                                    <div class="admin-chat__members-popover" role="tooltip">
+                                        <span class="admin-chat__members-title">Group members</span>
+                                        <ul>
+                                            @foreach ($groupMemberNames as $memberName)
+                                                <li>{{ $memberName }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                </div>
+                            @else
+                                {{ $threadSubtitle }}
+                            @endif
+                        </div>
                     </div>
                 </header>
 
@@ -519,21 +542,39 @@
                         <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
-                <form method="post" action="{{ route('admin.messages.groups.store') }}" class="admin-chat__modal-body">
+                <form method="post" action="{{ route('admin.messages.groups.store') }}" class="admin-chat__modal-body" data-group-form>
                     @csrf
                     <label class="admin-chat__field">
                         <span>Title</span>
                         <input type="text" name="title" required maxlength="120" placeholder="e.g. Site A morning crew" />
                     </label>
-                    <label class="admin-chat__field">
-                        <span>Members</span>
-                        <select name="member_ids[]" multiple required size="7">
-                            @foreach ($directory as $person)
-                                <option value="{{ $person['id'] }}">{{ $person['display_name'] }}</option>
-                            @endforeach
-                        </select>
-                        <p class="admin-chat__field-hint">Hold Ctrl / Cmd to select multiple.</p>
-                    </label>
+                    <div class="admin-chat__pick">
+                        <div class="admin-chat__pick-head">
+                            <span>Members</span>
+                            <span class="admin-chat__pick-count is-empty" data-group-member-count>None selected</span>
+                        </div>
+                        <input type="search" class="admin-chat__pick-search" data-group-member-search placeholder="Search members" autocomplete="off" />
+                        <div class="admin-chat__pick-list" data-group-member-list>
+                            @forelse ($directory as $person)
+                                @php
+                                    $memberTone = $tones[((int) $person['id']) % count($tones)];
+                                @endphp
+                                <label
+                                    class="admin-chat__pick-row"
+                                    data-group-member-row
+                                    data-search="{{ strtolower($person['display_name'].' '.($person['email'] ?? '')) }}"
+                                >
+                                    <input type="checkbox" name="member_ids[]" value="{{ $person['id'] }}" data-group-member />
+                                    <span class="admin-chat__pick-box" aria-hidden="true"></span>
+                                    <span class="admin-chat__pick-avatar" style="background: {{ $memberTone }}">{{ $initials((string) $person['display_name']) }}</span>
+                                    <span class="admin-chat__pick-name">{{ $person['display_name'] }}</span>
+                                </label>
+                            @empty
+                                <p class="admin-chat__field-hint">No employees available.</p>
+                            @endforelse
+                        </div>
+                        <p class="admin-chat__field-hint" data-group-member-hint hidden>Choose at least one member.</p>
+                    </div>
                     <button type="submit" class="admin-chat__btn admin-chat__btn--primary" style="width:100%;">Create group</button>
                 </form>
             </div>
@@ -967,6 +1008,27 @@
 
             var announcementIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/></svg>';
 
+            function renderThreadSubtitle(text, memberNames) {
+                if (!subtitleEl) return;
+                var names = (memberNames || []).map(function (name) {
+                    return String(name || '').trim();
+                }).filter(Boolean);
+                if (!names.length) {
+                    subtitleEl.textContent = text || '';
+                    return;
+                }
+                subtitleEl.innerHTML =
+                    '<div class="admin-chat__members" tabindex="0">' +
+                        '<span class="admin-chat__members-label">' + esc(text || '') + '</span>' +
+                        '<div class="admin-chat__members-popover" role="tooltip">' +
+                            '<span class="admin-chat__members-title">Group members</span>' +
+                            '<ul>' + names.map(function (name) {
+                                return '<li>' + esc(name) + '</li>';
+                            }).join('') + '</ul>' +
+                        '</div>' +
+                    '</div>';
+            }
+
             function showThread(payload, url, push) {
                 var conv = payload.conversation || {};
                 var isGroup = conv.type === 'group';
@@ -985,7 +1047,12 @@
                             : 'Direct message'));
 
                 if (titleEl) titleEl.textContent = title;
-                if (subtitleEl) subtitleEl.textContent = subtitle;
+                renderThreadSubtitle(
+                    subtitle,
+                    (isGroup && !isModeration)
+                        ? participants.map(function (person) { return person.display_name || 'Member'; })
+                        : []
+                );
                 if (avatarEl) {
                     avatarEl.style.background = isAnnouncement ? '#b45309' : (isGroup ? '#188038' : '#1a73e8');
                     if (isAnnouncement) {
@@ -1075,6 +1142,16 @@
             }
 
             root.addEventListener('click', function (e) {
+                var memberTrigger = e.target.closest('.admin-chat__members');
+                root.querySelectorAll('.admin-chat__members.is-open').forEach(function (el) {
+                    if (el !== memberTrigger) el.classList.remove('is-open');
+                });
+                if (memberTrigger && !e.target.closest('.admin-chat__members-popover')) {
+                    memberTrigger.classList.toggle('is-open');
+                }
+            });
+
+            root.addEventListener('click', function (e) {
                 var row = e.target.closest('[data-chat-row]');
                 if (!row || !root.contains(row)) return;
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -1141,6 +1218,49 @@
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') closeModals();
             });
+
+            var groupForm = root.querySelector('[data-group-form]');
+            if (groupForm) {
+                var groupCount = groupForm.querySelector('[data-group-member-count]');
+                var groupHint = groupForm.querySelector('[data-group-member-hint]');
+                var groupSearch = groupForm.querySelector('[data-group-member-search]');
+                var groupBoxes = function () {
+                    return groupForm.querySelectorAll('[data-group-member]');
+                };
+                var updateGroupCount = function () {
+                    var checked = 0;
+                    groupBoxes().forEach(function (box) {
+                        if (box.checked) checked++;
+                    });
+                    if (groupCount) {
+                        groupCount.textContent = checked === 0
+                            ? 'None selected'
+                            : (checked + ' selected');
+                        groupCount.classList.toggle('is-empty', checked === 0);
+                    }
+                    if (groupHint && checked > 0) groupHint.hidden = true;
+                };
+                groupForm.addEventListener('change', updateGroupCount);
+                if (groupSearch) {
+                    groupSearch.addEventListener('input', function () {
+                        var q = (groupSearch.value || '').toLowerCase().trim();
+                        groupForm.querySelectorAll('[data-group-member-row]').forEach(function (row) {
+                            var hay = row.getAttribute('data-search') || '';
+                            row.hidden = q !== '' && hay.indexOf(q) === -1;
+                        });
+                    });
+                }
+                groupForm.addEventListener('submit', function (e) {
+                    var checked = 0;
+                    groupBoxes().forEach(function (box) {
+                        if (box.checked) checked++;
+                    });
+                    if (checked === 0) {
+                        e.preventDefault();
+                        if (groupHint) groupHint.hidden = false;
+                    }
+                });
+            }
 
             var announcementForm = root.querySelector('[data-announcement-form]');
             if (announcementForm) {

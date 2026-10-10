@@ -24,6 +24,16 @@
             'subtitle' => 'Clocked start and finish times with hours for each shift.',
             'ref' => 'TSH',
         ],
+        'punctuality' => [
+            'title' => 'Early & Late Clocking Report',
+            'subtitle' => 'Clock-ins and clock-outs compared with each employee\'s allocated shift. Early is before the rostered time; late is after it.',
+            'ref' => 'ELC',
+        ],
+        'missed-shifts' => [
+            'title' => 'Missed Shift Report',
+            'subtitle' => 'Active employees who did not arrive for an allocated shift, one month at a time.',
+            'ref' => 'MSS',
+        ],
         'leave' => [
             'title' => 'Leave Report',
             'subtitle' => 'Leave utilisation by type and recent activity.',
@@ -86,8 +96,8 @@
         <div data-flash-warning="{{ e('Could not reach this organization\'s database. '.$tenantError) }}" hidden></div>
     @endif
 
-    <div class="mx-auto {{ ($section ?? '') === 'training' ? 'max-w-6xl' : 'max-w-4xl' }}">
-    <div class="mx-auto {{ $section === 'timesheet' ? 'max-w-5xl' : 'max-w-4xl' }}">
+    <div class="mx-auto {{ in_array(($section ?? ''), ['training', 'punctuality', 'missed-shifts'], true) ? 'max-w-6xl' : 'max-w-4xl' }}">
+    <div class="mx-auto {{ $section === 'timesheet' ? 'max-w-5xl' : (in_array($section, ['training', 'punctuality', 'missed-shifts'], true) ? 'max-w-6xl' : 'max-w-4xl') }}">
         {{-- Filters (screen only) --}}
         <form method="GET" action="{{ route('admin.reports.'.$section) }}" class="report-toolbar mb-5 overflow-visible rounded-2xl border border-brand-border bg-white p-4 shadow-sm sm:p-5">
             <div class="mb-4 flex items-center gap-2">
@@ -149,6 +159,52 @@
                             <option value="approved" @selected(($filters['status'] ?? '') === 'approved')>Approved</option>
                             <option value="pending" @selected(($filters['status'] ?? '') === 'pending')>Pending</option>
                             <option value="rejected" @selected(($filters['status'] ?? '') === 'rejected')>Rejected</option>
+                        </select>
+                    </div>
+                @elseif ($section === 'punctuality')
+                    <div>
+                        <label for="f-from" class="{{ $fLabel }}">From</label>
+                        <input type="date" id="f-from" name="from" value="{{ $filters['from'] ?? '' }}" class="{{ $fInput }}">
+                    </div>
+                    <div>
+                        <label for="f-to" class="{{ $fLabel }}">To</label>
+                        <input type="date" id="f-to" name="to" value="{{ $filters['to'] ?? '' }}" class="{{ $fInput }}">
+                    </div>
+                    <div>
+                        <label for="f-employee" class="{{ $fLabel }}">Employee</label>
+                        <select id="f-employee" name="employee_id" class="{{ $fInput }}">
+                            <option value="">All employees</option>
+                            @foreach ($employeeOptions as $opt)
+                                <option value="{{ $opt['id'] }}" @selected((string) ($filters['employee_id'] ?? '') === (string) $opt['id'])>{{ $opt['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label for="f-variance" class="{{ $fLabel }}">Variance</label>
+                        <select id="f-variance" name="variance" class="{{ $fInput }}">
+                            <option value="">All early and late</option>
+                            <option value="early_in" @selected(($filters['variance'] ?? '') === 'early_in')>Early clock in</option>
+                            <option value="late_in" @selected(($filters['variance'] ?? '') === 'late_in')>Late clock in</option>
+                            <option value="early_out" @selected(($filters['variance'] ?? '') === 'early_out')>Early clock out</option>
+                            <option value="late_out" @selected(($filters['variance'] ?? '') === 'late_out')>Late clock out</option>
+                        </select>
+                    </div>
+                @elseif ($section === 'missed-shifts')
+                    <div>
+                        <label for="f-month" class="{{ $fLabel }}">Month</label>
+                        <select id="f-month" name="month" class="{{ $fInput }}">
+                            @foreach ($monthOptions as $value => $label)
+                                <option value="{{ $value }}" @selected(($filters['month'] ?? '') === $value)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label for="f-employee" class="{{ $fLabel }}">Employee</label>
+                        <select id="f-employee" name="employee_id" class="{{ $fInput }}">
+                            <option value="">All active employees</option>
+                            @foreach ($employeeOptions as $opt)
+                                <option value="{{ $opt['id'] }}" @selected((string) ($filters['employee_id'] ?? '') === (string) $opt['id'])>{{ $opt['name'] }}</option>
+                            @endforeach
                         </select>
                     </div>
                 @elseif ($section === 'leave')
@@ -256,6 +312,8 @@
                             <option value="not_started" @selected(($filters['status'] ?? '') === 'not_started')>Not started</option>
                             <option value="studying" @selected(($filters['status'] ?? '') === 'studying')>Studying</option>
                             <option value="in_quiz" @selected(($filters['status'] ?? '') === 'in_quiz')>In quiz</option>
+                            <option value="pending_review" @selected(($filters['status'] ?? '') === 'pending_review')>Needs review</option>
+                            <option value="failed" @selected(($filters['status'] ?? '') === 'failed')>Failed</option>
                             <option value="completed" @selected(($filters['status'] ?? '') === 'completed')>Completed</option>
                         </select>
                     </div>
@@ -697,6 +755,226 @@
 
                 @endif
 
+                {{-- ===================== PUNCTUALITY ===================== --}}
+                @if ($section === 'punctuality')
+                    @php
+                        $punctualityRows = $punctualityRows ?? collect();
+                        $punctualitySummaries = $punctualitySummaries ?? collect();
+                        $stats = $stats ?? [
+                            'early_in' => 0,
+                            'late_in' => 0,
+                            'early_out' => 0,
+                            'late_out' => 0,
+                            'employees' => 0,
+                            'shifts' => 0,
+                        ];
+                        $varianceLabels = [
+                            'early_in' => 'early clock-ins',
+                            'late_in' => 'late clock-ins',
+                            'early_out' => 'early clock-outs',
+                            'late_out' => 'late clock-outs',
+                        ];
+                        $emptyVariance = $varianceLabels[$filters['variance'] ?? ''] ?? 'early or late punches';
+                    @endphp
+
+                    <section>
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">1. Key figures</h3>
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Early clock-ins</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-amber-700">{{ $stats['early_in'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Late clock-ins</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-red-600">{{ $stats['late_in'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Early clock-outs</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-amber-700">{{ $stats['early_out'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Late clock-outs</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-red-600">{{ $stats['late_out'] }}</dd>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-xs text-brand-text-secondary">{{ $stats['employees'] }} {{ $stats['employees'] === 1 ? 'employee' : 'employees' }} · {{ $stats['shifts'] }} {{ $stats['shifts'] === 1 ? 'shift' : 'shifts' }}. A punch on the same minute as the allocated shift is on time and is not listed.</p>
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. By employee</h3>
+                        <div class="overflow-hidden rounded-xl border border-brand-border">
+                            <table class="min-w-full divide-y divide-brand-border">
+                                <thead class="bg-brand-surface/60">
+                                    <tr>
+                                        <th class="{{ $th }}">Employee</th>
+                                        <th class="{{ $th }} text-right">Early clock in</th>
+                                        <th class="{{ $th }} text-right">Late clock in</th>
+                                        <th class="{{ $th }} text-right">Early clock out</th>
+                                        <th class="{{ $th }} text-right">Late clock out</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-brand-border">
+                                    @forelse ($punctualitySummaries as $summary)
+                                        <tr>
+                                            <td class="{{ $td }} font-medium">{{ $summary['employee'] }}</td>
+                                            <td class="{{ $td }} text-right tabular-nums text-amber-700">{{ $summary['early_in'] }}</td>
+                                            <td class="{{ $td }} text-right tabular-nums text-red-600">{{ $summary['late_in'] }}</td>
+                                            <td class="{{ $td }} text-right tabular-nums text-amber-700">{{ $summary['early_out'] }}</td>
+                                            <td class="{{ $td }} text-right tabular-nums text-red-600">{{ $summary['late_out'] }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="5" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No {{ $emptyVariance }} were recorded against allocated shifts in this period.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">3. Shift detail</h3>
+                        <p class="mb-4 text-xs text-brand-text-secondary">Each row is a clocked shift matched to the allocated start and finish. Overnight shifts compare the clock-out with the finish on the following morning.</p>
+                        <div class="overflow-x-auto rounded-xl border border-brand-border">
+                            <table class="min-w-full divide-y divide-brand-border">
+                                <thead class="bg-brand-surface/60">
+                                    <tr>
+                                        <th class="{{ $th }}">Employee</th>
+                                        <th class="{{ $th }}">Date</th>
+                                        <th class="{{ $th }}">Allocated shift</th>
+                                        <th class="{{ $th }}">Clock in</th>
+                                        <th class="{{ $th }}">Clock in variance</th>
+                                        <th class="{{ $th }}">Clock out</th>
+                                        <th class="{{ $th }}">Clock out variance</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-brand-border">
+                                    @forelse ($punctualityRows as $row)
+                                        <tr>
+                                            <td class="{{ $td }} font-medium">{{ $row['employee'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $row['date_label'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $row['allocated'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $row['clock_in'] }}</td>
+                                            <td class="{{ $td }} {{ $row['clock_in_class'] }}">{{ $row['clock_in_variance'] }}</td>
+                                            <td class="{{ $td }} tabular-nums">{{ $row['clock_out'] }}</td>
+                                            <td class="{{ $td }} {{ $row['clock_out_class'] }}">{{ $row['clock_out_variance'] }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="7" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No {{ $emptyVariance }} were recorded against allocated shifts in this period.</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                @endif
+
+                {{-- ===================== MISSED SHIFTS ===================== --}}
+                @if ($section === 'missed-shifts')
+                    @php
+                        $missedShiftRows = $missedShiftRows ?? collect();
+                        $missedShiftSummaries = $missedShiftSummaries ?? collect();
+                        $stats = $stats ?? [
+                            'rostered_employees' => 0,
+                            'missed_employees' => 0,
+                            'allocated_shifts' => 0,
+                            'missed_shifts' => 0,
+                            'attended_shifts' => 0,
+                        ];
+                        $missedEmpty = (int) ($stats['allocated_shifts'] ?? 0) === 0
+                            ? 'No allocated shifts have finished for active employees in this month.'
+                            : 'Every rostered active employee arrived for their allocated shifts this month.';
+                    @endphp
+
+                    <section>
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">1. Key figures</h3>
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Rostered employees</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $stats['rostered_employees'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Did not arrive</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-red-600">{{ $stats['missed_employees'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Missed shifts</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-red-600">{{ $stats['missed_shifts'] }}</dd>
+                            </div>
+                            <div class="{{ $statBlock }}">
+                                <dt class="text-xs text-brand-text-secondary">Shifts attended</dt>
+                                <dd class="mt-1 text-xl font-bold tabular-nums text-brand-text">{{ $stats['attended_shifts'] }}</dd>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-xs text-brand-text-secondary">{{ $stats['allocated_shifts'] }} finished allocated {{ $stats['allocated_shifts'] === 1 ? 'shift' : 'shifts' }} this month. Leave, time off, sick call outs, and shifts covered by someone else are not counted. A shift still in progress is listed only after it finishes.</p>
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">2. Employees who did not arrive</h3>
+                        <div class="overflow-hidden rounded-xl border border-brand-border">
+                            <table class="min-w-full divide-y divide-brand-border">
+                                <thead class="bg-brand-surface/60">
+                                    <tr>
+                                        <th class="{{ $th }}">Employee</th>
+                                        <th class="{{ $th }} text-right">Allocated</th>
+                                        <th class="{{ $th }} text-right">Missed</th>
+                                        <th class="{{ $th }}">Missed dates</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-brand-border">
+                                    @forelse ($missedShiftSummaries as $summary)
+                                        <tr>
+                                            <td class="{{ $td }}">
+                                                <span class="font-medium">{{ $summary['employee'] }}</span>
+                                                @if (($summary['employee_code'] ?? '') !== '')
+                                                    <span class="mt-0.5 block text-xs text-brand-text-secondary">{{ $summary['employee_code'] }}</span>
+                                                @endif
+                                            </td>
+                                            <td class="{{ $td }} text-right tabular-nums">{{ $summary['allocated'] }}</td>
+                                            <td class="{{ $td }} text-right font-semibold tabular-nums text-red-600">{{ $summary['missed'] }}</td>
+                                            <td class="{{ $td }}">{{ $summary['dates'] }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="4" class="px-4 py-12 text-center text-sm text-brand-text-secondary">{{ $missedEmpty }}</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="mt-8">
+                        <h3 class="mb-4 text-xs font-bold uppercase tracking-widest text-brand-primary">3. Missed shift detail</h3>
+                        <div class="overflow-x-auto rounded-xl border border-brand-border">
+                            <table class="min-w-full divide-y divide-brand-border">
+                                <thead class="bg-brand-surface/60">
+                                    <tr>
+                                        <th class="{{ $th }}">Employee</th>
+                                        <th class="{{ $th }}">Date</th>
+                                        <th class="{{ $th }}">Allocated shift</th>
+                                        <th class="{{ $th }}">Location</th>
+                                        <th class="{{ $th }}">Department</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-brand-border">
+                                    @forelse ($missedShiftRows as $row)
+                                        <tr>
+                                            <td class="{{ $td }}">
+                                                <span class="font-medium">{{ $row['employee'] }}</span>
+                                                @if (($row['employee_code'] ?? '') !== '')
+                                                    <span class="mt-0.5 block text-xs text-brand-text-secondary">{{ $row['employee_code'] }}</span>
+                                                @endif
+                                            </td>
+                                            <td class="{{ $td }} tabular-nums whitespace-nowrap">{{ $row['date_label'] }}</td>
+                                            <td class="{{ $td }} tabular-nums whitespace-nowrap">{{ $row['time_label'] }}</td>
+                                            <td class="{{ $td }}">{{ $row['location'] }}</td>
+                                            <td class="{{ $td }}">{{ $row['department'] }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr><td colspan="5" class="px-4 py-12 text-center text-sm text-brand-text-secondary">{{ $missedEmpty }}</td></tr>
+                                    @endforelse
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                @endif
+
                 {{-- ===================== LEAVE ===================== --}}
                 @if ($section === 'leave')
                     @php
@@ -856,6 +1134,8 @@
                             'not_started' => 'Not started',
                             'studying' => 'Studying',
                             'in_quiz' => 'In quiz',
+                            'pending_review' => 'Needs review',
+                            'failed' => 'Failed',
                             'completed' => 'Completed',
                         ];
                         $bandLabels = [
@@ -911,6 +1191,7 @@
                                         <th class="{{ $th }}">Quiz taken</th>
                                         <th class="{{ $th }}">Score</th>
                                         <th class="{{ $th }}">Result</th>
+                                        <th class="{{ $th }}">Certificate</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-brand-border">
@@ -938,10 +1219,18 @@
                                             <td class="{{ $td }}">
                                                 {{ $bandLabels[$row['band'] ?? 'pending'] ?? 'Pending' }}
                                             </td>
+                                            <td class="{{ $td }} text-xs whitespace-nowrap">
+                                                @if (! empty($row['certificate']['reference_number']))
+                                                    <span class="font-semibold text-brand-text">{{ $row['certificate']['reference_number'] }}</span>
+                                                    <span class="mt-0.5 block text-brand-text-secondary">{{ $row['certificate']['completed_on_label'] }}</span>
+                                                @else
+                                                    —
+                                                @endif
+                                            </td>
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="8" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No training assignments match these filters.</td>
+                                            <td colspan="9" class="px-4 py-12 text-center text-sm text-brand-text-secondary">No training assignments match these filters.</td>
                                         </tr>
                                     @endforelse
                                 </tbody>

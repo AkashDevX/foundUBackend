@@ -17,7 +17,13 @@
 
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
         <a href="{{ route('admin.incidents.index') }}" class="text-sm font-semibold text-brand-primary hover:underline">Back to incidents</a>
-        <span class="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide {{ $badge }}">{{ $report->statusLabel() }}</span>
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="{{ route('admin.incidents.pdf', $report->id) }}" class="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark">
+                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                Export PDF
+            </a>
+            <span class="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide {{ $badge }}">{{ $report->statusLabel() }}</span>
+        </div>
     </div>
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">

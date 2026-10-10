@@ -77,8 +77,13 @@ final class PayrollRosterSummary
             'shift_count' => $shiftCount,
             'time_off_count' => $timeOffCount,
             'roster_label' => $shiftCount > 0
-                ? sprintf('%s rostered shift(s), %.2f hrs', $shiftCount, $scheduledHours)
-                : 'No rostered shifts in fortnight',
+                ? sprintf(
+                    '%d scheduled %s, %.2f hrs',
+                    $shiftCount,
+                    $shiftCount === 1 ? 'shift' : 'shifts',
+                    $scheduledHours
+                )
+                : 'No scheduled shifts in this pay period',
         ];
     }
 
@@ -90,9 +95,9 @@ final class PayrollRosterSummary
 
         $delta = round($workedHours - $scheduledHours, 2);
         if (abs($delta) < 0.01) {
-            return 'Matches roster';
+            return 'Matches schedule';
         }
 
-        return ($delta > 0 ? '+' : '').number_format($delta, 2).' hrs vs roster';
+        return ($delta > 0 ? '+' : '').number_format($delta, 2).' hrs vs schedule';
     }
 }

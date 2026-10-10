@@ -232,8 +232,12 @@ final class ClockInGraceGate
         $localNow = $now->copy()->timezone(DisplayTimezone::name());
         $date = $localNow->toDateString();
         $shifts = TimeClockScheduledShift::shiftsForDate($employee, $date);
-        $picked = TimeClockScheduledShift::pickBestForMoment($shifts, $localNow);
-        if ($picked instanceof EmployeeScheduleShift) {
+        if ($shifts->isNotEmpty()) {
+            $picked = TimeClockScheduledShift::clockInTargetForEmployee($employee, $localNow);
+            if (! $picked instanceof EmployeeScheduleShift) {
+                return null;
+            }
+
             return [
                 'schedule_shift_id' => $picked->id ? (int) $picked->id : null,
                 'date' => $picked->scheduled_date?->toDateString() ?? $date,

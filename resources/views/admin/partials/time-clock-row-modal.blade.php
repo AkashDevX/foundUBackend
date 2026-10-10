@@ -79,6 +79,13 @@
                     </div>
                 </dl>
 
+                <!-- <p
+                    data-time-clock-row-open-hint
+                    class="hidden rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+                >
+                    This shift is still in progress. Enter the clock-out time and save to clock the employee out.
+                </p> -->
+
                 <div class="grid gap-3 sm:grid-cols-2">
                     <label class="block">
                         <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Clock in</span>

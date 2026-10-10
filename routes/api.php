@@ -9,27 +9,30 @@ use App\Http\Controllers\Api\V1\BreakStartEmployeeController;
 use App\Http\Controllers\Api\V1\ClockInEmployeeController;
 use App\Http\Controllers\Api\V1\ClockOutEmployeeController;
 use App\Http\Controllers\Api\V1\CurrentEmployeeController;
+use App\Http\Controllers\Api\V1\DeviceTokenController;
 use App\Http\Controllers\Api\V1\EmployeeIncidentReportsController;
+use App\Http\Controllers\Api\V1\EmployeePayrollController;
+use App\Http\Controllers\Api\V1\EmployeeAvailableShiftsController;
 use App\Http\Controllers\Api\V1\EmployeeScheduleController;
 use App\Http\Controllers\Api\V1\EmployeeTasksController;
 use App\Http\Controllers\Api\V1\EmployeeTimeOffRequestsController;
 use App\Http\Controllers\Api\V1\EmployeeTrainingDetailController;
 use App\Http\Controllers\Api\V1\EmployeeTrainingListController;
-use App\Http\Controllers\Api\V1\RequestTimeOffController;
 use App\Http\Controllers\Api\V1\ForgotPasswordController;
+use App\Http\Controllers\Api\V1\LocationPingEmployeeController;
 use App\Http\Controllers\Api\V1\LoginEmployeeController;
 use App\Http\Controllers\Api\V1\LogoutEmployeeController;
-use App\Http\Controllers\Api\V1\DeviceTokenController;
-use App\Http\Controllers\Api\V1\LocationPingEmployeeController;
 use App\Http\Controllers\Api\V1\MessagingController;
-use App\Http\Controllers\Api\V1\RequestOrganizationController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeApplicationsController;
 use App\Http\Controllers\Api\V1\RegisterEmployeeController;
+use App\Http\Controllers\Api\V1\RenewEmployeeDocumentController;
+use App\Http\Controllers\Api\V1\RequestOrganizationController;
+use App\Http\Controllers\Api\V1\RequestTimeOffController;
 use App\Http\Controllers\Api\V1\ResetPasswordController;
 use App\Http\Controllers\Api\V1\SubmitTrainingAttemptController;
-use App\Http\Controllers\Api\V1\TrainingSlideImageController;
 use App\Http\Controllers\Api\V1\TermsAndConditionsController;
 use App\Http\Controllers\Api\V1\TimeClockStatusController;
+use App\Http\Controllers\Api\V1\TrainingSlideImageController;
 use App\Http\Controllers\Api\V1\UpdateEmployeeTaskCompletionController;
 use App\Http\Controllers\Api\V1\VerifyPasswordResetOtpController;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +65,12 @@ Route::prefix('v1')->group(function () {
      */
     Route::post('/register-applications', RegisterEmployeeApplicationsController::class)
         ->middleware(['platform.api', 'throttle:10,1']);
+
+    // Signed training video (no Bearer token). The phone player streams this URL.
+    Route::get('/training/blocks/{block}/open', [TrainingSlideImageController::class, 'openSigned'])
+        ->middleware(['signed', 'throttle:60,1'])
+        ->where(['block' => '[0-9]+'])
+        ->name('api.v1.training.blocks.open');
 
     // Signed attachment open (no Bearer token). Tenant comes from ?company= in the signed URL.
     Route::get('/messaging/attachments/{message}/open', [MessagingController::class, 'openSignedAttachment'])
@@ -100,7 +109,11 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', CurrentEmployeeController::class);
+        Route::post('/me/documents/renew', RenewEmployeeDocumentController::class);
         Route::get('/shifts/schedule', EmployeeScheduleController::class);
+        Route::get('/shifts/available', [EmployeeAvailableShiftsController::class, 'index']);
+        Route::post('/shifts/available/{scheduleShift}/request', [EmployeeAvailableShiftsController::class, 'store'])
+            ->where(['scheduleShift' => '[0-9]+']);
         Route::get('/time-off/requests', EmployeeTimeOffRequestsController::class);
         Route::post('/time-off/requests', RequestTimeOffController::class);
         Route::get('/incidents/options', [EmployeeIncidentReportsController::class, 'options']);
@@ -122,9 +135,19 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
             ->where(['page' => '[0-9]+']);
         Route::get('/training/sections/{section}/image', [TrainingSlideImageController::class, 'section'])
             ->where(['section' => '[0-9]+']);
+        Route::get('/training/blocks/{block}/file', [TrainingSlideImageController::class, 'block'])
+            ->where(['block' => '[0-9]+']);
+        Route::get('/training/questions/{question}/media', [TrainingSlideImageController::class, 'question'])
+            ->where(['question' => '[0-9]+']);
+        Route::get('/training/blocks/{block}/open-link', [TrainingSlideImageController::class, 'openLink'])
+            ->where(['block' => '[0-9]+']);
         Route::post('/training/{assignment}/acknowledge-materials', AcknowledgeTrainingMaterialsController::class)
             ->where(['assignment' => '[0-9]+']);
         Route::post('/training/{assignment}/submit', SubmitTrainingAttemptController::class)
+            ->where(['assignment' => '[0-9]+']);
+        Route::post('/training/{assignment}/retake', [SubmitTrainingAttemptController::class, 'retake'])
+            ->where(['assignment' => '[0-9]+']);
+        Route::post('/training/{assignment}/finish', [SubmitTrainingAttemptController::class, 'finish'])
             ->where(['assignment' => '[0-9]+']);
 
         Route::post('/logout', LogoutEmployeeController::class);
@@ -137,7 +160,7 @@ Route::middleware('tenant')->prefix('v1')->group(function () {
         Route::post('/time-clock/auto-clock-out', AutoClockOutEmployeeController::class);
         Route::post('/time-clock/location-ping', LocationPingEmployeeController::class);
         Route::post('/time-clock/idle-alert/acknowledge', AcknowledgeIdleAlertController::class);
-        Route::get('/payroll', \App\Http\Controllers\Api\V1\EmployeePayrollController::class);
+        Route::get('/payroll', EmployeePayrollController::class);
 
         Route::post('/device-token', [DeviceTokenController::class, 'store']);
         Route::delete('/device-token', [DeviceTokenController::class, 'destroy']);

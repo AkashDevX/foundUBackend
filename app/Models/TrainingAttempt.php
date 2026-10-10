@@ -18,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'percent',
     'passed',
     'submitted_at',
+    'attempt_number',
+    'waived',
 ])]
 class TrainingAttempt extends Model
 {
@@ -57,6 +59,8 @@ class TrainingAttempt extends Model
             'max_score' => 'integer',
             'percent' => 'float',
             'passed' => 'boolean',
+            'attempt_number' => 'integer',
+            'waived' => 'boolean',
         ];
     }
 }

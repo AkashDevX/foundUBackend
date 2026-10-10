@@ -98,6 +98,43 @@ class BreakWindowTest extends TestCase
         $this->assertSame(BreakWindow::PHASE_ON_BREAK, $onBreak['phase']);
     }
 
+    public function test_saved_hours_replace_the_default_fourth_to_sixth_hour(): void
+    {
+        $start = Carbon::parse('2026-06-16 06:00:00', DisplayTimezone::name());
+        $end = Carbon::parse('2026-06-16 15:00:00', DisplayTimezone::name());
+        $settings = [
+            'enabled' => true,
+            'start_minutes' => 180,
+            'end_minutes' => 420,
+            'required_after_minutes' => 480,
+            'reminder_lead_minutes' => 30,
+        ];
+
+        $nineHourShift = BreakWindow::assess($start, $end, $this->at('08:30'), $settings, false, false);
+        $this->assertSame('9:00 AM', $nineHourShift['opens_label']);
+        $this->assertSame('1:00 PM', $nineHourShift['closes_label']);
+        $this->assertSame(30, $nineHourShift['reminder_lead_minutes']);
+        $this->assertSame(BreakWindow::PHASE_APPROACHING, $nineHourShift['phase']);
+        $this->assertFalse(BreakWindow::allowsBreakStart($nineHourShift));
+
+        $open = BreakWindow::assess($start, $end, $this->at('09:00'), $settings, false, false);
+        $this->assertTrue(BreakWindow::allowsBreakStart($open));
+
+        $after = BreakWindow::assess($start, $end, $this->at('13:01'), $settings, false, false);
+        $this->assertFalse(BreakWindow::allowsBreakStart($after));
+
+        $eightHourShift = BreakWindow::assess(
+            $start,
+            Carbon::parse('2026-06-16 14:00:00', DisplayTimezone::name()),
+            $this->at('10:00'),
+            $settings,
+            false,
+            false,
+        );
+        $this->assertNull($eightHourShift);
+        $this->assertTrue(BreakWindow::allowsBreakStart($eightHourShift));
+    }
+
     public function test_disabled_rule_does_not_restrict_the_break(): void
     {
         $start = Carbon::parse('2026-06-16 06:00:00', DisplayTimezone::name());

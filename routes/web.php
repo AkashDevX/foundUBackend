@@ -4,16 +4,16 @@ use App\Http\Controllers\Admin\AdminBreakWindowController;
 use App\Http\Controllers\Admin\AdminClockInGraceController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\AdminEmployeeAssignmentController;
-use App\Http\Controllers\Admin\AdminIncidentReportsController;
 use App\Http\Controllers\Admin\AdminEmployeeTasksController;
+use App\Http\Controllers\Admin\AdminIncidentReportsController;
 use App\Http\Controllers\Admin\AdminLocationTrackingController;
 use App\Http\Controllers\Admin\AdminMessagesController;
-use App\Http\Controllers\Admin\AdminTrainingController;
 use App\Http\Controllers\Admin\AdminPayrollController;
 use App\Http\Controllers\Admin\AdminRegistrationDecisionController;
 use App\Http\Controllers\Admin\AdminRegistrationFileController;
 use App\Http\Controllers\Admin\AdminReportsController;
 use App\Http\Controllers\Admin\AdminTermsController;
+use App\Http\Controllers\Admin\AdminTrainingController;
 use App\Http\Controllers\Admin\AdminWeeklyScheduleController;
 use App\Http\Controllers\Admin\AdminWorkforceController;
 use App\Http\Controllers\Platform\PlatformDashboardController;
@@ -39,155 +39,173 @@ Route::middleware('auth:portal')->group(function (): void {
     });
 
     Route::middleware('portal.tenant')->group(function (): void {
-    Route::get('/admin', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
-    Route::get('/admin/registrations', [AdminDashboardController::class, 'registrations'])->name('admin.registrations.index');
-    Route::get('/admin/applicants/search', [AdminDashboardController::class, 'searchApplicants'])
-        ->middleware('throttle:120,1')
-        ->name('admin.applicants.search');
-    Route::get('/admin/workforce', [AdminWorkforceController::class, 'index'])->name('admin.workforce');
-    Route::get('/admin/workforce/departments', [AdminWorkforceController::class, 'departments'])->name('admin.workforce.departments');
-    Route::get('/admin/workforce/job-titles', [AdminWorkforceController::class, 'jobTitles'])->name('admin.workforce.job-titles');
-    Route::get('/admin/workforce/work-locations', [AdminWorkforceController::class, 'workLocations'])->name('admin.workforce.work-locations');
-    Route::get('/admin/workforce/shifts', [AdminWorkforceController::class, 'shifts'])->name('admin.workforce.shifts');
-    Route::get('/admin/workforce/leave-types', [AdminWorkforceController::class, 'leaveTypes'])->name('admin.workforce.leave-types');
-    Route::get('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'chatFaqs'])->name('admin.workforce.chat-faqs');
-    Route::post('/admin/workforce/departments', [AdminWorkforceController::class, 'storeDepartment'])->name('admin.workforce.departments.store');
-    Route::post('/admin/workforce/departments/{department}', [AdminWorkforceController::class, 'updateDepartment'])->name('admin.workforce.departments.update');
-    Route::post('/admin/workforce/job-titles', [AdminWorkforceController::class, 'storeJobTitle'])->name('admin.workforce.job-titles.store');
-    Route::post('/admin/workforce/job-titles/{jobTitle}', [AdminWorkforceController::class, 'updateJobTitle'])->name('admin.workforce.job-titles.update');
-    Route::post('/admin/workforce/work-locations', [AdminWorkforceController::class, 'storeWorkLocation'])->name('admin.workforce.work-locations.store');
-    Route::post('/admin/workforce/work-locations/{location}', [AdminWorkforceController::class, 'updateWorkLocation'])->name('admin.workforce.work-locations.update');
-    Route::post('/admin/workforce/shifts', [AdminWorkforceController::class, 'storeShift'])->name('admin.workforce.shifts.store');
-    Route::post('/admin/workforce/shifts/{shift}', [AdminWorkforceController::class, 'updateShift'])->name('admin.workforce.shifts.update');
-    Route::post('/admin/workforce/leave-types', [AdminWorkforceController::class, 'storeLeaveType'])->name('admin.workforce.leave-types.store');
-    Route::post('/admin/workforce/leave-types/{leaveType}', [AdminWorkforceController::class, 'updateLeaveType'])->name('admin.workforce.leave-types.update');
-    Route::post('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'storeChatFaq'])->name('admin.workforce.chat-faqs.store');
-    Route::post('/admin/workforce/chat-faqs/{chatFaq}', [AdminWorkforceController::class, 'updateChatFaq'])->name('admin.workforce.chat-faqs.update');
-    Route::post('/admin/workforce/geocode/reverse', [AdminWorkforceController::class, 'reverseGeocode'])
-        ->middleware('throttle:120,1')
-        ->name('admin.workforce.geocode.reverse');
-    Route::get('/admin/workforce/geocode/search', [AdminWorkforceController::class, 'searchGeocode'])
-        ->middleware('throttle:120,1')
-        ->name('admin.workforce.geocode.search');
-    Route::get('/admin/registrations/{companySlug}/{publicId}', [AdminDashboardController::class, 'show'])
-        ->name('admin.registrations.show');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'update'])
-        ->name('admin.registrations.assignment.update');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/profile', [AdminEmployeeAssignmentController::class, 'updateProfile'])
-        ->name('admin.registrations.profile.update');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/leave', [AdminEmployeeAssignmentController::class, 'storeLeave'])
-        ->name('admin.registrations.leave.store');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/leave-entitlements', [AdminEmployeeAssignmentController::class, 'storeLeaveEntitlement'])
-        ->name('admin.registrations.leave-entitlements.store');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/leave-entitlements/{entitlement}', [AdminEmployeeAssignmentController::class, 'updateLeaveEntitlement'])
-        ->name('admin.registrations.leave-entitlements.update');
-    Route::delete('/admin/registrations/{companySlug}/{publicId}/leave-entitlements/{entitlement}', [AdminEmployeeAssignmentController::class, 'destroyLeaveEntitlement'])
-        ->name('admin.registrations.leave-entitlements.destroy');
-    Route::get('/admin/employees/profiles', [AdminEmployeeAssignmentController::class, 'profiles'])->name('admin.employees.profiles');
-    Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'assignments'])->name('admin.employees.assignments');
-    Route::get('/admin/employees/weekly-schedule', [AdminWeeklyScheduleController::class, 'index'])->name('admin.employees.weekly-schedule');
-    Route::post('/admin/employees/weekly-schedule/shifts', [AdminWeeklyScheduleController::class, 'storeShift'])->name('admin.employees.weekly-schedule.shifts.store');
-    Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'updateShift'])->name('admin.employees.weekly-schedule.shifts.update');
-    Route::delete('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'destroyShift'])->name('admin.employees.weekly-schedule.shifts.destroy');
-    Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/status', [AdminWeeklyScheduleController::class, 'markShiftStatus'])->name('admin.employees.weekly-schedule.shifts.status');
-    Route::post('/admin/employees/weekly-schedule/fill-from-assignments', [AdminWeeklyScheduleController::class, 'fillFromAssignments'])->name('admin.employees.weekly-schedule.fill-from-assignments');
-    Route::post('/admin/time-off-requests/{timeOffRequest}/approve', [AdminWeeklyScheduleController::class, 'approvePendingTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.approve');
-    Route::post('/admin/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.reject');
-    Route::post('/admin/employees/weekly-schedule/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.time-off-requests.reject');
-    Route::get('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'index'])->name('admin.employees.tasks');
-    Route::post('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'store'])->name('admin.employees.tasks.store');
-    Route::post('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'update'])->name('admin.employees.tasks.update');
-    Route::delete('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'destroy'])->name('admin.employees.tasks.destroy');
+        Route::get('/admin', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
+        Route::get('/admin/registrations', [AdminDashboardController::class, 'registrations'])->name('admin.registrations.index');
+        Route::get('/admin/applicants/search', [AdminDashboardController::class, 'searchApplicants'])
+            ->middleware('throttle:120,1')
+            ->name('admin.applicants.search');
+        Route::get('/admin/workforce', [AdminWorkforceController::class, 'index'])->name('admin.workforce');
+        Route::get('/admin/workforce/departments', [AdminWorkforceController::class, 'departments'])->name('admin.workforce.departments');
+        Route::get('/admin/workforce/job-titles', [AdminWorkforceController::class, 'jobTitles'])->name('admin.workforce.job-titles');
+        Route::get('/admin/workforce/work-locations', [AdminWorkforceController::class, 'workLocations'])->name('admin.workforce.work-locations');
+        Route::get('/admin/workforce/shifts', [AdminWorkforceController::class, 'shifts'])->name('admin.workforce.shifts');
+        Route::get('/admin/workforce/leave-types', [AdminWorkforceController::class, 'leaveTypes'])->name('admin.workforce.leave-types');
+        Route::get('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'chatFaqs'])->name('admin.workforce.chat-faqs');
+        Route::post('/admin/workforce/departments', [AdminWorkforceController::class, 'storeDepartment'])->name('admin.workforce.departments.store');
+        Route::post('/admin/workforce/departments/{department}', [AdminWorkforceController::class, 'updateDepartment'])->name('admin.workforce.departments.update');
+        Route::post('/admin/workforce/job-titles', [AdminWorkforceController::class, 'storeJobTitle'])->name('admin.workforce.job-titles.store');
+        Route::post('/admin/workforce/job-titles/{jobTitle}', [AdminWorkforceController::class, 'updateJobTitle'])->name('admin.workforce.job-titles.update');
+        Route::post('/admin/workforce/work-locations', [AdminWorkforceController::class, 'storeWorkLocation'])->name('admin.workforce.work-locations.store');
+        Route::post('/admin/workforce/work-locations/{location}', [AdminWorkforceController::class, 'updateWorkLocation'])->name('admin.workforce.work-locations.update');
+        Route::post('/admin/workforce/shifts', [AdminWorkforceController::class, 'storeShift'])->name('admin.workforce.shifts.store');
+        Route::post('/admin/workforce/shifts/{shift}', [AdminWorkforceController::class, 'updateShift'])->name('admin.workforce.shifts.update');
+        Route::post('/admin/workforce/leave-types', [AdminWorkforceController::class, 'storeLeaveType'])->name('admin.workforce.leave-types.store');
+        Route::post('/admin/workforce/leave-types/{leaveType}', [AdminWorkforceController::class, 'updateLeaveType'])->name('admin.workforce.leave-types.update');
+        Route::post('/admin/workforce/chat-faqs', [AdminWorkforceController::class, 'storeChatFaq'])->name('admin.workforce.chat-faqs.store');
+        Route::post('/admin/workforce/chat-faqs/{chatFaq}', [AdminWorkforceController::class, 'updateChatFaq'])->name('admin.workforce.chat-faqs.update');
+        Route::post('/admin/workforce/geocode/reverse', [AdminWorkforceController::class, 'reverseGeocode'])
+            ->middleware('throttle:120,1')
+            ->name('admin.workforce.geocode.reverse');
+        Route::get('/admin/workforce/geocode/search', [AdminWorkforceController::class, 'searchGeocode'])
+            ->middleware('throttle:120,1')
+            ->name('admin.workforce.geocode.search');
+        Route::get('/admin/registrations/{companySlug}/{publicId}', [AdminDashboardController::class, 'show'])
+            ->name('admin.registrations.show');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'update'])
+            ->name('admin.registrations.assignment.update');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/profile', [AdminEmployeeAssignmentController::class, 'updateProfile'])
+            ->name('admin.registrations.profile.update');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/leave', [AdminEmployeeAssignmentController::class, 'storeLeave'])
+            ->name('admin.registrations.leave.store');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/leave-entitlements', [AdminEmployeeAssignmentController::class, 'storeLeaveEntitlement'])
+            ->name('admin.registrations.leave-entitlements.store');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/leave-entitlements/{entitlement}', [AdminEmployeeAssignmentController::class, 'updateLeaveEntitlement'])
+            ->name('admin.registrations.leave-entitlements.update');
+        Route::delete('/admin/registrations/{companySlug}/{publicId}/leave-entitlements/{entitlement}', [AdminEmployeeAssignmentController::class, 'destroyLeaveEntitlement'])
+            ->name('admin.registrations.leave-entitlements.destroy');
+        Route::get('/admin/employees/profiles', [AdminEmployeeAssignmentController::class, 'profiles'])->name('admin.employees.profiles');
+        Route::get('/admin/employees/{publicId}/pdf', [AdminEmployeeAssignmentController::class, 'profilePdf'])
+            ->where('publicId', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+            ->name('admin.employees.profiles.pdf');
+        Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'assignments'])->name('admin.employees.assignments');
+        Route::get('/admin/employees/weekly-schedule', [AdminWeeklyScheduleController::class, 'index'])->name('admin.employees.weekly-schedule');
+        Route::post('/admin/employees/weekly-schedule/shifts', [AdminWeeklyScheduleController::class, 'storeShift'])->name('admin.employees.weekly-schedule.shifts.store');
+        Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'updateShift'])->name('admin.employees.weekly-schedule.shifts.update');
+        Route::delete('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'destroyShift'])->name('admin.employees.weekly-schedule.shifts.destroy');
+        Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/status', [AdminWeeklyScheduleController::class, 'markShiftStatus'])->name('admin.employees.weekly-schedule.shifts.status');
+        Route::post('/admin/employees/weekly-schedule/available-requests/{availableShiftRequest}/approve', [AdminWeeklyScheduleController::class, 'approveAvailableShiftRequest'])->where(['availableShiftRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.available-requests.approve');
+        Route::post('/admin/employees/weekly-schedule/available-requests/{availableShiftRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectAvailableShiftRequest'])->where(['availableShiftRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.available-requests.reject');
+        Route::post('/admin/employees/weekly-schedule/fill-from-assignments', [AdminWeeklyScheduleController::class, 'fillFromAssignments'])->name('admin.employees.weekly-schedule.fill-from-assignments');
+        Route::post('/admin/time-off-requests/{timeOffRequest}/approve', [AdminWeeklyScheduleController::class, 'approvePendingTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.approve');
+        Route::post('/admin/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.reject');
+        Route::post('/admin/employees/weekly-schedule/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.time-off-requests.reject');
+        Route::get('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'index'])->name('admin.employees.tasks');
+        Route::post('/admin/employees/tasks', [AdminEmployeeTasksController::class, 'store'])->name('admin.employees.tasks.store');
+        Route::post('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'update'])->name('admin.employees.tasks.update');
+        Route::delete('/admin/employees/tasks/{taskAssignment}', [AdminEmployeeTasksController::class, 'destroy'])->name('admin.employees.tasks.destroy');
 
-    Route::get('/admin/induction', [AdminTrainingController::class, 'induction'])->name('admin.induction');
-    Route::get('/admin/training', [AdminTrainingController::class, 'index'])->name('admin.training.index');
-    Route::get('/admin/training/create', [AdminTrainingController::class, 'create'])->name('admin.training.create');
-    Route::post('/admin/training', [AdminTrainingController::class, 'store'])->name('admin.training.store');
-    Route::get('/admin/training/{module}', [AdminTrainingController::class, 'show'])->name('admin.training.show')->whereNumber('module');
-    Route::post('/admin/training/{module}', [AdminTrainingController::class, 'update'])->name('admin.training.update')->whereNumber('module');
-    Route::post('/admin/training/{module}/delete', [AdminTrainingController::class, 'destroy'])->name('admin.training.destroy')->whereNumber('module');
-    Route::post('/admin/training/{module}/pages', [AdminTrainingController::class, 'storePage'])->name('admin.training.pages.store')->whereNumber('module');
-    Route::get('/admin/training/{module}/pages/{page}/image', [AdminTrainingController::class, 'pageImage'])->name('admin.training.pages.image')->whereNumber(['module', 'page']);
-    Route::get('/admin/training/{module}/pages/{page}/sections/{section}/image', [AdminTrainingController::class, 'sectionImage'])->name('admin.training.sections.image')->whereNumber(['module', 'page', 'section']);
-    Route::post('/admin/training/{module}/pages/{page}', [AdminTrainingController::class, 'updatePage'])->name('admin.training.pages.update')->whereNumber(['module', 'page']);
-    Route::post('/admin/training/{module}/pages/{page}/delete', [AdminTrainingController::class, 'destroyPage'])->name('admin.training.pages.destroy')->whereNumber(['module', 'page']);
-    Route::post('/admin/training/{module}/pages/{page}/move', [AdminTrainingController::class, 'movePage'])->name('admin.training.pages.move')->whereNumber(['module', 'page']);
-    Route::post('/admin/training/{module}/pages/{page}/sections', [AdminTrainingController::class, 'storeSection'])->name('admin.training.sections.store')->whereNumber(['module', 'page']);
-    Route::post('/admin/training/{module}/pages/{page}/sections/{section}', [AdminTrainingController::class, 'updateSection'])->name('admin.training.sections.update')->whereNumber(['module', 'page', 'section']);
-    Route::post('/admin/training/{module}/pages/{page}/sections/{section}/delete', [AdminTrainingController::class, 'destroySection'])->name('admin.training.sections.destroy')->whereNumber(['module', 'page', 'section']);
-    Route::post('/admin/training/{module}/pages/{page}/sections/{section}/move', [AdminTrainingController::class, 'moveSection'])->name('admin.training.sections.move')->whereNumber(['module', 'page', 'section']);
-    Route::post('/admin/training/{module}/questions', [AdminTrainingController::class, 'storeQuestion'])->name('admin.training.questions.store')->whereNumber('module');
-    Route::post('/admin/training/{module}/questions/{question}/delete', [AdminTrainingController::class, 'destroyQuestion'])->name('admin.training.questions.destroy')->whereNumber(['module', 'question']);
-    Route::post('/admin/training/{module}/assign', [AdminTrainingController::class, 'assign'])->name('admin.training.assign')->whereNumber('module');
-    Route::get('/admin/training/{module}/results', [AdminTrainingController::class, 'results'])->name('admin.training.results')->whereNumber('module');
-    Route::post('/admin/training/{module}/assignments/{assignment}/reset', [AdminTrainingController::class, 'resetAttempt'])->name('admin.training.assignments.reset')->whereNumber(['module', 'assignment']);
-    Route::post('/admin/training/{module}/assignments/{assignment}/delete', [AdminTrainingController::class, 'destroyAssignment'])->name('admin.training.assignments.destroy')->whereNumber(['module', 'assignment']);
-    Route::get('/admin/employees/time-clock', [AdminEmployeeAssignmentController::class, 'timeClock'])->name('admin.employees.time-clock');
-    Route::post('/admin/employees/time-clock/timesheets/approve', [AdminEmployeeAssignmentController::class, 'approveTimesheet'])->name('admin.employees.time-clock.timesheets.approve');
-    Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
-    Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
-    Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
-    Route::get('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'index'])->name('admin.employees.time-clock.grace');
-    Route::post('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'update'])->name('admin.employees.time-clock.grace.update');
-    Route::post('/admin/employees/time-clock/grace/{exception}', [AdminClockInGraceController::class, 'clear'])->whereNumber('exception')->name('admin.employees.time-clock.grace.clear');
-    Route::post('/admin/employees/time-clock/early-clock-out/{earlyClockOut}', [AdminClockInGraceController::class, 'clearEarlyClockOut'])->whereNumber('earlyClockOut')->name('admin.employees.time-clock.early-clock-out.clear');
-    Route::post('/admin/employees/time-clock/break-window', [AdminBreakWindowController::class, 'update'])->name('admin.employees.time-clock.break-window.update');
-    Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
-    Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
-    Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
-    Route::get('/admin/payroll', [AdminPayrollController::class, 'index'])->name('admin.payroll');
-    Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
-    Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');
-    Route::post('/admin/payroll/runs/export', [AdminPayrollController::class, 'exportRun'])->name('admin.payroll.runs.export');
-    Route::get('/admin/payroll/rates', [AdminPayrollController::class, 'rates'])->name('admin.payroll.rates');
-    Route::post('/admin/payroll/rates', [AdminPayrollController::class, 'updateRates'])->name('admin.payroll.rates.update');
-    Route::get('/admin/payroll/holidays', [AdminPayrollController::class, 'holidays'])->name('admin.payroll.holidays');
-    Route::post('/admin/payroll/holidays', [AdminPayrollController::class, 'storeHoliday'])->name('admin.payroll.holidays.store');
-    Route::delete('/admin/payroll/holidays/{holiday}', [AdminPayrollController::class, 'destroyHoliday'])->name('admin.payroll.holidays.destroy');
-    Route::get('/admin/terms', [AdminTermsController::class, 'edit'])->name('admin.terms.edit');
-    Route::put('/admin/terms', [AdminTermsController::class, 'update'])->name('admin.terms.update');
+        Route::get('/admin/induction', [AdminTrainingController::class, 'induction'])->name('admin.induction');
+        Route::get('/admin/training', [AdminTrainingController::class, 'index'])->name('admin.training.index');
+        Route::get('/admin/training/certificates', [AdminTrainingController::class, 'certificates'])->name('admin.training.certificates');
+        Route::get('/admin/training/create', [AdminTrainingController::class, 'create'])->name('admin.training.create');
+        Route::post('/admin/training', [AdminTrainingController::class, 'store'])->name('admin.training.store');
+        Route::get('/admin/training/{module}', [AdminTrainingController::class, 'show'])->name('admin.training.show')->whereNumber('module');
+        Route::post('/admin/training/{module}', [AdminTrainingController::class, 'update'])->name('admin.training.update')->whereNumber('module');
+        Route::post('/admin/training/{module}/delete', [AdminTrainingController::class, 'destroy'])->name('admin.training.destroy')->whereNumber('module');
+        Route::post('/admin/training/{module}/pages', [AdminTrainingController::class, 'storePage'])->name('admin.training.pages.store')->whereNumber('module');
+        Route::get('/admin/training/{module}/blocks/{block}/file', [AdminTrainingController::class, 'blockFile'])->name('admin.training.blocks.file')->whereNumber(['module', 'block']);
+        Route::get('/admin/training/{module}/pages/{page}/image', [AdminTrainingController::class, 'pageImage'])->name('admin.training.pages.image')->whereNumber(['module', 'page']);
+        Route::get('/admin/training/{module}/pages/{page}/sections/{section}/image', [AdminTrainingController::class, 'sectionImage'])->name('admin.training.sections.image')->whereNumber(['module', 'page', 'section']);
+        Route::post('/admin/training/{module}/pages/{page}', [AdminTrainingController::class, 'updatePage'])->name('admin.training.pages.update')->whereNumber(['module', 'page']);
+        Route::post('/admin/training/{module}/pages/{page}/delete', [AdminTrainingController::class, 'destroyPage'])->name('admin.training.pages.destroy')->whereNumber(['module', 'page']);
+        Route::post('/admin/training/{module}/pages/{page}/move', [AdminTrainingController::class, 'movePage'])->name('admin.training.pages.move')->whereNumber(['module', 'page']);
+        Route::post('/admin/training/{module}/pages/{page}/sections', [AdminTrainingController::class, 'storeSection'])->name('admin.training.sections.store')->whereNumber(['module', 'page']);
+        Route::post('/admin/training/{module}/pages/{page}/sections/{section}', [AdminTrainingController::class, 'updateSection'])->name('admin.training.sections.update')->whereNumber(['module', 'page', 'section']);
+        Route::post('/admin/training/{module}/pages/{page}/sections/{section}/delete', [AdminTrainingController::class, 'destroySection'])->name('admin.training.sections.destroy')->whereNumber(['module', 'page', 'section']);
+        Route::post('/admin/training/{module}/pages/{page}/sections/{section}/move', [AdminTrainingController::class, 'moveSection'])->name('admin.training.sections.move')->whereNumber(['module', 'page', 'section']);
+        Route::post('/admin/training/{module}/quiz', [AdminTrainingController::class, 'updateQuiz'])->name('admin.training.quiz.update')->whereNumber('module');
+        Route::post('/admin/training/{module}/questions', [AdminTrainingController::class, 'storeQuestion'])->name('admin.training.questions.store')->whereNumber('module');
+        Route::post('/admin/training/{module}/questions/{question}', [AdminTrainingController::class, 'updateQuestion'])->name('admin.training.questions.update')->whereNumber(['module', 'question']);
+        Route::get('/admin/training/{module}/questions/{question}/media', [AdminTrainingController::class, 'questionMedia'])->name('admin.training.questions.media')->whereNumber(['module', 'question']);
+        Route::post('/admin/training/{module}/questions/{question}/delete', [AdminTrainingController::class, 'destroyQuestion'])->name('admin.training.questions.destroy')->whereNumber(['module', 'question']);
+        Route::post('/admin/training/{module}/assign', [AdminTrainingController::class, 'assign'])->name('admin.training.assign')->whereNumber('module');
+        Route::get('/admin/training/{module}/results', [AdminTrainingController::class, 'results'])->name('admin.training.results')->whereNumber('module');
+        Route::get('/admin/training/{module}/assignments/{assignment}/review', [AdminTrainingController::class, 'review'])->name('admin.training.assignments.review')->whereNumber(['module', 'assignment']);
+        Route::post('/admin/training/{module}/assignments/{assignment}/review', [AdminTrainingController::class, 'markReview'])->name('admin.training.assignments.review.store')->whereNumber(['module', 'assignment']);
+        Route::get('/admin/training/{module}/assignments/{assignment}/certificate', [AdminTrainingController::class, 'certificate'])->name('admin.training.assignments.certificate')->whereNumber(['module', 'assignment']);
+        Route::post('/admin/training/{module}/assignments/{assignment}/reset', [AdminTrainingController::class, 'resetAttempt'])->name('admin.training.assignments.reset')->whereNumber(['module', 'assignment']);
+        Route::post('/admin/training/{module}/assignments/{assignment}/delete', [AdminTrainingController::class, 'destroyAssignment'])->name('admin.training.assignments.destroy')->whereNumber(['module', 'assignment']);
+        Route::get('/admin/employees/time-clock', [AdminEmployeeAssignmentController::class, 'timeClock'])->name('admin.employees.time-clock');
+        Route::get('/admin/employees/time-clock/weeks', [AdminEmployeeAssignmentController::class, 'timeClockOlderWeeks'])->name('admin.employees.time-clock.weeks');
+        Route::post('/admin/employees/time-clock/timesheets/approve', [AdminEmployeeAssignmentController::class, 'approveTimesheet'])->name('admin.employees.time-clock.timesheets.approve');
+        Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
+        Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
+        Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
+        Route::post('/admin/employees/time-clock/timesheets/reopen', [AdminEmployeeAssignmentController::class, 'reopenTimesheet'])->name('admin.employees.time-clock.timesheets.reopen');
+        Route::get('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'index'])->name('admin.employees.time-clock.grace');
+        Route::post('/admin/employees/time-clock/grace', [AdminClockInGraceController::class, 'update'])->name('admin.employees.time-clock.grace.update');
+        Route::post('/admin/employees/time-clock/grace/{exception}', [AdminClockInGraceController::class, 'clear'])->whereNumber('exception')->name('admin.employees.time-clock.grace.clear');
+        Route::post('/admin/employees/time-clock/early-clock-out/{earlyClockOut}', [AdminClockInGraceController::class, 'clearEarlyClockOut'])->whereNumber('earlyClockOut')->name('admin.employees.time-clock.early-clock-out.clear');
+        Route::post('/admin/employees/time-clock/break-window', [AdminBreakWindowController::class, 'update'])->name('admin.employees.time-clock.break-window.update');
+        Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
+        Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
+        Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
+        Route::get('/admin/payroll', [AdminPayrollController::class, 'index'])->name('admin.payroll');
+        Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
+        Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');
+        Route::post('/admin/payroll/runs/export', [AdminPayrollController::class, 'exportRun'])->name('admin.payroll.runs.export');
+        Route::post('/admin/payroll/runs/export-pdf', [AdminPayrollController::class, 'exportPdf'])->name('admin.payroll.runs.export-pdf');
+        Route::get('/admin/payroll/rates', [AdminPayrollController::class, 'rates'])->name('admin.payroll.rates');
+        Route::post('/admin/payroll/rates', [AdminPayrollController::class, 'updateRates'])->name('admin.payroll.rates.update');
+        Route::get('/admin/payroll/holidays', [AdminPayrollController::class, 'holidays'])->name('admin.payroll.holidays');
+        Route::post('/admin/payroll/holidays', [AdminPayrollController::class, 'storeHoliday'])->name('admin.payroll.holidays.store');
+        Route::delete('/admin/payroll/holidays/{holiday}', [AdminPayrollController::class, 'destroyHoliday'])->name('admin.payroll.holidays.destroy');
+        Route::get('/admin/terms', [AdminTermsController::class, 'edit'])->name('admin.terms.edit');
+        Route::put('/admin/terms', [AdminTermsController::class, 'update'])->name('admin.terms.update');
 
-    Route::get('/admin/messages', [AdminMessagesController::class, 'index'])->name('admin.messages.index');
-    Route::post('/admin/messages/direct', [AdminMessagesController::class, 'storeDirect'])->name('admin.messages.direct.store');
-    Route::post('/admin/messages/groups', [AdminMessagesController::class, 'storeGroup'])->name('admin.messages.groups.store');
-    Route::post('/admin/messages/announcements', [AdminMessagesController::class, 'storeAnnouncement'])->name('admin.messages.announcements.store');
-    Route::post('/admin/messages/reports/{report}/resolve', [AdminMessagesController::class, 'resolveReport'])
-        ->whereNumber('report')
-        ->name('admin.messages.reports.resolve');
-    Route::get('/admin/messages/{conversation}', [AdminMessagesController::class, 'show'])
-        ->where(['conversation' => '[0-9]+'])
-        ->name('admin.messages.show');
-    Route::post('/admin/messages/{conversation}/send', [AdminMessagesController::class, 'send'])
-        ->where(['conversation' => '[0-9]+'])
-        ->name('admin.messages.send');
-    Route::get('/admin/messages/attachments/{message}', [AdminMessagesController::class, 'attachment'])
-        ->where(['message' => '[0-9]+'])
-        ->name('admin.messages.attachment');
+        Route::get('/admin/messages', [AdminMessagesController::class, 'index'])->name('admin.messages.index');
+        Route::post('/admin/messages/direct', [AdminMessagesController::class, 'storeDirect'])->name('admin.messages.direct.store');
+        Route::post('/admin/messages/groups', [AdminMessagesController::class, 'storeGroup'])->name('admin.messages.groups.store');
+        Route::post('/admin/messages/announcements', [AdminMessagesController::class, 'storeAnnouncement'])->name('admin.messages.announcements.store');
+        Route::post('/admin/messages/reports/{report}/resolve', [AdminMessagesController::class, 'resolveReport'])
+            ->whereNumber('report')
+            ->name('admin.messages.reports.resolve');
+        Route::get('/admin/messages/{conversation}', [AdminMessagesController::class, 'show'])
+            ->where(['conversation' => '[0-9]+'])
+            ->name('admin.messages.show');
+        Route::post('/admin/messages/{conversation}/send', [AdminMessagesController::class, 'send'])
+            ->where(['conversation' => '[0-9]+'])
+            ->name('admin.messages.send');
+        Route::get('/admin/messages/attachments/{message}', [AdminMessagesController::class, 'attachment'])
+            ->where(['message' => '[0-9]+'])
+            ->name('admin.messages.attachment');
 
-    Route::get('/admin/reports', [AdminReportsController::class, 'index'])->name('admin.reports');
-    Route::get('/admin/reports/payroll', [AdminReportsController::class, 'payroll'])->name('admin.reports.payroll');
-    Route::get('/admin/reports/paysheet', [AdminReportsController::class, 'paysheet'])->name('admin.reports.paysheet');
-    Route::get('/admin/reports/timesheet', [AdminReportsController::class, 'timesheet'])->name('admin.reports.timesheet');
-    Route::get('/admin/reports/leave', [AdminReportsController::class, 'leave'])->name('admin.reports.leave');
-    Route::get('/admin/reports/headcount', [AdminReportsController::class, 'headcount'])->name('admin.reports.headcount');
-    Route::get('/admin/reports/training', [AdminReportsController::class, 'training'])->name('admin.reports.training');
-    Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
-        ->name('admin.employees.assignment.update');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/accept', [AdminRegistrationDecisionController::class, 'accept'])
-        ->name('admin.registrations.accept');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/decline', [AdminRegistrationDecisionController::class, 'decline'])
-        ->name('admin.registrations.decline');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/mark-inactive', [AdminRegistrationDecisionController::class, 'markInactive'])
-        ->name('admin.registrations.mark-inactive');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/reactivate', [AdminRegistrationDecisionController::class, 'reactivate'])
-        ->name('admin.registrations.reactivate');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override', [AdminRegistrationDecisionController::class, 'overrideInduction'])
-        ->name('admin.registrations.induction-override');
-    Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override/clear', [AdminRegistrationDecisionController::class, 'clearInductionOverride'])
-        ->name('admin.registrations.induction-override.clear');
-    Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
-        ->name('admin.registration.file')
-        ->where('slot', '[a-z\\-]+');
+        Route::get('/admin/reports', [AdminReportsController::class, 'index'])->name('admin.reports');
+        Route::get('/admin/reports/payroll', [AdminReportsController::class, 'payroll'])->name('admin.reports.payroll');
+        Route::get('/admin/reports/paysheet', [AdminReportsController::class, 'paysheet'])->name('admin.reports.paysheet');
+        Route::get('/admin/reports/timesheet', [AdminReportsController::class, 'timesheet'])->name('admin.reports.timesheet');
+        Route::get('/admin/reports/punctuality', [AdminReportsController::class, 'punctuality'])->name('admin.reports.punctuality');
+        Route::get('/admin/reports/missed-shifts', [AdminReportsController::class, 'missedShifts'])->name('admin.reports.missed-shifts');
+        Route::get('/admin/reports/leave', [AdminReportsController::class, 'leave'])->name('admin.reports.leave');
+        Route::get('/admin/reports/headcount', [AdminReportsController::class, 'headcount'])->name('admin.reports.headcount');
+        Route::get('/admin/reports/training', [AdminReportsController::class, 'training'])->name('admin.reports.training');
+        Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
+            ->name('admin.employees.assignment.update');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/accept', [AdminRegistrationDecisionController::class, 'accept'])
+            ->name('admin.registrations.accept');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/decline', [AdminRegistrationDecisionController::class, 'decline'])
+            ->name('admin.registrations.decline');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/mark-inactive', [AdminRegistrationDecisionController::class, 'markInactive'])
+            ->name('admin.registrations.mark-inactive');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/reactivate', [AdminRegistrationDecisionController::class, 'reactivate'])
+            ->name('admin.registrations.reactivate');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override', [AdminRegistrationDecisionController::class, 'overrideInduction'])
+            ->name('admin.registrations.induction-override');
+        Route::post('/admin/registrations/{companySlug}/{publicId}/induction-override/clear', [AdminRegistrationDecisionController::class, 'clearInductionOverride'])
+            ->name('admin.registrations.induction-override.clear');
+        Route::get('/admin/registrations/{companySlug}/{publicId}/files/{slot}/{itemKey?}', [AdminRegistrationFileController::class, 'show'])
+            ->name('admin.registration.file')
+            ->where('slot', '[a-z\\-]+');
         Route::get('/admin', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
         Route::get('/admin/registrations', [AdminDashboardController::class, 'registrations'])->name('admin.registrations.index');
         Route::get('/admin/applicants/search', [AdminDashboardController::class, 'searchApplicants'])
@@ -235,6 +253,9 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::delete('/admin/registrations/{companySlug}/{publicId}/leave-entitlements/{entitlement}', [AdminEmployeeAssignmentController::class, 'destroyLeaveEntitlement'])
             ->name('admin.registrations.leave-entitlements.destroy');
         Route::get('/admin/employees/profiles', [AdminEmployeeAssignmentController::class, 'profiles'])->name('admin.employees.profiles');
+        Route::get('/admin/employees/{publicId}/pdf', [AdminEmployeeAssignmentController::class, 'profilePdf'])
+            ->where('publicId', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+            ->name('admin.employees.profiles.pdf');
         Route::get('/admin/employees', [AdminEmployeeAssignmentController::class, 'assignments'])->name('admin.employees.assignments');
         Route::get('/admin/employees/weekly-schedule', [AdminWeeklyScheduleController::class, 'index'])->name('admin.employees.weekly-schedule');
         Route::post('/admin/employees/weekly-schedule/shifts', [AdminWeeklyScheduleController::class, 'storeShift'])->name('admin.employees.weekly-schedule.shifts.store');
@@ -242,6 +263,8 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::delete('/admin/employees/weekly-schedule/shifts/{scheduleShift}', [AdminWeeklyScheduleController::class, 'destroyShift'])->name('admin.employees.weekly-schedule.shifts.destroy');
         Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/status', [AdminWeeklyScheduleController::class, 'markShiftStatus'])->name('admin.employees.weekly-schedule.shifts.status');
         Route::post('/admin/employees/weekly-schedule/shifts/{scheduleShift}/cover', [AdminWeeklyScheduleController::class, 'assignShiftCover'])->name('admin.employees.weekly-schedule.shifts.cover');
+        Route::post('/admin/employees/weekly-schedule/available-requests/{availableShiftRequest}/approve', [AdminWeeklyScheduleController::class, 'approveAvailableShiftRequest'])->where(['availableShiftRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.available-requests.approve');
+        Route::post('/admin/employees/weekly-schedule/available-requests/{availableShiftRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectAvailableShiftRequest'])->where(['availableShiftRequest' => '[0-9]+'])->name('admin.employees.weekly-schedule.available-requests.reject');
         Route::post('/admin/employees/weekly-schedule/fill-from-assignments', [AdminWeeklyScheduleController::class, 'fillFromAssignments'])->name('admin.employees.weekly-schedule.fill-from-assignments');
         Route::post('/admin/time-off-requests/{timeOffRequest}/approve', [AdminWeeklyScheduleController::class, 'approvePendingTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.approve');
         Route::post('/admin/time-off-requests/{timeOffRequest}/reject', [AdminWeeklyScheduleController::class, 'rejectTimeOffRequest'])->where(['timeOffRequest' => '[0-9]+'])->name('admin.time-off-requests.reject');
@@ -255,6 +278,7 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::post('/admin/employees/time-clock/timesheets/reject', [AdminEmployeeAssignmentController::class, 'rejectTimesheet'])->name('admin.employees.time-clock.timesheets.reject');
         Route::post('/admin/employees/time-clock/timesheets/reset', [AdminEmployeeAssignmentController::class, 'resetTimesheet'])->name('admin.employees.time-clock.timesheets.reset');
         Route::post('/admin/employees/time-clock/timesheets/update-punches', [AdminEmployeeAssignmentController::class, 'updateTimesheetPunches'])->name('admin.employees.time-clock.timesheets.update-punches');
+        Route::post('/admin/employees/time-clock/timesheets/reopen', [AdminEmployeeAssignmentController::class, 'reopenTimesheet'])->name('admin.employees.time-clock.timesheets.reopen');
         Route::get('/admin/employees/location-tracking', [AdminLocationTrackingController::class, 'index'])->name('admin.employees.location-tracking');
         Route::get('/admin/employees/location-tracking/live', [AdminLocationTrackingController::class, 'live'])->name('admin.employees.location-tracking.live');
         Route::get('/admin/employees/location-tracking/trail', [AdminLocationTrackingController::class, 'trail'])->name('admin.employees.location-tracking.trail');
@@ -262,6 +286,7 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::get('/admin/payroll/runs', [AdminPayrollController::class, 'runs'])->name('admin.payroll.runs');
         Route::post('/admin/payroll/runs/generate', [AdminPayrollController::class, 'generateRun'])->name('admin.payroll.runs.generate');
         Route::post('/admin/payroll/runs/export', [AdminPayrollController::class, 'exportRun'])->name('admin.payroll.runs.export');
+        Route::post('/admin/payroll/runs/export-pdf', [AdminPayrollController::class, 'exportPdf'])->name('admin.payroll.runs.export-pdf');
         Route::get('/admin/payroll/rates', [AdminPayrollController::class, 'rates'])->name('admin.payroll.rates');
         Route::post('/admin/payroll/rates', [AdminPayrollController::class, 'updateRates'])->name('admin.payroll.rates.update');
         Route::get('/admin/payroll/holidays', [AdminPayrollController::class, 'holidays'])->name('admin.payroll.holidays');
@@ -273,6 +298,8 @@ Route::middleware('auth:portal')->group(function (): void {
         Route::get('/admin/reports/payroll', [AdminReportsController::class, 'payroll'])->name('admin.reports.payroll');
         Route::get('/admin/reports/paysheet', [AdminReportsController::class, 'paysheet'])->name('admin.reports.paysheet');
         Route::get('/admin/reports/timesheet', [AdminReportsController::class, 'timesheet'])->name('admin.reports.timesheet');
+        Route::get('/admin/reports/punctuality', [AdminReportsController::class, 'punctuality'])->name('admin.reports.punctuality');
+        Route::get('/admin/reports/missed-shifts', [AdminReportsController::class, 'missedShifts'])->name('admin.reports.missed-shifts');
         Route::get('/admin/reports/leave', [AdminReportsController::class, 'leave'])->name('admin.reports.leave');
         Route::get('/admin/reports/headcount', [AdminReportsController::class, 'headcount'])->name('admin.reports.headcount');
         Route::post('/admin/employees/{publicId}/assignment', [AdminEmployeeAssignmentController::class, 'updateFromList'])
@@ -295,7 +322,9 @@ Route::middleware('auth:portal')->group(function (): void {
 
         Route::get('/admin/incidents', [AdminIncidentReportsController::class, 'index'])->name('admin.incidents.index');
         Route::get('/admin/incidents/alerts', [AdminIncidentReportsController::class, 'alerts'])->name('admin.incidents.alerts');
+        Route::get('/admin/incidents/export', [AdminIncidentReportsController::class, 'export'])->name('admin.incidents.export');
         Route::get('/admin/incidents/{incident}', [AdminIncidentReportsController::class, 'show'])->whereNumber('incident')->name('admin.incidents.show');
+        Route::get('/admin/incidents/{incident}/pdf', [AdminIncidentReportsController::class, 'pdf'])->whereNumber('incident')->name('admin.incidents.pdf');
         Route::post('/admin/incidents/{incident}', [AdminIncidentReportsController::class, 'update'])->whereNumber('incident')->name('admin.incidents.update');
         Route::get('/admin/incidents/{incident}/attachment', [AdminIncidentReportsController::class, 'attachment'])->whereNumber('incident')->name('admin.incidents.attachment');
     });

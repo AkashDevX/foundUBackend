@@ -22,7 +22,7 @@ final class AutoClockOut
      * stays open forever when no shift end can be resolved.
      *
      * @param  array{start_time?: string, end_time?: string}|null  $shiftTimes  Resolved "HH:MM" times, or null.
-     * @return array{0: CarbonInterface|null, 1: string}  [closeAt in $tz, reason] — closeAt is null when nothing to do.
+     * @return array{0: CarbonInterface|null, 1: string} [closeAt in $tz, reason] — closeAt is null when nothing to do.
      */
     public static function resolveCloseAt(
         ?array $shiftTimes,
@@ -57,5 +57,25 @@ final class AutoClockOut
         }
 
         return [null, ''];
+    }
+
+    /**
+     * Whether a GPS reading is outside the work location's own radius.
+     * Device accuracy is not added. Keep in sync with isOutsideGeofence()
+     * in the mobile app.
+     */
+    public static function isOutside(
+        float $distanceMeters,
+        int $allowedRadiusMeters,
+        ?float $accuracyMeters = null,
+        int $exitExtraMeters = 0,
+    ): bool {
+        if (! is_finite($distanceMeters)) {
+            return false;
+        }
+
+        $exitAt = max(0, $allowedRadiusMeters) + max(0, $exitExtraMeters);
+
+        return $distanceMeters > $exitAt;
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Employee;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
@@ -157,12 +158,9 @@ final class BreakWindow
             $phase = self::PHASE_CLOSED;
         }
 
-        $blockMessage = null;
-        if (! $within) {
-            $blockMessage = $moment->lessThan($opens)
-                ? "You can only take your break between {$opensLabel} and {$closesLabel}."
-                : "The break window closed at {$closesLabel}. You can only take your break between {$opensLabel} and {$closesLabel}.";
-        }
+        $blockMessage = $within
+            ? null
+            : "You can only take your break between {$opensLabel} and {$closesLabel}.";
 
         return [
             'required' => true,
@@ -214,7 +212,7 @@ final class BreakWindow
 
     public static function exampleSentence(int $startMinutes, int $endMinutes): string
     {
-        $start = \Carbon\Carbon::parse('2026-01-01 06:00:00', DisplayTimezone::name());
+        $start = Carbon::parse('2026-01-01 06:00:00', DisplayTimezone::name());
         $window = self::assess(
             $start,
             $start->copy()->addHours(8),
@@ -234,7 +232,7 @@ final class BreakWindow
     }
 
     /**
-     * @return array{start: \Carbon\Carbon, end: \Carbon\Carbon|null}|null
+     * @return array{start: Carbon, end: Carbon|null}|null
      */
     private static function shiftBounds(Employee $employee, CarbonInterface $now): ?array
     {

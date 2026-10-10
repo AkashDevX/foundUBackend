@@ -8,6 +8,7 @@ use App\Models\JobTitle;
 use App\Models\PublicHoliday;
 use App\Models\TimeClockEntry;
 use App\Support\AdminPayroll;
+use App\Support\JobTitleDefaults;
 use App\Support\PayrollCalculator;
 use App\Support\PayrollRateTypes;
 use Carbon\Carbon;
@@ -251,6 +252,33 @@ class PayrollJobTitleWageTest extends TestCase
         $this->assertSame(227.0, round($byTitle['Cook']['amount'] + $byTitle['Barista']['amount'], 2));
     }
 
+    public function test_one_clock_session_split_across_two_scheduled_titles_on_the_same_day(): void
+    {
+        $cook = $this->title(15, 'Cook', 32.00);
+        $barista = $this->title(16, 'Barista', 22.00);
+        $employee = $this->employee('Riley Chen', $cook, [$cook, $barista]);
+
+        $start = Carbon::parse('2025-07-07 08:30:00', self::TZ);
+        $entries = new Collection($this->clockSession($start, $start->copy()->addHours(9)));
+        $schedule = new Collection([
+            $this->schedule('2025-07-07', '09:00', '13:00', $cook),
+            $this->schedule('2025-07-07', '13:00', '17:00', $barista),
+        ]);
+
+        $result = $this->pay($employee, $entries, $schedule);
+
+        // 08:30–09:00 and 17:00–17:30 fall outside both shifts, so they use the primary title (Cook).
+        // Cook 5.00h × $32.00 = $160.00 (0.50 + 4.00 scheduled + 0.50)
+        // Barista 4.00h × $22.00 = $88.00
+        $byTitle = collect($this->wageLines($result))->keyBy('label');
+        $this->assertSame(5.0, $byTitle['Cook']['hours']);
+        $this->assertSame(160.0, $byTitle['Cook']['amount']);
+        $this->assertSame(4.0, $byTitle['Barista']['hours']);
+        $this->assertSame(88.0, $byTitle['Barista']['amount']);
+        $this->assertSame(9.0, $result['total_hours']);
+        $this->assertSame(248.0, $result['total_amount']);
+    }
+
     public function test_weekend_and_public_holiday_hours_still_use_job_title_wage(): void
     {
         $title = $this->title(7, 'Chef', 31.10);
@@ -402,6 +430,57 @@ class PayrollJobTitleWageTest extends TestCase
         $this->assertSame(200.0, $result['total_amount']);
         $this->assertSame('CAS1 (Penalty Rates)', $this->wageLines($result)[0]['label']);
         $this->assertSame('5.00h × $40.00 = $200.00', AdminPayroll::formatPayLine($this->wageLines($result)[0]));
+    }
+
+    public function test_scheduled_cas_and_pt_titles_are_paid_at_each_titles_own_wage(): void
+    {
+        $cas = $this->title(
+            21,
+            JobTitleDefaults::defaultName('casual', 'level_1'),
+            (float) JobTitleDefaults::defaultWage('casual', 'level_1', PayrollRateTypes::WEEKDAY_ORDINARY),
+        );
+        $pt = $this->title(
+            22,
+            JobTitleDefaults::defaultName('part_time', 'level_1'),
+            (float) JobTitleDefaults::defaultWage('part_time', 'level_1', PayrollRateTypes::WEEKDAY_ORDINARY),
+        );
+        $casSaturday = $this->title(
+            23,
+            JobTitleDefaults::defaultName('casual', 'level_1', PayrollRateTypes::SATURDAY),
+            (float) JobTitleDefaults::defaultWage('casual', 'level_1', PayrollRateTypes::SATURDAY),
+        );
+        $employee = $this->employee('Multi Title', $cas, [$cas, $pt, $casSaturday]);
+
+        $monday = Carbon::parse('2025-07-07 09:00:00', self::TZ);
+        $saturday = Carbon::parse('2025-07-12 09:00:00', self::TZ);
+        $result = $this->pay(
+            $employee,
+            new Collection([
+                ...$this->clockSession($monday, $monday->copy()->addHours(8)),
+                ...$this->clockSession($saturday, $saturday->copy()->addHours(3)),
+            ]),
+            new Collection([
+                $this->schedule('2025-07-07', '09:00', '13:00', $cas),
+                $this->schedule('2025-07-07', '13:00', '17:00', $pt),
+                $this->schedule('2025-07-12', '09:00', '12:00', $casSaturday),
+            ]),
+        );
+
+        // CAS1 4.00h × $32.31 = $129.24
+        // PT1 4.00h × $29.73 = $118.92
+        // CAS1 (Saturday) 3.00h × $45.24 = $135.72
+        $byTitle = collect($this->wageLines($result))->keyBy('label');
+        $this->assertSame(4.0, $byTitle['CAS1']['hours']);
+        $this->assertSame(32.31, $byTitle['CAS1']['rate']);
+        $this->assertSame(129.24, $byTitle['CAS1']['amount']);
+        $this->assertSame(4.0, $byTitle['PT1']['hours']);
+        $this->assertSame(29.73, $byTitle['PT1']['rate']);
+        $this->assertSame(118.92, $byTitle['PT1']['amount']);
+        $this->assertSame(3.0, $byTitle['CAS1 (Saturday)']['hours']);
+        $this->assertSame(45.24, $byTitle['CAS1 (Saturday)']['rate']);
+        $this->assertSame(135.72, $byTitle['CAS1 (Saturday)']['amount']);
+        $this->assertSame(11.0, $result['total_hours']);
+        $this->assertSame(383.88, $result['total_amount']);
     }
 
     public function test_wage_before_effective_date_is_not_used(): void

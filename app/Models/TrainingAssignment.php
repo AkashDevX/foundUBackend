@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
@@ -26,9 +27,19 @@ class TrainingAssignment extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function attempts(): HasMany
+    {
+        return $this->hasMany(TrainingAttempt::class)->orderBy('id');
+    }
+
     public function attempt(): HasOne
     {
-        return $this->hasOne(TrainingAttempt::class);
+        return $this->hasOne(TrainingAttempt::class)->latestOfMany();
+    }
+
+    public function certificate(): HasOne
+    {
+        return $this->hasOne(TrainingCertificate::class);
     }
 
     protected function casts(): array

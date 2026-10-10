@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AvailableShiftRequest;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeLeaveEntitlement;
@@ -15,6 +16,7 @@ use App\Models\TimeOffRequest;
 use App\Models\WorkLocation;
 use App\Support\AdminTimeOffRequestReview;
 use App\Support\AdminWeeklySchedule;
+use App\Support\AvailableShiftOffers;
 use App\Support\InductionEligibility;
 use App\Support\PayrollEmployeeRates;
 use App\Support\WorkforceShifts;
@@ -504,6 +506,105 @@ class AdminWeeklyScheduleController extends Controller
         return $this->redirectBack($request, 'Shift assigned to the selected employee.');
     }
 
+    public function approveAvailableShiftRequest(Request $request, int $availableShiftRequest): RedirectResponse
+    {
+        $context = $this->scheduleContext($request);
+        $conn = $context['conn'];
+
+        /** @var AvailableShiftRequest $claim */
+        $claim = AvailableShiftRequest::on($conn)->with('employee')->findOrFail($availableShiftRequest);
+
+        if ($claim->status !== AvailableShiftRequest::STATUS_PENDING) {
+            return $this->redirectBack($request, 'That request has already been reviewed.');
+        }
+
+        /** @var EmployeeScheduleShift $entry */
+        $entry = EmployeeScheduleShift::on($conn)->findOrFail($claim->schedule_shift_id);
+
+        if (! $entry->made_available || $entry->cover_status !== EmployeeScheduleShift::COVER_AVAILABLE) {
+            throw ValidationException::withMessages([
+                'available_shift_request' => 'This shift is no longer available to assign.',
+            ]);
+        }
+
+        $coverEmployee = $claim->employee;
+        if (! $coverEmployee instanceof Employee) {
+            throw ValidationException::withMessages([
+                'available_shift_request' => 'The employee who requested this shift could not be found.',
+            ]);
+        }
+
+        $coverEmployee = $this->coverEmployeeForAction(
+            $conn,
+            $entry,
+            EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE,
+            $coverEmployee->public_id,
+        );
+        if (! $coverEmployee instanceof Employee) {
+            throw ValidationException::withMessages([
+                'available_shift_request' => 'The employee who requested this shift could not be found.',
+            ]);
+        }
+
+        /** @var OrganizationPortalUser|null $portalUser */
+        $portalUser = $request->user('portal');
+        $reviewedBy = $portalUser?->name ?: $portalUser?->email;
+
+        DB::connection($conn)->transaction(function () use ($conn, $claim, $entry, $coverEmployee, $reviewedBy): void {
+            $claim->fill([
+                'status' => AvailableShiftRequest::STATUS_APPROVED,
+                'reviewed_by' => $reviewedBy,
+                'reviewed_at' => now(),
+            ])->save();
+
+            $this->applyShiftCover(
+                $conn,
+                $entry,
+                EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE,
+                $coverEmployee,
+                $reviewedBy,
+            );
+            $entry->made_available = true;
+            $entry->save();
+        });
+
+        return $this->redirectBack(
+            $request,
+            'Shift assigned to '.AdminWeeklySchedule::employeeDisplayName($coverEmployee).'.',
+        );
+    }
+
+    public function rejectAvailableShiftRequest(Request $request, int $availableShiftRequest): RedirectResponse
+    {
+        $context = $this->scheduleContext($request);
+        $conn = $context['conn'];
+
+        $data = $request->validate([
+            'decision_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        /** @var AvailableShiftRequest $claim */
+        $claim = AvailableShiftRequest::on($conn)->findOrFail($availableShiftRequest);
+
+        if ($claim->status !== AvailableShiftRequest::STATUS_PENDING) {
+            return $this->redirectBack($request, 'That request has already been reviewed.');
+        }
+
+        /** @var OrganizationPortalUser|null $portalUser */
+        $portalUser = $request->user('portal');
+        $reviewedBy = $portalUser?->name ?: $portalUser?->email;
+        $note = isset($data['decision_note']) ? trim((string) $data['decision_note']) : '';
+
+        $claim->fill([
+            'status' => AvailableShiftRequest::STATUS_REJECTED,
+            'decision_note' => $note !== '' ? $note : null,
+            'reviewed_by' => $reviewedBy,
+            'reviewed_at' => now(),
+        ])->save();
+
+        return $this->redirectBack($request, 'Shift request declined.');
+    }
+
     public function fillFromAssignments(Request $request): RedirectResponse
     {
         $context = $this->scheduleContext($request);
@@ -626,6 +727,10 @@ class AdminWeeklyScheduleController extends Controller
             'scheduleRows' => $schedule['rows'],
             'scheduleStats' => $schedule['stats'],
             'unassignedRows' => AdminWeeklySchedule::uncoveredSchedule($unassignedEntries, $weekStart)['rows'],
+            'availableRows' => AdminWeeklySchedule::availableSchedule(
+                $this->availableOfferEntries($conn, $weekStart, $weekEnd, $scheduleRelations),
+                $weekStart,
+            )['rows'],
             'departments' => Department::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'workLocations' => WorkLocation::on($conn)->where('is_active', true)->orderBy('name')->get(),
             'shiftTemplates' => ($shiftTemplates = Shift::on($conn)->where('is_active', true)->orderBy('name')->get()),
@@ -676,6 +781,48 @@ class AdminWeeklyScheduleController extends Controller
         }
 
         return $employeesQuery;
+    }
+
+    /**
+     * @param  list<string>  $scheduleRelations
+     * @return Collection<int, EmployeeScheduleShift>
+     */
+    private function availableOfferEntries(string $conn, CarbonInterface $weekStart, CarbonInterface $weekEnd, array $scheduleRelations): Collection
+    {
+        return EmployeeScheduleShift::on($conn)
+            ->with([...$scheduleRelations, 'availableRequests.employee'])
+            ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+            ->where('made_available', true)
+            ->whereIn('cover_status', [
+                EmployeeScheduleShift::COVER_AVAILABLE,
+                EmployeeScheduleShift::COVER_ASSIGNED,
+            ])
+            ->whereBetween('scheduled_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->orderBy('scheduled_date')
+            ->orderBy('start_time')
+            ->orderBy('id')
+            ->get();
+    }
+
+    private function closePendingAvailableRequests(
+        string $conn,
+        EmployeeScheduleShift $entry,
+        ?string $reviewedBy,
+        string $decisionNote,
+    ): void {
+        if (! $entry->id) {
+            return;
+        }
+
+        AvailableShiftRequest::on($conn)
+            ->where('schedule_shift_id', $entry->id)
+            ->where('status', AvailableShiftRequest::STATUS_PENDING)
+            ->update([
+                'status' => AvailableShiftRequest::STATUS_REJECTED,
+                'decision_note' => $decisionNote,
+                'reviewed_by' => $reviewedBy,
+                'reviewed_at' => now(),
+            ]);
     }
 
     /**
@@ -1350,15 +1497,38 @@ class AdminWeeklyScheduleController extends Controller
             $covering = $this->syncCoveringShift($conn, $entry, $coverEmployee, $createdBy);
             $entry->cover_status = EmployeeScheduleShift::COVER_ASSIGNED;
             $entry->covering_shift_id = $covering->id;
+            if ($entry->made_available) {
+                $this->closePendingAvailableRequests(
+                    $conn,
+                    $entry,
+                    $createdBy,
+                    AvailableShiftOffers::assignmentNote(AdminWeeklySchedule::employeeDisplayName($coverEmployee)),
+                );
+            }
 
             return;
         }
 
         $this->deleteCoveringShift($conn, $entry);
         $entry->covering_shift_id = null;
+
+        if ($coverAction === EmployeeScheduleShift::COVER_AVAILABLE) {
+            $entry->cover_status = EmployeeScheduleShift::COVER_AVAILABLE;
+            $entry->made_available = true;
+
+            return;
+        }
+
+        $entry->made_available = false;
         $entry->cover_status = $coverAction === EmployeeScheduleShift::COVER_UNASSIGNED
             ? EmployeeScheduleShift::COVER_UNASSIGNED
             : EmployeeScheduleShift::COVER_LEAVE_UNCOVERED;
+        $this->closePendingAvailableRequests(
+            $conn,
+            $entry,
+            $createdBy,
+            'This shift is no longer available.',
+        );
     }
 
     private function syncCoveringShift(
@@ -1423,6 +1593,8 @@ class AdminWeeklyScheduleController extends Controller
         $this->deleteCoveringShift($conn, $entry);
         $entry->cover_status = null;
         $entry->covering_shift_id = null;
+        $entry->made_available = false;
+        $this->closePendingAvailableRequests($conn, $entry, null, 'This shift is no longer available.');
     }
 
     private function deleteCoveringShift(string $conn, EmployeeScheduleShift $entry): void
@@ -1463,7 +1635,19 @@ class AdminWeeklyScheduleController extends Controller
             if ($original !== null) {
                 $original->covering_shift_id = null;
                 if ($original->cover_status === EmployeeScheduleShift::COVER_ASSIGNED) {
-                    $original->cover_status = EmployeeScheduleShift::COVER_LEAVE_UNCOVERED;
+                    $original->cover_status = $original->made_available
+                        ? EmployeeScheduleShift::COVER_AVAILABLE
+                        : EmployeeScheduleShift::COVER_LEAVE_UNCOVERED;
+                    if ($original->made_available) {
+                        AvailableShiftRequest::on($conn)
+                            ->where('schedule_shift_id', $original->id)
+                            ->where('status', AvailableShiftRequest::STATUS_APPROVED)
+                            ->update([
+                                'status' => AvailableShiftRequest::STATUS_REJECTED,
+                                'decision_note' => 'The assignment was removed. This shift is available again.',
+                                'reviewed_at' => now(),
+                            ]);
+                    }
                 }
                 $original->save();
             }

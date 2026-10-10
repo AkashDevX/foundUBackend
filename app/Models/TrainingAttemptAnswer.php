@@ -11,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'training_question_id',
     'selected_option_id',
     'is_correct',
+    'response',
+    'points_awarded',
+    'review_status',
+    'reviewed_at',
+    'reviewed_by',
 ])]
 class TrainingAttemptAnswer extends Model
 {
@@ -33,6 +38,9 @@ class TrainingAttemptAnswer extends Model
     {
         return [
             'is_correct' => 'boolean',
+            'response' => 'array',
+            'points_awarded' => 'integer',
+            'reviewed_at' => 'datetime',
         ];
     }
 }

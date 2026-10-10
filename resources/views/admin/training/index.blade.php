@@ -15,10 +15,16 @@
                 Build cleaning SOP modules with study pages and a quiz, then assign them to your team.
             </p> -->
         </div>
-        <a href="{{ route('admin.training.create') }}"
-           class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-primary/90">
-            <span class="text-lg leading-none">+</span> New module
-        </a>
+        <div class="flex shrink-0 flex-wrap gap-2">
+            <a href="{{ route('admin.training.certificates') }}"
+               class="inline-flex items-center justify-center rounded-xl border border-brand-border bg-white px-5 py-2.5 text-sm font-semibold text-brand-text hover:bg-brand-surface">
+                Certificates
+            </a>
+            <a href="{{ route('admin.training.create') }}"
+               class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-primary/90">
+                <span class="text-lg leading-none">+</span> New module
+            </a>
+        </div>
     </div>
 
     @if (session('status'))
@@ -59,10 +65,14 @@
                             <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-text/50">
                                 <span>{{ $module->pages_count }} page{{ $module->pages_count === 1 ? '' : 's' }}</span>
                                 <span>{{ $module->questions_count }} question{{ $module->questions_count === 1 ? '' : 's' }}</span>
-                                @if ($module->is_induction)
-                                    <span>Pass {{ $module->pass_percent }}%</span>
-                                    <span>{{ $module->max_attempts }} attempts</span>
+                                <span>Pass {{ $module->pass_percent ?? 70 }}%</span>
+                                @if ($module->is_induction || ($module->allow_retakes ?? false))
+                                    <span>{{ $module->max_attempts ?? 1 }} attempts</span>
                                 @endif
+                                @unless ($module->quiz_required ?? true)
+                                    <span>Quiz optional</span>
+                                @endunless
+                                <span>Certificate</span>
                                 <span>{{ $summary['assigned'] }} assigned</span>
                                 <span>{{ $summary['completed'] }} completed</span>
                                 @if ($summary['average_percent'] !== null)

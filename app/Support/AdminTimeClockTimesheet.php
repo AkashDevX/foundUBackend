@@ -5,15 +5,17 @@ namespace App\Support;
 use App\Models\Employee;
 use App\Models\EmployeeScheduleShift;
 use App\Models\Shift;
-use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
-use App\Support\PayrollRateTypes;
+use App\Models\TimesheetApproval;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 final class AdminTimeClockTimesheet
 {
+    /** How many pay weeks to show at once. Older weeks are loaded on request. */
+    public const WEEK_PAGE_SIZE = 12;
+
     /** @var list<array{bg: string, border: string, text: string, accent: string}> */
     private const POSITION_PALETTES = [
         ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-800', 'accent' => 'bg-emerald-500'],
@@ -82,16 +84,17 @@ final class AdminTimeClockTimesheet
                     return $date >= $weekStartString && $date <= $weekEndString;
                 })
                 ->sortBy([
-                static fn (EmployeeScheduleShift $shift) => $shift->scheduled_date?->toDateString() ?? '',
-                static fn (EmployeeScheduleShift $shift) => self::storedTimeToHm($shift->start_time),
-                static fn (EmployeeScheduleShift $shift) => $shift->id,
-            ])->values();
+                    static fn (EmployeeScheduleShift $shift) => $shift->scheduled_date?->toDateString() ?? '',
+                    static fn (EmployeeScheduleShift $shift) => self::storedTimeToHm($shift->start_time),
+                    static fn (EmployeeScheduleShift $shift) => $shift->id,
+                ])->values();
 
             if ($weekEntries->isEmpty() && $employeeSchedule->isEmpty()) {
                 continue;
             }
 
             $sessions = self::buildWorkSessions($weekEntries);
+            $latestClockOutId = self::latestClockOutId($entries);
             $sessionIndexByScheduleIndex = self::assignSessionsToScheduleShifts($sessions, $employeeSchedule, $tz);
             $usedSessionIndexes = array_values($sessionIndexByScheduleIndex);
             $rows = [];
@@ -110,7 +113,7 @@ final class AdminTimeClockTimesheet
                 $status = self::resolveSessionStatus($employeeId, $session, $approvalsBySession);
                 $reviewNotes = self::sessionReviewNotes($employeeId, $session, $approvalsBySession);
 
-                $rows[] = self::buildRow($employee, $scheduleShift, $session, $status, $workDate, $reviewNotes);
+                $rows[] = self::buildRow($employee, $scheduleShift, $session, $status, $workDate, $reviewNotes, $latestClockOutId);
             }
 
             foreach ($sessions as $index => $session) {
@@ -122,7 +125,7 @@ final class AdminTimeClockTimesheet
                 $status = self::resolveSessionStatus($employeeId, $session, $approvalsBySession);
                 $reviewNotes = self::sessionReviewNotes($employeeId, $session, $approvalsBySession);
 
-                $rows[] = self::buildRow($employee, null, $session, $status, $workDate, $reviewNotes);
+                $rows[] = self::buildRow($employee, null, $session, $status, $workDate, $reviewNotes, $latestClockOutId);
             }
 
             if ($statusFilter !== null && $statusFilter !== 'all') {
@@ -205,12 +208,15 @@ final class AdminTimeClockTimesheet
         Collection $employees,
         Collection $scheduleShifts,
         Collection $timesheetApprovals,
-        int $weekCount = 12,
+        int $weekCount = self::WEEK_PAGE_SIZE,
+        int $startOffset = 0,
     ): array {
         $currentWeek = AdminWeeklySchedule::resolveWeekStart(null);
         $weeks = [];
+        $startOffset = max(0, $startOffset);
 
-        for ($offset = 0; $offset < $weekCount; $offset++) {
+        for ($index = 0; $index < $weekCount; $index++) {
+            $offset = $startOffset + $index;
             $weekStart = $currentWeek->copy()->subWeeks($offset);
             $built = self::buildGroups($employees, $weekStart, $scheduleShifts, $timesheetApprovals, null);
 
@@ -224,6 +230,23 @@ final class AdminTimeClockTimesheet
         }
 
         return $weeks;
+    }
+
+    /**
+     * Weeks already shown end at $oldestLoadedWeek. The next page starts this many weeks before the current week.
+     */
+    public static function olderPageStartOffset(CarbonInterface $currentWeekStart, string $oldestLoadedWeek): int
+    {
+        $current = AdminWeeklySchedule::resolveWeekStart($currentWeekStart->toDateString());
+        $oldest = AdminWeeklySchedule::resolveWeekStart($oldestLoadedWeek);
+
+        if ($oldest->greaterThan($current)) {
+            return 1;
+        }
+
+        $days = $current->diffInDays($oldest, true);
+
+        return intdiv((int) round((float) $days), 7) + 1;
     }
 
     public static function formatCompactWeekLabel(CarbonInterface $weekStart): string
@@ -528,6 +551,28 @@ final class AdminTimeClockTimesheet
     }
 
     /**
+     * Only the employee's latest punch can be undone. A later clock-in would
+     * leave two open shifts, which the mobile app cannot clock out of cleanly.
+     *
+     * @param  Collection<int, TimeClockEntry>  $entries
+     */
+    private static function latestClockOutId(Collection $entries): int
+    {
+        $latest = $entries
+            ->sortBy(static fn (TimeClockEntry $entry): array => [
+                $entry->clocked_at?->getTimestamp() ?? 0,
+                (int) $entry->id,
+            ])
+            ->last();
+
+        if (! $latest instanceof TimeClockEntry || $latest->event_type !== TimeClockEntry::EVENT_CLOCK_OUT) {
+            return 0;
+        }
+
+        return (int) $latest->id;
+    }
+
+    /**
      * @param  Collection<string, TimesheetApproval>  $approvalsBySession
      */
     private static function resolveSessionStatus(int $employeeId, ?array $session, Collection $approvalsBySession): string
@@ -568,6 +613,7 @@ final class AdminTimeClockTimesheet
         string $status,
         string $workDate,
         ?string $reviewNotes = null,
+        int $latestClockOutId = 0,
     ): array {
         $tz = DisplayTimezone::name();
         $allocatedBreaks = self::resolveAllocatedBreaks($scheduleShift, $session);
@@ -641,7 +687,10 @@ final class AdminTimeClockTimesheet
 
         $autoClockOut = '—';
         if ($clockOut instanceof TimeClockEntry) {
-            $autoClockOut = $clockOut->punch_source === TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT ? 'Yes' : 'No';
+            $autoClockOut = in_array($clockOut->punch_source, [
+                TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT,
+                TimeClockEntry::PUNCH_SOURCE_AUTO_SHIFT_END,
+            ], true) ? 'Yes' : 'No';
         }
 
         $scheduledStart = $scheduleShift !== null ? self::formatStoredTime($scheduleShift->start_time) : '—';
@@ -713,6 +762,10 @@ final class AdminTimeClockTimesheet
             'status_badge_classes' => AdminTimesheetApproval::statusBadgeClasses($status),
             'can_review' => in_array($status, [TimesheetApproval::STATUS_PENDING, TimesheetApproval::STATUS_REJECTED], true),
             'can_reset' => in_array($status, [TimesheetApproval::STATUS_APPROVED, TimesheetApproval::STATUS_REJECTED], true),
+            'can_reopen' => $clockOut instanceof TimeClockEntry
+                && (int) $clockOut->id > 0
+                && (int) $clockOut->id === $latestClockOutId
+                && ! ($session['is_open'] ?? false),
             'work_date' => $date,
             'auto_clock_out' => $autoClockOut,
             'break_type' => $breakTypeLabel,
@@ -748,6 +801,10 @@ final class AdminTimeClockTimesheet
                 'status_label' => AdminTimesheetApproval::statusLabel($status),
                 'can_review' => in_array($status, [TimesheetApproval::STATUS_PENDING, TimesheetApproval::STATUS_REJECTED], true),
                 'can_reset' => in_array($status, [TimesheetApproval::STATUS_APPROVED, TimesheetApproval::STATUS_REJECTED], true),
+                'can_reopen' => $clockOut instanceof TimeClockEntry
+                    && (int) $clockOut->id > 0
+                    && (int) $clockOut->id === $latestClockOutId
+                    && ! ($session['is_open'] ?? false),
                 'is_open' => (bool) ($session['is_open'] ?? false),
             ],
         ];

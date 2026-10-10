@@ -1079,6 +1079,10 @@ final class RegistrationDisplay
 
     public static function registrationStoragePath(Employee $employee, string $slot, ?string $itemKey = null): ?string
     {
+        if ($slot === 'vehicle-registration') {
+            return $employee->vehicleRegistrationDocumentPath();
+        }
+
         if (isset(self::REGISTRATION_FILE_SLOT_TO_ATTRIBUTE[$slot])) {
             $path = $employee->{self::REGISTRATION_FILE_SLOT_TO_ATTRIBUTE[$slot]};
 

@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Models\AvailableShiftRequest;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeAssignmentShift;
@@ -9,6 +10,7 @@ use App\Models\EmployeeScheduleShift;
 use App\Models\Shift;
 use App\Models\WorkLocation;
 use App\Support\AdminWeeklySchedule;
+use App\Support\AvailableShiftOffers;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
@@ -381,6 +383,7 @@ class AdminWeeklyScheduleTest extends TestCase
             EmployeeScheduleShift::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
             EmployeeScheduleShift::COVER_ACTION_ASSIGN_EMPLOYEE => 'Assign to an employee',
             EmployeeScheduleShift::COVER_UNASSIGNED => 'Make unassigned',
+            EmployeeScheduleShift::COVER_AVAILABLE => 'Make available',
         ], EmployeeScheduleShift::coverActionOptions());
     }
 
@@ -464,6 +467,132 @@ class AdminWeeklyScheduleTest extends TestCase
         $this->assertSame(51, $schedule['rows'][0]['cells']['wed']['blocks'][0]['id']);
         $this->assertSame('Unassigned', $schedule['rows'][0]['cells']['wed']['blocks'][0]['cover_status_label']);
         $this->assertSame([], $schedule['rows'][0]['cells']['thu']['blocks']);
+    }
+
+    public function test_available_schedule_keeps_assigned_offers_visible(): void
+    {
+        $weekStart = Carbon::parse('2026-06-15', 'Australia/Brisbane')->startOfWeek(Carbon::MONDAY);
+        $employee = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
+        $coverEmployee = $this->scheduleTestEmployee(11, 'emp-11', 'Sam Lee');
+        $requester = $this->scheduleTestEmployee(12, 'emp-12', 'Jordan Blake');
+
+        $open = $this->scheduleTestShift(50, 10, '2026-06-16', [
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+            'cover_status' => EmployeeScheduleShift::COVER_AVAILABLE,
+            'made_available' => true,
+        ]);
+        $open->setRelation('employee', $employee);
+        $request = new AvailableShiftRequest([
+            'schedule_shift_id' => 50,
+            'employee_id' => 12,
+            'note' => 'I can cover this.',
+            'status' => AvailableShiftRequest::STATUS_PENDING,
+        ]);
+        $request->id = 7;
+        $request->setRelation('employee', $requester);
+        $open->setRelation('availableRequests', new Collection([$request]));
+
+        $taken = $this->scheduleTestShift(51, 10, '2026-06-17', [
+            'status' => EmployeeScheduleShift::STATUS_NO_SHOW,
+            'cover_status' => EmployeeScheduleShift::COVER_ASSIGNED,
+            'made_available' => true,
+            'covering_shift_id' => 90,
+        ]);
+        $taken->setRelation('employee', $employee);
+        $taken->setRelation('availableRequests', new Collection);
+        $taken->setRelation('coveringShift', tap($this->scheduleTestShift(90, 11, '2026-06-17'), static function (EmployeeScheduleShift $cover) use ($coverEmployee): void {
+            $cover->setRelation('employee', $coverEmployee);
+        }));
+
+        $plainUnassigned = $this->scheduleTestShift(52, 10, '2026-06-18', [
+            'cover_status' => EmployeeScheduleShift::COVER_UNASSIGNED,
+            'made_available' => false,
+        ]);
+        $plainUnassigned->setRelation('employee', $employee);
+        $plainUnassigned->setRelation('availableRequests', new Collection);
+
+        $schedule = AdminWeeklySchedule::availableSchedule(
+            new Collection([$open, $taken, $plainUnassigned]),
+            $weekStart
+        );
+
+        $this->assertCount(1, $schedule['rows']);
+        $openBlock = $schedule['rows'][0]['cells']['tue']['blocks'][0];
+        $this->assertFalse($openBlock['available_assigned']);
+        $this->assertSame('Available', $openBlock['cover_status_label']);
+        $this->assertSame('Jordan Blake', $openBlock['available_requests'][0]['employee_name']);
+        $this->assertSame('I can cover this.', $openBlock['available_requests'][0]['note']);
+
+        $takenBlock = $schedule['rows'][0]['cells']['wed']['blocks'][0];
+        $this->assertTrue($takenBlock['available_assigned']);
+        $this->assertSame(
+            'This shift was available and has been assigned to Sam Lee.',
+            $takenBlock['available_assignment_note']
+        );
+        $this->assertSame([], $schedule['rows'][0]['cells']['thu']['blocks']);
+    }
+
+    public function test_mobile_available_shifts_hide_taken_offers_from_new_requests(): void
+    {
+        $original = $this->scheduleTestEmployee(10, 'emp-10', 'Aimee Fromm');
+        $viewer = $this->scheduleTestEmployee(11, 'emp-11', 'Sam Lee');
+        $other = $this->scheduleTestEmployee(12, 'emp-12', 'Jordan Blake');
+
+        $open = $this->scheduleTestShift(50, 10, '2026-06-20', [
+            'cover_status' => EmployeeScheduleShift::COVER_AVAILABLE,
+            'made_available' => true,
+            'status' => EmployeeScheduleShift::STATUS_SICK_CALL_OUT,
+        ]);
+        $open->setRelation('employee', $original);
+        $open->setRelation('jobTitle', null);
+        $open->setRelation('department', null);
+        $open->setRelation('workLocation', null);
+
+        $taken = $this->scheduleTestShift(51, 10, '2026-06-21', [
+            'cover_status' => EmployeeScheduleShift::COVER_ASSIGNED,
+            'made_available' => true,
+        ]);
+        $taken->setRelation('employee', $original);
+        $taken->setRelation('jobTitle', null);
+        $taken->setRelation('department', null);
+        $taken->setRelation('workLocation', null);
+        $taken->setRelation('coveringShift', tap($this->scheduleTestShift(90, 12, '2026-06-21'), static function (EmployeeScheduleShift $cover) use ($other): void {
+            $cover->setRelation('employee', $other);
+        }));
+
+        $own = $this->scheduleTestShift(52, 11, '2026-06-22', [
+            'cover_status' => EmployeeScheduleShift::COVER_AVAILABLE,
+            'made_available' => true,
+        ]);
+        $own->setRelation('employee', $viewer);
+
+        $pending = new AvailableShiftRequest([
+            'schedule_shift_id' => 50,
+            'employee_id' => 11,
+            'note' => 'Happy to pick this up.',
+            'status' => AvailableShiftRequest::STATUS_PENDING,
+        ]);
+        $pending->id = 3;
+
+        $items = AvailableShiftOffers::mobileItems(
+            new Collection([$open, $taken, $own]),
+            $viewer,
+            new Collection([$pending]),
+            '2026-06-16',
+        );
+
+        $this->assertCount(2, $items);
+        $this->assertSame(50, $items[0]['id']);
+        $this->assertSame('open', $items[0]['state']);
+        $this->assertFalse($items[0]['can_request']);
+        $this->assertSame('pending', $items[0]['my_request']['status']);
+        $this->assertSame(51, $items[1]['id']);
+        $this->assertSame('assigned', $items[1]['state']);
+        $this->assertFalse($items[1]['can_request']);
+        $this->assertSame(
+            'This shift was available and has been assigned to Jordan Blake.',
+            $items[1]['assignment_note']
+        );
     }
 
     public function test_build_schedule_shows_original_employee_on_covering_shift(): void

@@ -7,15 +7,20 @@ use App\Models\Employee;
 use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
 use App\Models\TimeClockIdleAlert;
+use App\Models\TimeClockLocationSample;
+use App\Models\TimesheetApproval;
 use App\Models\WorkLocation;
+use App\Support\AutoClockOut;
 use App\Support\BreakWindow;
 use App\Support\ClockInGraceGate;
+use App\Support\DisplayTimezone;
 use App\Support\EarlyClockOutGate;
+use App\Support\GeoDistance;
 use App\Support\InductionEligibility;
 use App\Support\TimeClockScheduledShift;
-use App\Support\GeoDistance;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class TimeClockService
 {
@@ -56,8 +61,17 @@ class TimeClockService
         $clockInEntry = $session['clock_in'] ?? null;
         $lastEntry = $session['last'] ?? $this->latestEntryFor($employee);
         // Live site is today's allocated shift location, not the work assignment.
+        // An open punch with no live site still uses the site they clocked into,
+        // so a smaller geofence is not replaced by the 300 m fallback.
         $geofenceSite = $employee->effectiveWorkLocationForMobile();
         $hasCoordinates = $this->workLocationHasCoordinates($geofenceSite);
+        if ($isClockedIn && $clockInEntry instanceof TimeClockEntry && ! $hasCoordinates) {
+            $sessionSite = $this->resolveSessionWorkLocation($employee, $clockInEntry);
+            if ($this->workLocationHasCoordinates($sessionSite)) {
+                $geofenceSite = $sessionSite;
+                $hasCoordinates = true;
+            }
+        }
         $liveRadius = $this->radiusForWorkLocation($geofenceSite instanceof WorkLocation ? $geofenceSite : null);
         $shiftIssue = $isClockedIn ? null : TimeClockScheduledShift::shiftIssue($employee);
         $grace = $isClockedIn
@@ -105,12 +119,22 @@ class TimeClockService
             $session !== null && $session['breaks'] !== [],
         );
 
+        $home = $inductionIssue !== null
+            ? ['scheduled_shift' => null, 'scheduled_shifts' => []]
+            : TimeClockScheduledShift::homePayload($employee);
+        $hasSchedulableShift = ($home['scheduled_shift'] ?? null) !== null;
+
         return [
             'is_clocked_in' => $isClockedIn,
             'is_on_break' => $isOnBreak,
-            'can_clock_in' => !$isClockedIn && $assignmentReady && $shiftIssue === null && $graceIssue === null && $inductionIssue === null,
+            'can_clock_in' => ! $isClockedIn
+                && $assignmentReady
+                && $shiftIssue === null
+                && $graceIssue === null
+                && $inductionIssue === null
+                && $hasSchedulableShift,
             'can_clock_out' => $isClockedIn,
-            'can_break_in' => $isClockedIn && !$isOnBreak && BreakWindow::allowsBreakStart($breakWindow),
+            'can_break_in' => $isClockedIn && ! $isOnBreak && BreakWindow::allowsBreakStart($breakWindow),
             'can_break_out' => $isOnBreak,
             'geofence_radius_meters' => $liveRadius,
             'open_session' => $isClockedIn && $clockInEntry instanceof TimeClockEntry
@@ -150,9 +174,11 @@ class TimeClockService
                     'shift_end_label' => null,
                 ],
             'break_window' => $breakWindow,
-            'scheduled_shift' => $inductionIssue !== null
-                ? null
-                : TimeClockScheduledShift::todayShiftForDisplay($employee),
+            'scheduled_shift' => $home['scheduled_shift'],
+            'scheduled_shifts' => $home['scheduled_shifts'],
+            'work_location' => TimeClockScheduledShift::workLocationPayload(
+                $geofenceSite instanceof WorkLocation ? $geofenceSite : null,
+            ),
             'work_assignment' => $employee->workAssignmentForApi(),
         ];
     }
@@ -193,10 +219,14 @@ class TimeClockService
 
             $this->assertCanClockIn($employee);
 
-            $scheduledShift = $this->assertScheduledShiftForClockIn($employee);
+            $requestedShiftId = isset($device['schedule_shift_id']) ? (int) $device['schedule_shift_id'] : 0;
+            $scheduledShift = $this->assertScheduledShiftForClockIn(
+                $employee,
+                $requestedShiftId > 0 ? $requestedShiftId : null,
+            );
 
             $location = $this->resolveClockInWorkLocation($scheduledShift);
-            if (!$location instanceof WorkLocation || !$this->workLocationHasCoordinates($location)) {
+            if (! $location instanceof WorkLocation || ! $this->workLocationHasCoordinates($location)) {
                 throw new TimeClockException(
                     'work_location_not_found',
                     'Today\'s shift does not have a work location with map coordinates. Contact your administrator.',
@@ -221,6 +251,7 @@ class TimeClockService
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
                 $scheduledShift->shift_id,
+                $scheduledShift->id ? (int) $scheduledShift->id : null,
             );
 
             ClockInGraceGate::noteSuccessfulClockIn($employee, $scheduledShift);
@@ -271,7 +302,7 @@ class TimeClockService
             $session = $this->assertCanClockOut($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (!$location instanceof WorkLocation) {
+            if (! $location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -298,6 +329,7 @@ class TimeClockService
                     $geofence,
                     TimeClockEntry::PUNCH_SOURCE_MANUAL,
                     $session['clock_in']->shift_id,
+                    $this->scheduleShiftIdFromClockIn($session['clock_in']),
                 );
             }
 
@@ -309,6 +341,7 @@ class TimeClockService
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
                 $session['clock_in']->shift_id,
+                $this->scheduleShiftIdFromClockIn($session['clock_in']),
             );
 
             $this->clearIdleAlertsForSession($employee, $session['clock_in']);
@@ -334,7 +367,7 @@ class TimeClockService
             $session = $this->assertCanBreakStart($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (!$location instanceof WorkLocation) {
+            if (! $location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -355,6 +388,7 @@ class TimeClockService
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
                 $session['clock_in']->shift_id,
+                $this->scheduleShiftIdFromClockIn($session['clock_in']),
             );
 
             return [
@@ -377,7 +411,7 @@ class TimeClockService
             $session = $this->assertCanBreakEnd($employee);
 
             $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-            if (!$location instanceof WorkLocation) {
+            if (! $location instanceof WorkLocation) {
                 throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
             }
 
@@ -398,6 +432,7 @@ class TimeClockService
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_MANUAL,
                 $session['clock_in']->shift_id,
+                $this->scheduleShiftIdFromClockIn($session['clock_in']),
             );
 
             return [
@@ -420,23 +455,10 @@ class TimeClockService
             $employee->loadMissing(['workLocation', 'assignedDepartment', 'assignedShift']);
 
             $session = $this->assertCanClockOut($employee);
-
-            // Follow today's allocated shift site so a schedule location change
-            // moves the zone even if the work-assignment site is different.
-            $liveLocation = $employee->effectiveWorkLocationForMobile();
-            $sessionLocation = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
-
-            if ($liveLocation instanceof WorkLocation && $this->workLocationHasCoordinates($liveLocation)) {
-                $location = $liveLocation;
-                $geofence = $this->evaluateGeofence(
-                    $location,
-                    $device['latitude'],
-                    $device['longitude'],
-                    $device['accuracy_meters'] ?? null,
-                );
-            } else {
-                $location = $sessionLocation;
-                if (!$location instanceof WorkLocation) {
+            $match = $this->matchingAutoClockOutTarget($employee, $session, $device);
+            if ($match === null) {
+                $location = $this->resolveSessionWorkLocation($employee, $session['clock_in']);
+                if (! $location instanceof WorkLocation) {
                     throw new TimeClockException('work_location_not_found', 'Assigned work location not found.');
                 }
                 $geofence = $this->evaluateSessionGeofence(
@@ -446,9 +468,16 @@ class TimeClockService
                     $device['longitude'],
                     $device['accuracy_meters'] ?? null,
                 );
+                $this->assertOutsideGeofenceForAutoClockOut($geofence, $device['accuracy_meters'] ?? null);
+
+                throw new TimeClockException(
+                    'still_within_geofence',
+                    'You are still within the work site geofence.',
+                );
             }
 
-            $this->assertOutsideGeofenceForAutoClockOut($geofence, $device['accuracy_meters'] ?? null);
+            $location = $match['location'];
+            $geofence = $match['geofence'];
 
             if ($session['is_on_break']) {
                 $this->createEntry(
@@ -459,6 +488,7 @@ class TimeClockService
                     $geofence,
                     TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT,
                     $session['clock_in']->shift_id,
+                    $this->scheduleShiftIdFromClockIn($session['clock_in']),
                 );
             }
 
@@ -470,6 +500,7 @@ class TimeClockService
                 $geofence,
                 TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT,
                 $session['clock_in']->shift_id,
+                $this->scheduleShiftIdFromClockIn($session['clock_in']),
             );
 
             $this->clearIdleAlertsForSession($employee, $session['clock_in']);
@@ -482,38 +513,187 @@ class TimeClockService
     }
 
     /**
-     * Close an open session from a server-side process (scheduled shift-end / max-hours
-     * safety net) — no device coordinates are required. Returns null when the employee is
-     * not currently clocked in, so callers can safely run it over a batch.
+     * Close an open session when the latest stored GPS sample is outside the
+     * site. Used by the scheduler so a missed phone request still clocks them out.
+     *
+     * @return array{at: CarbonInterface, device: array<string, mixed>}|null
      */
+    public function openSessionLeftSite(Employee $employee): ?array
+    {
+        $session = $this->resolveOpenSession($employee);
+        if ($session === null) {
+            return null;
+        }
+
+        /** @var TimeClockEntry $clockIn */
+        $clockIn = $session['clock_in'];
+        $sample = TimeClockLocationSample::query()
+            ->where('employee_id', $employee->id)
+            ->where('clock_in_entry_id', $clockIn->id)
+            ->orderByDesc('recorded_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $sample instanceof TimeClockLocationSample || $sample->latitude === null || $sample->longitude === null) {
+            return null;
+        }
+
+        $device = [
+            'latitude' => (float) $sample->latitude,
+            'longitude' => (float) $sample->longitude,
+            'accuracy_meters' => $sample->accuracy_meters !== null ? (float) $sample->accuracy_meters : null,
+        ];
+        $match = $this->matchingAutoClockOutTarget($employee, $session, $device);
+        if ($match === null || $sample->recorded_at === null) {
+            return null;
+        }
+
+        return [
+            'at' => $sample->recorded_at,
+            'device' => [
+                'latitude' => $device['latitude'],
+                'longitude' => $device['longitude'],
+                'accuracy_meters' => $device['accuracy_meters'],
+                'distance_meters' => $match['geofence']['distance_meters'],
+                'allowed_radius_meters' => $match['geofence']['allowed_radius_meters'],
+                'within_geofence' => false,
+                'expected_latitude' => $match['geofence']['expected_latitude'],
+                'expected_longitude' => $match['geofence']['expected_longitude'],
+                'work_location_id' => $match['location']->id,
+            ],
+        ];
+    }
+
+    /**
+     * Admin closes an in-progress shift at a chosen time. The employee is clocked out.
+     */
+    public function adminCloseOpenSession(Employee $employee, int $clockInEntryId, CarbonInterface $clockOutAt): TimeClockEntry
+    {
+        return DB::transaction(function () use ($employee, $clockInEntryId, $clockOutAt) {
+            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            $session = $this->resolveOpenSession($employee);
+            if ($session === null || (int) $session['clock_in']->id !== $clockInEntryId) {
+                throw new TimeClockException(
+                    'not_in_progress',
+                    'That shift is not in progress, so it cannot be clocked out.',
+                );
+            }
+
+            $at = $clockOutAt->copy()->utc();
+            $clockInAt = $session['clock_in']->clocked_at;
+            if ($clockInAt !== null && $at->lessThanOrEqualTo($clockInAt)) {
+                throw new TimeClockException(
+                    'clock_out_before_clock_in',
+                    'Clock out must be after clock in.',
+                );
+            }
+
+            $lastAt = $session['last']->clocked_at;
+            if ($lastAt !== null && $at->lessThan($lastAt)) {
+                throw new TimeClockException(
+                    'clock_out_before_last_punch',
+                    'Clock out must be at or after the latest punch on this shift.',
+                );
+            }
+
+            if ($at->greaterThan(now('UTC')->addMinute())) {
+                throw new TimeClockException(
+                    'clock_out_in_future',
+                    'Clock out time cannot be in the future.',
+                );
+            }
+
+            $entry = $this->insertSystemClockOut(
+                $employee,
+                $session,
+                $at,
+                TimeClockEntry::PUNCH_SOURCE_ADMIN,
+                'Clocked out by an administrator.',
+                null,
+            );
+
+            if (! $entry instanceof TimeClockEntry) {
+                throw new TimeClockException(
+                    'not_in_progress',
+                    'That shift is not in progress, so it cannot be clocked out.',
+                );
+            }
+
+            return $entry;
+        });
+    }
+
+    /**
+     * Remove an accidental clock-out so the shift is in progress again.
+     * The employee can then clock out from the mobile app.
+     */
+    public function reopenClosedSession(Employee $employee, int $clockInEntryId, int $clockOutEntryId): void
+    {
+        DB::transaction(function () use ($employee, $clockInEntryId, $clockOutEntryId): void {
+            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+
+            $clockIn = TimeClockEntry::query()
+                ->where('employee_id', $employee->id)
+                ->whereKey($clockInEntryId)
+                ->first();
+
+            if (! $clockIn instanceof TimeClockEntry || $clockIn->event_type !== TimeClockEntry::EVENT_CLOCK_IN) {
+                throw new TimeClockException(
+                    'invalid_clock_in',
+                    'The selected clock-in record is invalid.',
+                );
+            }
+
+            $clockOut = $this->closingClockOutFor($employee, $clockIn);
+            if (! $clockOut instanceof TimeClockEntry) {
+                throw new TimeClockException(
+                    'already_in_progress',
+                    'This shift is already in progress.',
+                );
+            }
+
+            if ((int) $clockOut->id !== $clockOutEntryId) {
+                throw new TimeClockException(
+                    'clock_out_mismatch',
+                    'That clock-out no longer matches this shift. Refresh the page and try again.',
+                );
+            }
+
+            $latest = $this->latestEntryFor($employee);
+            if (! $latest instanceof TimeClockEntry || (int) $latest->id !== (int) $clockOut->id) {
+                throw new TimeClockException(
+                    'later_clock_activity',
+                    'This shift cannot be reopened because the employee has clocked in or out again after it. Only the latest clock-out can be put back in progress.',
+                );
+            }
+
+            $clockOut->delete();
+
+            if ($this->entriesHaveReopenedAt($employee)) {
+                $clockIn->reopened_at = now('UTC');
+                $clockIn->save();
+            }
+
+            $this->resetTimesheetApprovalForReopen($employee, $clockIn);
+        });
+    }
+
     public function systemClockOut(
         Employee $employee,
         CarbonInterface $clockOutAt,
         string $punchSource,
         ?string $comment = null,
+        ?array $device = null,
     ): ?TimeClockEntry {
-        return DB::transaction(function () use ($employee, $clockOutAt, $punchSource, $comment) {
+        return DB::transaction(function () use ($employee, $clockOutAt, $punchSource, $comment, $device) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
-
             $session = $this->resolveOpenSession($employee);
             if ($session === null) {
                 return null;
             }
 
-            $clockIn = $session['clock_in'];
-            $location = $clockIn->work_location_id !== null
-                ? WorkLocation::query()->find($clockIn->work_location_id)
-                : null;
-            if (! $location instanceof WorkLocation) {
-                $location = $employee->effectiveWorkLocationForMobile();
-            }
-            $expectedLat = $this->workLocationHasCoordinates($location) ? (float) $location->latitude : null;
-            $expectedLng = $this->workLocationHasCoordinates($location) ? (float) $location->longitude : null;
-
-            // Keep clocked_at within [clock-in, now] so payroll totals never go negative
-            // or land in the future when we backdate to the scheduled shift end.
             $at = $clockOutAt->copy()->utc();
-            $clockInAt = $clockIn->clocked_at;
+            $clockInAt = $session['clock_in']->clocked_at;
             if ($clockInAt !== null && $at->lessThan($clockInAt)) {
                 $at = $clockInAt->copy();
             }
@@ -522,43 +702,103 @@ class TimeClockService
                 $at = $nowUtc;
             }
 
-            $baseAttributes = [
-                'employee_id' => $employee->id,
-                'clocked_at' => $at,
-                'device_latitude' => $expectedLat ?? 0,
-                'device_longitude' => $expectedLng ?? 0,
-                'device_accuracy_meters' => null,
-                'work_location_id' => $location?->id ?? $clockIn->work_location_id,
-                'expected_latitude' => $expectedLat,
-                'expected_longitude' => $expectedLng,
-                'distance_from_site_meters' => $expectedLat !== null ? 0 : null,
-                'allowed_radius_meters' => $this->radiusForWorkLocation(
-                    $location instanceof WorkLocation ? $location : null,
-                ),
-                'within_geofence' => true,
-                'punch_source' => $punchSource,
-                'department_id' => $employee->department_id,
-                'shift_id' => $clockIn->shift_id ?? $employee->shift_id,
-            ];
-
-            if ($session['is_on_break']) {
-                TimeClockEntry::query()->create([
-                    ...$baseAttributes,
-                    'event_type' => TimeClockEntry::EVENT_BREAK_END,
-                    'comment' => null,
-                ]);
-            }
-
-            $entry = TimeClockEntry::query()->create([
-                ...$baseAttributes,
-                'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
-                'comment' => $comment !== null ? mb_substr($comment, 0, 2000) : null,
-            ]);
-
-            $this->clearIdleAlertsForSession($employee, $clockIn);
-
-            return $entry;
+            return $this->insertSystemClockOut($employee, $session, $at, $punchSource, $comment, $device);
         });
+    }
+
+    /**
+     * @param  array{
+     *     clock_in: TimeClockEntry,
+     *     last: TimeClockEntry,
+     *     is_on_break: bool,
+     *     open_break_start: TimeClockEntry|null,
+     *     breaks: list<array{start: TimeClockEntry, end: TimeClockEntry|null}>,
+     * }  $session
+     * @param  array<string, mixed>|null  $device
+     */
+    private function insertSystemClockOut(
+        Employee $employee,
+        array $session,
+        CarbonInterface $at,
+        string $punchSource,
+        ?string $comment,
+        ?array $device,
+    ): TimeClockEntry {
+        $clockIn = $session['clock_in'];
+        $location = $clockIn->work_location_id !== null
+            ? WorkLocation::query()->find($clockIn->work_location_id)
+            : null;
+        if (! $location instanceof WorkLocation) {
+            $location = $employee->effectiveWorkLocationForMobile();
+        }
+        if (is_array($device) && isset($device['work_location_id'])) {
+            $fromDevice = WorkLocation::query()->find((int) $device['work_location_id']);
+            if ($fromDevice instanceof WorkLocation) {
+                $location = $fromDevice;
+            }
+        }
+        $expectedLat = $this->workLocationHasCoordinates($location) ? (float) $location->latitude : null;
+        $expectedLng = $this->workLocationHasCoordinates($location) ? (float) $location->longitude : null;
+
+        $baseAttributes = [
+            'employee_id' => $employee->id,
+            'clocked_at' => $at,
+            'device_latitude' => $expectedLat ?? 0,
+            'device_longitude' => $expectedLng ?? 0,
+            'device_accuracy_meters' => null,
+            'work_location_id' => $location?->id ?? $clockIn->work_location_id,
+            'expected_latitude' => $expectedLat,
+            'expected_longitude' => $expectedLng,
+            'distance_from_site_meters' => $expectedLat !== null ? 0 : null,
+            'allowed_radius_meters' => $this->radiusForWorkLocation(
+                $location instanceof WorkLocation ? $location : null,
+            ),
+            'within_geofence' => true,
+            'punch_source' => $punchSource,
+            'department_id' => $employee->department_id,
+            'shift_id' => $clockIn->shift_id ?? $employee->shift_id,
+            'schedule_shift_id' => $this->scheduleShiftIdFromClockIn($clockIn),
+        ];
+        if (! $this->timeClockEntriesHaveScheduleShiftId($employee)) {
+            unset($baseAttributes['schedule_shift_id']);
+        }
+
+        if (is_array($device) && isset($device['latitude'], $device['longitude'])) {
+            $baseAttributes['device_latitude'] = (float) $device['latitude'];
+            $baseAttributes['device_longitude'] = (float) $device['longitude'];
+            $baseAttributes['device_accuracy_meters'] = $device['accuracy_meters'] ?? null;
+            if (isset($device['distance_meters'])) {
+                $baseAttributes['distance_from_site_meters'] = $device['distance_meters'];
+            }
+            if (isset($device['allowed_radius_meters'])) {
+                $baseAttributes['allowed_radius_meters'] = $device['allowed_radius_meters'];
+            }
+            if (array_key_exists('within_geofence', $device)) {
+                $baseAttributes['within_geofence'] = (bool) $device['within_geofence'];
+            }
+            if (isset($device['expected_latitude'], $device['expected_longitude'])) {
+                $baseAttributes['expected_latitude'] = $device['expected_latitude'];
+                $baseAttributes['expected_longitude'] = $device['expected_longitude'];
+            }
+        }
+
+        if ($session['is_on_break']) {
+            TimeClockEntry::query()->create([
+                ...$baseAttributes,
+                'event_type' => TimeClockEntry::EVENT_BREAK_END,
+                'comment' => null,
+            ]);
+        }
+
+        $entry = TimeClockEntry::query()->create([
+            ...$baseAttributes,
+            'event_type' => TimeClockEntry::EVENT_CLOCK_OUT,
+            'comment' => $comment !== null ? mb_substr($comment, 0, 2000) : null,
+        ]);
+
+        $this->clearIdleAlertsForSession($employee, $clockIn);
+
+        return $entry;
     }
 
     private function clearIdleAlertsForSession(Employee $employee, TimeClockEntry $clockIn): void
@@ -575,6 +815,73 @@ class TimeClockService
                 'cleared_at' => now('UTC'),
                 'updated_at' => now('UTC'),
             ]);
+    }
+
+    /**
+     * The clock-out that closed this clock-in, when nothing else has started.
+     */
+    private function closingClockOutFor(Employee $employee, TimeClockEntry $clockIn): ?TimeClockEntry
+    {
+        if ($clockIn->clocked_at === null) {
+            return null;
+        }
+
+        $following = TimeClockEntry::query()
+            ->where('employee_id', $employee->id)
+            ->where(function ($query) use ($clockIn): void {
+                $query->where('clocked_at', '>', $clockIn->clocked_at)
+                    ->orWhere(function ($query) use ($clockIn): void {
+                        $query->where('clocked_at', $clockIn->clocked_at)
+                            ->where('id', '>', $clockIn->id);
+                    });
+            })
+            ->orderBy('clocked_at')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($following as $entry) {
+            if ($entry->event_type === TimeClockEntry::EVENT_CLOCK_IN) {
+                return null;
+            }
+
+            if ($entry->event_type === TimeClockEntry::EVENT_CLOCK_OUT) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    private function resetTimesheetApprovalForReopen(Employee $employee, TimeClockEntry $clockIn): void
+    {
+        $connection = $employee->getConnectionName();
+        if (! Schema::connection($connection)->hasTable('timesheet_approvals')) {
+            return;
+        }
+
+        TimesheetApproval::on($connection)
+            ->where('employee_id', $employee->id)
+            ->where('clock_in_entry_id', $clockIn->id)
+            ->update([
+                'status' => TimesheetApproval::STATUS_PENDING,
+                'completed_sessions' => 0,
+                'reviewed_by' => null,
+                'reviewed_at' => null,
+                'review_notes' => null,
+                'updated_at' => now('UTC'),
+            ]);
+    }
+
+    private function entriesHaveReopenedAt(Employee $employee): bool
+    {
+        $connection = $employee->getConnectionName();
+        static $cache = [];
+        if (array_key_exists($connection, $cache)) {
+            return $cache[$connection];
+        }
+
+        return $cache[$connection] = Schema::connection($connection)->hasTable('time_clock_entries')
+            && Schema::connection($connection)->hasColumn('time_clock_entries', 'reopened_at');
     }
 
     private function latestEntryFor(Employee $employee): ?TimeClockEntry
@@ -625,7 +932,7 @@ class TimeClockService
         }
 
         $last = $entries->first();
-        if ($last === null || !in_array($last->event_type, TimeClockEntry::ON_SHIFT_EVENTS, true)) {
+        if ($last === null || ! in_array($last->event_type, TimeClockEntry::ON_SHIFT_EVENTS, true)) {
             return null;
         }
 
@@ -642,7 +949,7 @@ class TimeClockService
 
         $sessionEntries = array_reverse($sessionEntries);
         $clockIn = $sessionEntries[0] ?? null;
-        if (!$clockIn instanceof TimeClockEntry || $clockIn->event_type !== TimeClockEntry::EVENT_CLOCK_IN) {
+        if (! $clockIn instanceof TimeClockEntry || $clockIn->event_type !== TimeClockEntry::EVENT_CLOCK_IN) {
             return null;
         }
 
@@ -651,6 +958,7 @@ class TimeClockService
         foreach ($sessionEntries as $entry) {
             if ($entry->event_type === TimeClockEntry::EVENT_BREAK_START) {
                 $openBreakStart = $entry;
+
                 continue;
             }
             if ($entry->event_type === TimeClockEntry::EVENT_BREAK_END && $openBreakStart instanceof TimeClockEntry) {
@@ -688,7 +996,7 @@ class TimeClockService
         }
     }
 
-    private function assertScheduledShiftForClockIn(Employee $employee): EmployeeScheduleShift
+    private function assertScheduledShiftForClockIn(Employee $employee, ?int $scheduleShiftId = null): EmployeeScheduleShift
     {
         $issue = TimeClockScheduledShift::shiftIssue($employee);
         if ($issue === TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY) {
@@ -698,8 +1006,28 @@ class TimeClockService
             );
         }
 
+        if ($scheduleShiftId !== null && $scheduleShiftId > 0) {
+            $chosen = TimeClockScheduledShift::unfinishedShiftById($employee, $scheduleShiftId);
+            if ($chosen instanceof EmployeeScheduleShift) {
+                return $chosen;
+            }
+
+            throw new TimeClockException(
+                'shift_not_available',
+                'That shift is not available to clock into.',
+            );
+        }
+
         $shift = TimeClockScheduledShift::findShiftForClockIn($employee);
-        if (!$shift instanceof EmployeeScheduleShift) {
+        if (! $shift instanceof EmployeeScheduleShift) {
+            $today = DisplayTimezone::now()->toDateString();
+            if (TimeClockScheduledShift::shiftsForDate($employee, $today)->isNotEmpty()) {
+                throw new TimeClockException(
+                    'shifts_finished_today',
+                    "You've finished all of today's shifts.",
+                );
+            }
+
             throw new TimeClockException(
                 TimeClockScheduledShift::ISSUE_NO_SHIFT_TODAY,
                 "You don't have any shifts today.",
@@ -772,7 +1100,7 @@ class TimeClockService
         if (! BreakWindow::allowsBreakStart($breakWindow)) {
             throw new TimeClockException(
                 BreakWindow::ISSUE_OUTSIDE,
-                (string) ($breakWindow['message'] ?? 'You can only take your break during the scheduled break window.'),
+                (string) ($breakWindow['block_message'] ?? $breakWindow['message'] ?? 'You can only take your break between the set hours.'),
             );
         }
 
@@ -791,7 +1119,7 @@ class TimeClockService
     private function assertCanBreakEnd(Employee $employee): array
     {
         $session = $this->resolveOpenSession($employee);
-        if ($session === null || !$session['is_on_break']) {
+        if ($session === null || ! $session['is_on_break']) {
             throw new TimeClockException(
                 'not_on_break',
                 'You are not currently on break.',
@@ -842,28 +1170,89 @@ class TimeClockService
      *     expected_longitude: float,
      * }  $geofence
      */
+    /**
+     * @param  array{
+     *     clock_in: TimeClockEntry,
+     *     last: TimeClockEntry,
+     *     is_on_break: bool,
+     *     open_break_start: TimeClockEntry|null,
+     *     breaks: list<array{start: TimeClockEntry, end: TimeClockEntry|null}>,
+     * }  $session
+     * @param  array{latitude: float, longitude: float, accuracy_meters?: float|null}  $device
+     * @return array{location: WorkLocation, geofence: array<string, mixed>}|null
+     */
+    private function matchingAutoClockOutTarget(Employee $employee, array $session, array $device): ?array
+    {
+        $clockIn = $session['clock_in'];
+        $liveLocation = $employee->effectiveWorkLocationForMobile();
+        $sessionLocation = $this->resolveSessionWorkLocation($employee, $clockIn);
+        $accuracy = $device['accuracy_meters'] ?? null;
+
+        if ($liveLocation instanceof WorkLocation && $this->workLocationHasCoordinates($liveLocation)) {
+            $location = $liveLocation;
+            $geofence = $this->evaluateGeofence(
+                $location,
+                $device['latitude'],
+                $device['longitude'],
+                $accuracy,
+            );
+        } else {
+            $location = $sessionLocation;
+            if (! $location instanceof WorkLocation) {
+                return null;
+            }
+            $geofence = $this->evaluateSessionGeofence(
+                $clockIn,
+                $location,
+                $device['latitude'],
+                $device['longitude'],
+                $accuracy,
+            );
+        }
+
+        if (! $this->readingIsOutsideGeofence($geofence, $accuracy)) {
+            return null;
+        }
+
+        return [
+            'location' => $location,
+            'geofence' => $geofence,
+        ];
+    }
+
+    /**
+     * @param  array{distance_meters: float, allowed_radius_meters: int}  $geofence
+     */
+    private function readingIsOutsideGeofence(array $geofence, ?float $accuracyMeters = null): bool
+    {
+        return AutoClockOut::isOutside(
+            (float) $geofence['distance_meters'],
+            (int) $geofence['allowed_radius_meters'],
+            $accuracyMeters,
+            $this->geofenceExitExtraMeters(),
+        );
+    }
+
     private function assertOutsideGeofenceForAutoClockOut(array $geofence, ?float $accuracyMeters = null): void
     {
-        $exitRadius = $geofence['allowed_radius_meters']
-            + $this->geofenceExitExtraMeters()
-            + $this->accuracyBufferMeters($accuracyMeters);
-
-        if ($geofence['distance_meters'] > $exitRadius) {
+        if ($this->readingIsOutsideGeofence($geofence, $accuracyMeters)) {
             return;
         }
+
+        $exitAt = $geofence['allowed_radius_meters'] + $this->geofenceExitExtraMeters();
 
         throw new TimeClockException(
             'still_within_geofence',
             sprintf(
                 'You are still within the work site geofence (about %.0f m away; auto clock-out requires leaving beyond %d m).',
                 $geofence['distance_meters'],
-                (int) round($exitRadius),
+                $exitAt,
             ),
             422,
             [
                 'distance_from_site_meters' => $geofence['distance_meters'],
                 'allowed_radius_meters' => $geofence['allowed_radius_meters'],
-                'exit_radius_meters' => $exitRadius,
+                'exit_radius_meters' => $exitAt,
                 'expected_latitude' => $geofence['expected_latitude'],
                 'expected_longitude' => $geofence['expected_longitude'],
             ],
@@ -872,21 +1261,7 @@ class TimeClockService
 
     private function geofenceExitExtraMeters(): int
     {
-        return max(0, (int) config('time_clock.geofence_exit_extra_meters', 50));
-    }
-
-    private function geofenceAccuracyBufferCapMeters(): int
-    {
-        return max(0, (int) config('time_clock.geofence_accuracy_buffer_cap_meters', 100));
-    }
-
-    private function accuracyBufferMeters(?float $accuracyMeters): float
-    {
-        if ($accuracyMeters === null || !is_finite($accuracyMeters) || $accuracyMeters <= 0) {
-            return 0.0;
-        }
-
-        return min($accuracyMeters, (float) $this->geofenceAccuracyBufferCapMeters());
+        return max(0, (int) config('time_clock.geofence_exit_extra_meters', 0));
     }
 
     /**
@@ -936,12 +1311,11 @@ class TimeClockService
             $expectedLat,
             $expectedLng,
         );
-        $enterRadius = $radius + $this->accuracyBufferMeters($accuracyMeters);
 
         return [
             'distance_meters' => round($distance, 2),
             'allowed_radius_meters' => $radius,
-            'within_geofence' => $distance <= $enterRadius,
+            'within_geofence' => $distance <= $radius,
             'expected_latitude' => $expectedLat,
             'expected_longitude' => $expectedLng,
         ];
@@ -971,12 +1345,11 @@ class TimeClockService
             $expectedLat,
             $expectedLng,
         );
-        $enterRadius = $radius + $this->accuracyBufferMeters($accuracyMeters);
 
         return [
             'distance_meters' => round($distance, 2),
             'allowed_radius_meters' => $radius,
-            'within_geofence' => $distance <= $enterRadius,
+            'within_geofence' => $distance <= $radius,
             'expected_latitude' => $expectedLat,
             'expected_longitude' => $expectedLng,
         ];
@@ -1000,6 +1373,7 @@ class TimeClockService
         array $geofence,
         string $punchSource = TimeClockEntry::PUNCH_SOURCE_MANUAL,
         ?int $shiftIdOverride = null,
+        ?int $scheduleShiftId = null,
     ): TimeClockEntry {
         $attributes = [
             'employee_id' => $employee->id,
@@ -1017,6 +1391,7 @@ class TimeClockService
             'punch_source' => $punchSource,
             'department_id' => $employee->department_id,
             'shift_id' => $shiftIdOverride ?? $employee->shift_id,
+            'schedule_shift_id' => $scheduleShiftId !== null && $scheduleShiftId > 0 ? $scheduleShiftId : null,
         ];
 
         if ($eventType === TimeClockEntry::EVENT_CLOCK_OUT) {
@@ -1026,12 +1401,35 @@ class TimeClockService
             }
         }
 
+        if (! $this->timeClockEntriesHaveScheduleShiftId($employee)) {
+            unset($attributes['schedule_shift_id']);
+        }
+
         return TimeClockEntry::query()->create($attributes);
+    }
+
+    private function scheduleShiftIdFromClockIn(TimeClockEntry $clockIn): ?int
+    {
+        $id = $clockIn->schedule_shift_id;
+
+        return $id !== null && (int) $id > 0 ? (int) $id : null;
+    }
+
+    private function timeClockEntriesHaveScheduleShiftId(Employee $employee): bool
+    {
+        $connection = $employee->getConnectionName();
+        static $cache = [];
+        if (array_key_exists($connection, $cache)) {
+            return $cache[$connection];
+        }
+
+        return $cache[$connection] = Schema::connection($connection)->hasTable('time_clock_entries')
+            && Schema::connection($connection)->hasColumn('time_clock_entries', 'schedule_shift_id');
     }
 
     private function workLocationHasCoordinates(?WorkLocation $location): bool
     {
-        if (!$location instanceof WorkLocation) {
+        if (! $location instanceof WorkLocation) {
             return false;
         }
 
@@ -1047,7 +1445,7 @@ class TimeClockService
             return 'no_work_location_assigned';
         }
 
-        if (!$hasCoordinates) {
+        if (! $hasCoordinates) {
             return 'work_location_missing_coordinates';
         }
 

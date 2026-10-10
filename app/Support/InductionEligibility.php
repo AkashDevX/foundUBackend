@@ -240,6 +240,22 @@ final class InductionEligibility
         }
 
         $maxAttempts = max(1, (int) ($module->max_attempts ?: self::DEFAULT_MAX_ATTEMPTS));
+        if (TrainingQuiz::needsReview($attempt)) {
+            $usedNow = (int) InductionAttempt::on($connection)
+                ->where('training_assignment_id', $assignment->id)
+                ->count();
+
+            return [
+                'is_induction' => true,
+                'can_retry' => false,
+                'attempts_used' => $usedNow,
+                'max_attempts' => $maxAttempts,
+                'attempts_remaining' => max(0, $maxAttempts - $usedNow),
+                'passed' => false,
+                'locked' => false,
+            ];
+        }
+
         $used = (int) InductionAttempt::on($connection)
             ->where('training_assignment_id', $assignment->id)
             ->count() + 1;
@@ -358,11 +374,13 @@ final class InductionEligibility
         $status = $employee instanceof Employee ? self::status($employee) : self::STATUS_REQUIRED;
         $passed = $status === self::STATUS_PASSED || $assignment->attempt?->passed === true;
         $submitted = $assignment->attempt?->isSubmitted() === true;
+        $pendingReview = $submitted && TrainingQuiz::needsReview($assignment->attempt);
         $used = (int) $summary['attempts_used'];
         $maxAttempts = (int) $summary['max_attempts'];
+        $failedAttempt = $submitted && ! $passed && ! $pendingReview;
         $canRetry = $status === self::STATUS_REQUIRED
             && self::allowsAnotherAttempt($passed, $used, $maxAttempts)
-            && ! $submitted;
+            && (! $submitted || $failedAttempt);
 
         return [
             'is_induction' => true,

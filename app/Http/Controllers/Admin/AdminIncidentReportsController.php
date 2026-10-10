@@ -3,14 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\IncidentReport;
 use App\Models\OrganizationPortalUser;
 use App\Support\DisplayTimezone;
 use App\Support\IncidentReportAlerts;
+use App\Support\IncidentReportPdf;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -25,10 +28,7 @@ class AdminIncidentReportsController extends Controller
         $this->useTenant($ctx['connection']);
 
         $ready = Schema::connection($ctx['connection'])->hasTable('incident_reports');
-        $status = (string) $request->query('status', 'open');
-        if (! in_array($status, ['open', 'new', 'acknowledged', 'resolved', 'all'], true)) {
-            $status = 'open';
-        }
+        $status = $this->listStatus($request);
 
         $reports = null;
         $counts = ['new' => 0, 'acknowledged' => 0, 'resolved' => 0];
@@ -62,6 +62,30 @@ class AdminIncidentReportsController extends Controller
         return response()->json(IncidentReportAlerts::forHeader());
     }
 
+    public function export(Request $request): Response|RedirectResponse
+    {
+        $ctx = $this->pageContext($request);
+        $this->useTenant($ctx['connection']);
+
+        if (! Schema::connection($ctx['connection'])->hasTable('incident_reports')) {
+            return redirect()
+                ->route('admin.incidents.index')
+                ->with('error', 'Incident reporting is not set up on this organization database yet.');
+        }
+
+        $status = $this->listStatus($request);
+        $query = IncidentReport::on($ctx['connection'])->with('employee')->orderByDesc('id');
+        if ($status === 'open') {
+            $query->whereIn('status', [IncidentReport::STATUS_NEW, IncidentReport::STATUS_ACKNOWLEDGED]);
+        } elseif ($status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        $bytes = IncidentReportPdf::renderRegister($query->get(), (string) $ctx['company']->name, $status);
+
+        return $this->pdfResponse($bytes, IncidentReportPdf::registerFilename($status));
+    }
+
     public function show(Request $request, int $incident): View
     {
         $ctx = $this->pageContext($request);
@@ -72,6 +96,19 @@ class AdminIncidentReportsController extends Controller
         return view('admin.incidents.show', array_merge($ctx, [
             'report' => $report,
         ]));
+    }
+
+    public function pdf(Request $request, int $incident): Response
+    {
+        $ctx = $this->pageContext($request);
+        $this->useTenant($ctx['connection']);
+
+        $report = IncidentReport::on($ctx['connection'])->with('employee')->findOrFail($incident);
+
+        return $this->pdfResponse(
+            IncidentReportPdf::render($report, (string) $ctx['company']->name),
+            IncidentReportPdf::filename($report),
+        );
     }
 
     public function update(Request $request, int $incident): RedirectResponse
@@ -136,13 +173,34 @@ class AdminIncidentReportsController extends Controller
         );
     }
 
+    private function pdfResponse(string $bytes, string $filename): Response
+    {
+        $safe = str_replace(['"', '\\', "\r", "\n"], '', $filename);
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$safe.'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    private function listStatus(Request $request): string
+    {
+        $status = (string) $request->query('status', 'open');
+        if (! in_array($status, ['open', 'new', 'acknowledged', 'resolved', 'all'], true)) {
+            return 'open';
+        }
+
+        return $status;
+    }
+
     private function useTenant(string $connection): void
     {
         DB::setDefaultConnection($connection);
     }
 
     /**
-     * @return array{company: \App\Models\Company, connection: string}
+     * @return array{company: Company, connection: string}
      */
     private function pageContext(Request $request): array
     {

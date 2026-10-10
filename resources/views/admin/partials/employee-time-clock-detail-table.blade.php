@@ -145,7 +145,7 @@
                     <td class="{{ $td }} text-center">{{ $row['auto_clock_out'] }}</td>
                     <td class="{{ $td }} text-center text-brand-text-secondary">{{ $row['break_type'] }}</td>
                     <td class="px-3 py-2.5 text-center" data-timesheet-row-ignore>
-                        @if (($row['can_review'] ?? false) || ($row['can_reset'] ?? false))
+                        @if (($row['can_review'] ?? false) || ($row['can_reset'] ?? false) || ($row['can_reopen'] ?? false))
                             <details class="relative inline-block text-left" data-timesheet-row-menu data-timesheet-row-ignore>
                                 <summary
                                     class="inline-flex size-8 cursor-pointer list-none items-center justify-center rounded-lg border border-brand-border bg-white text-brand-text-secondary shadow-sm transition hover:bg-brand-surface hover:text-brand-text [&::-webkit-details-marker]:hidden"
@@ -157,12 +157,12 @@
                                     </svg>
                                 </summary>
                                 <div
-                                    class="absolute right-0 z-40 mt-1 min-w-[11rem] overflow-hidden rounded-xl border border-brand-border bg-white py-1 shadow-lg ring-1 ring-black/[0.04]"
+                                    class="absolute right-0 z-40 mt-1 min-w-[14rem] overflow-hidden rounded-xl border border-brand-border bg-white py-1 shadow-lg ring-1 ring-black/[0.04]"
                                     data-timesheet-row-menu-panel
                                 >
                                     @if ($row['can_review'] ?? false)
                                         <button type="button" class="block w-full px-3 py-2 text-left text-sm font-medium text-brand-text transition hover:bg-brand-surface" data-timesheet-row-action="edit">
-                                            Edit
+                                            {{ ($row['is_open'] ?? false) ? 'Set clock-out' : 'Edit' }}
                                         </button>
                                         <button type="button" class="block w-full px-3 py-2 text-left text-sm font-medium text-brand-text transition hover:bg-brand-surface" data-timesheet-row-action="approve">
                                             Approve
@@ -195,6 +195,35 @@
                                             @endforeach
                                             <button type="submit" class="block w-full px-3 py-2 text-left text-sm font-medium text-brand-text transition hover:bg-brand-surface">
                                                 Mark as pending
+                                            </button>
+                                        </form>
+                                    @endif
+                                    @if ($row['can_reopen'] ?? false)
+                                        <form
+                                            method="post"
+                                            action="{{ route('admin.employees.time-clock.timesheets.reopen') }}"
+                                            data-confirm="The clock-out will be removed and this shift will show as in progress. The employee can clock out again from the mobile app. If this shift was already approved or rejected, it returns to pending."
+                                            data-confirm-title="Mark as in progress?"
+                                            data-confirm-confirm="Mark as in progress"
+                                            data-confirm-cancel="Cancel"
+                                            data-confirm-icon="question"
+                                        >
+                                            @csrf
+                                            <input type="hidden" name="employee" value="{{ $group['employee_public_id'] }}" />
+                                            <input type="hidden" name="work_date" value="{{ $row['work_date'] }}" />
+                                            <input type="hidden" name="clock_in_entry_id" value="{{ $row['modal']['clock_in_entry_id'] ?? '' }}" />
+                                            <input type="hidden" name="clock_out_entry_id" value="{{ $row['modal']['clock_out_entry_id'] ?? '' }}" />
+                                            @foreach ($redirectQuery as $key => $value)
+                                                @if ($value !== null && $value !== '')
+                                                    @if ($key === 'employee')
+                                                        <input type="hidden" name="list_employee" value="{{ $value }}" />
+                                                    @else
+                                                        <input type="hidden" name="{{ $key }}" value="{{ $value }}" />
+                                                    @endif
+                                                @endif
+                                            @endforeach
+                                            <button type="submit" class="block w-full whitespace-nowrap px-3 py-2 text-left text-sm font-medium text-brand-text transition hover:bg-brand-surface">
+                                                Mark as in progress
                                             </button>
                                         </form>
                                     @endif

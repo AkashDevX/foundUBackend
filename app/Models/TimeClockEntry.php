@@ -22,7 +22,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'punch_source',
     'department_id',
     'shift_id',
+    'schedule_shift_id',
     'comment',
+    'reopened_at',
 ])]
 class TimeClockEntry extends Model
 {
@@ -46,6 +48,8 @@ class TimeClockEntry extends Model
     public const PUNCH_SOURCE_AUTO_GEOFENCE_EXIT = 'auto_geofence_exit';
 
     public const PUNCH_SOURCE_AUTO_SHIFT_END = 'auto_shift_end';
+
+    public const PUNCH_SOURCE_ADMIN = 'admin';
 
     public function employee(): BelongsTo
     {
@@ -88,6 +92,7 @@ class TimeClockEntry extends Model
             'punch_source' => $this->punch_source ?? self::PUNCH_SOURCE_MANUAL,
             'department_id' => $this->department_id,
             'shift_id' => $this->shift_id,
+            'schedule_shift_id' => $this->schedule_shift_id !== null ? (int) $this->schedule_shift_id : null,
             'comment' => $this->comment,
         ];
     }
@@ -96,6 +101,7 @@ class TimeClockEntry extends Model
     {
         return [
             'clocked_at' => 'datetime',
+            'reopened_at' => 'datetime',
             'device_latitude' => 'float',
             'device_longitude' => 'float',
             'device_accuracy_meters' => 'float',

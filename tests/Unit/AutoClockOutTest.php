@@ -112,4 +112,17 @@ class AutoClockOutTest extends TestCase
 
         $this->assertNull($closeAt);
     }
+
+    public function test_exit_uses_the_work_location_radius_not_gps_accuracy(): void
+    {
+        $this->assertFalse(AutoClockOut::isOutside(50, 50, 100));
+        $this->assertFalse(AutoClockOut::isOutside(300, 300, 100));
+        $this->assertTrue(AutoClockOut::isOutside(50.1, 50, 100));
+        $this->assertTrue(AutoClockOut::isOutside(301, 300, 20));
+    }
+
+    public function test_reading_inside_the_radius_stays_clocked_in(): void
+    {
+        $this->assertFalse(AutoClockOut::isOutside(40, 50, 5));
+    }
 }

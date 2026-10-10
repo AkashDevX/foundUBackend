@@ -14,3 +14,9 @@ Artisan::command('inspire', function () {
 Schedule::command('time-clock:auto-clock-out')
     ->everyMinute()
     ->withoutOverlapping();
+
+// Daily reminder until the employee uploads a renewed document and sets a new expiry.
+Schedule::command('documents:renewal-reminders')
+    ->dailyAt('09:00')
+    ->timezone((string) config('app.display_timezone', 'Australia/Brisbane'))
+    ->withoutOverlapping();

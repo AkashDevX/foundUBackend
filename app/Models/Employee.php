@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Support\DisplayTimezone;
+use App\Support\DocumentRenewal;
+use App\Support\InductionEligibility;
 use App\Support\PayrollRateTypes;
 use App\Support\RegistrationDisplay;
 use App\Support\TimeClockScheduledShift;
@@ -233,19 +234,21 @@ class Employee extends Model
      */
     public function effectiveWorkLocationForMobile(): ?WorkLocation
     {
-        $now = DisplayTimezone::now();
-        $scheduled = TimeClockScheduledShift::pickBestForMoment(
-            TimeClockScheduledShift::shiftsForDate($this, $now->toDateString()),
-            $now,
-        );
+        $scheduled = TimeClockScheduledShift::shiftRowForLiveSite($this);
+        if ($scheduled instanceof EmployeeScheduleShift && $scheduled->work_location_id !== null) {
+            $location = WorkLocation::query()->find($scheduled->work_location_id);
 
-        if (! $scheduled instanceof EmployeeScheduleShift || $scheduled->work_location_id === null) {
-            return null;
+            return $location instanceof WorkLocation ? $location : null;
         }
 
-        $location = WorkLocation::query()->find($scheduled->work_location_id);
+        $clockIn = TimeClockScheduledShift::openSessionClockIn($this);
+        if ($clockIn instanceof TimeClockEntry && $clockIn->work_location_id !== null) {
+            $fromPunch = WorkLocation::query()->find($clockIn->work_location_id);
 
-        return $location instanceof WorkLocation ? $location : null;
+            return $fromPunch instanceof WorkLocation ? $fromPunch : null;
+        }
+
+        return null;
     }
 
     /**
@@ -377,8 +380,9 @@ class Employee extends Model
                 RegistrationDisplay::employeeRawDateValue($this, 'vehicle_expiry', ['vehicleExpiry', 'vehicle_expiry'])
             ),
             'vehicle_insurance_uploaded' => $this->vehicle_insurance_uploaded,
+            'document_renewals' => DocumentRenewal::dueItems($this),
             'employment_status' => $this->employment_status,
-            'induction' => \App\Support\InductionEligibility::mobileSummary($this),
+            'induction' => InductionEligibility::mobileSummary($this),
             'employee_code' => $this->employee_code,
             'job_title' => $jobTitleDisplay,
             'department' => $this->department,
@@ -419,6 +423,11 @@ class Employee extends Model
                 'annual_leave_balance_amount' => (float) ($this->annual_leave_balance_amount ?? 0),
             ],
         ];
+    }
+
+    public function vehicleRegistrationDocumentPath(): ?string
+    {
+        return DocumentRenewal::vehicleRegistrationPath($this);
     }
 
     protected static function booted(): void

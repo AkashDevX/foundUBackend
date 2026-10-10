@@ -21,6 +21,8 @@
             'not_started' => 'Not started',
             'studying' => 'Studying',
             'in_quiz' => 'In quiz',
+            'pending_review' => 'Needs review',
+            'failed' => 'Failed',
             'completed' => 'Completed',
         ];
     @endphp
@@ -32,6 +34,9 @@
 
     @if (session('status'))
         <div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ session('status') }}</div>
+    @endif
+    @if (session('error'))
+        <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
     @endif
 
     <div class="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -53,8 +58,9 @@
             <p class="mt-1 text-3xl font-bold text-brand-text">{{ $summary['pass_rate'] !== null ? $summary['pass_rate'].'%' : '—' }}</p>
             <p class="mt-1 text-xs text-brand-text/50">
                 Pass mark {{ $module->pass_percent ?? 70 }}%
-                @if ($module->is_induction)
-                    · {{ $module->max_attempts ?? 3 }} attempts
+                · {{ ($module->quiz_required ?? true) ? 'Quiz required' : 'Quiz optional' }}
+                @if ($module->is_induction || ($module->allow_retakes ?? false))
+                    · {{ $module->max_attempts ?? 1 }} attempts
                 @endif
             </p>
         </div>
@@ -69,19 +75,21 @@
             <table class="min-w-full text-left text-sm">
                 <thead class="bg-brand-surface/50 text-[11px] font-semibold uppercase tracking-wide text-brand-label">
                     <tr>
-                        <th class="px-5 py-3.5">Employee</th>
-                        <th class="px-5 py-3.5">Status</th>
-                        <th class="px-5 py-3.5">Score</th>
-                        <th class="px-5 py-3.5">Result</th>
-                        <th class="px-5 py-3.5">Studied</th>
-                        <th class="px-5 py-3.5">Quiz taken</th>
-                        <th class="px-5 py-3.5"></th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Employee</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Status</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Attempts</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Score</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Result</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Studied</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Quiz taken</th>
+                        <th class="whitespace-nowrap px-5 py-3.5">Certificate</th>
+                        <th class="whitespace-nowrap px-5 py-3.5 text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-brand-border">
                     @forelse ($rows as $row)
-                        <tr class="hover:bg-brand-surface/20">
-                            <td class="px-5 py-3.5">
+                        <tr class="align-middle hover:bg-brand-surface/20">
+                            <td class="px-5 py-3.5 align-middle">
                                 <p class="font-semibold text-brand-text">{{ $row['employee_name'] }}</p>
                                 <p class="text-xs text-brand-text/50">{{ $row['employee_email'] }}</p>
                                 @if ($module->is_induction && ! empty($row['induction_attempts']))
@@ -96,8 +104,12 @@
                                     </ul>
                                 @endif
                             </td>
-                            <td class="px-5 py-3.5 text-brand-text/75">{{ $statusLabels[$row['status']] ?? $row['status'] }}</td>
-                            <td class="px-5 py-3.5">
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle text-brand-text/75">{{ $statusLabels[$row['status']] ?? $row['status'] }}</td>
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle">
+                                <p class="font-semibold text-brand-text">Tried {{ (int) ($row['attempts_used'] ?? 0) }} of {{ (int) ($row['attempts_allocated'] ?? 1) }}</p>
+                                <p class="mt-0.5 text-xs text-brand-text/55">In progress {{ (int) ($row['attempts_in_progress'] ?? 0) }}</p>
+                            </td>
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle">
                                 @if ($row['percent'] !== null)
                                     <span class="font-semibold text-brand-text">{{ rtrim(rtrim(number_format((float) $row['percent'], 1), '0'), '.') }}%</span>
                                     <span class="text-xs text-brand-text/50">({{ $row['score'] }}/{{ $row['max_score'] }})</span>
@@ -105,7 +117,7 @@
                                     <span class="text-brand-text/40">—</span>
                                 @endif
                             </td>
-                            <td class="px-5 py-3.5">
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle">
                                 @php $band = $row['band'] ?? 'pending'; @endphp
                                 <span class="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide {{ $bandClasses[$band] ?? $bandClasses['pending'] }}">
                                     @if ($band === 'strong') Strong
@@ -116,24 +128,37 @@
                                     @endif
                                 </span>
                             </td>
-                            <td class="px-5 py-3.5 text-xs text-brand-text/60 whitespace-nowrap">
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle text-xs text-brand-text/60">
                                 @if ($row['materials_acknowledged_at'])
                                     {{ \App\Support\DisplayTimezone::format(\Carbon\Carbon::parse($row['materials_acknowledged_at'], 'UTC'), 'j M Y, g:ia') }}
                                 @else
                                     —
                                 @endif
                             </td>
-                            <td class="px-5 py-3.5 text-xs text-brand-text/60 whitespace-nowrap">
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle text-xs text-brand-text/60">
                                 @if ($row['submitted_at'])
                                     {{ \App\Support\DisplayTimezone::format(\Carbon\Carbon::parse($row['submitted_at'], 'UTC'), 'j M Y, g:ia') }}
                                 @else
                                     —
                                 @endif
                             </td>
-                            <td class="px-5 py-3.5 text-right">
-                                <div class="flex flex-wrap justify-end gap-3">
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle text-xs">
+                                @if (! empty($row['certificate']['reference_number']))
+                                    <a href="{{ route('admin.training.assignments.certificate', [$module->id, $row['assignment_id']]) }}" class="font-semibold text-brand-primary hover:underline">{{ $row['certificate']['reference_number'] }}</a>
+                                    <span class="mt-0.5 block text-brand-text/50">
+                                        {{ $row['certificate']['completed_on_label'] }}
+                                    </span>
+                                @else
+                                    <span class="text-brand-text/40">—</span>
+                                @endif
+                            </td>
+                            <td class="whitespace-nowrap px-5 py-3.5 align-middle text-right">
+                                <div class="inline-flex items-center justify-end gap-3">
                                     @if ($module->is_induction && ($row['induction_status'] ?? '') === 'required' && ! empty($row['employee_public_id']))
                                         <a href="{{ route('admin.registrations.show', ['companySlug' => $company->slug, 'publicId' => $row['employee_public_id']]) }}" class="text-xs font-semibold text-amber-700 hover:underline">Override</a>
+                                    @endif
+                                    @if (! empty($row['submitted_at']) || ($row['status'] ?? '') === 'pending_review')
+                                        <a href="{{ route('admin.training.assignments.review', [$module->id, $row['assignment_id']]) }}" class="text-xs font-semibold text-brand-primary hover:underline">Review</a>
                                     @endif
                                     @if ($row['status'] !== 'not_started')
                                         <form method="post"
@@ -144,7 +169,7 @@
                                               data-confirm-cancel="Cancel"
                                               data-confirm-icon="warning">
                                             @csrf
-                                            <button type="submit" class="text-xs font-semibold text-brand-primary hover:underline">Reset</button>
+                                            <button type="submit" class="score-row-action text-xs font-semibold text-brand-primary hover:underline">Reset</button>
                                         </form>
                                     @endif
                                     <form method="post"
@@ -155,18 +180,26 @@
                                           data-confirm-cancel="Keep"
                                           data-confirm-danger="1">
                                         @csrf
-                                        <button type="submit" class="text-xs font-semibold text-red-600 hover:underline">Remove</button>
+                                        <button type="submit" class="score-row-action text-xs font-semibold text-red-600 hover:underline">Remove</button>
                                     </form>
                                 </div>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-5 py-12 text-center text-sm text-brand-text/50">No employees assigned yet. Open the module and use the Assign step.</td>
+                            <td colspan="9" class="px-5 py-12 text-center text-sm text-brand-text/50">No employees assigned yet. Open the module and use the Assign step.</td>
                         </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
     </section>
+
+    <script>
+        document.querySelectorAll('.score-row-action').forEach((button) => {
+            button.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+            });
+        });
+    </script>
 @endsection

@@ -2,37 +2,46 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\TimeClockException;
 use App\Http\Controllers\Controller;
+use App\Models\Company;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\EmployeeAssignmentShift;
 use App\Models\EmployeeLeaveEntitlement;
 use App\Models\EmployeeLeaveRecord;
 use App\Models\EmployeeScheduleShift;
-use App\Models\JobTitle;
 use App\Models\LeaveType;
 use App\Models\OrganizationPortalUser;
 use App\Models\RegistrationPicklistItem;
-use App\Models\TimesheetApproval;
 use App\Models\TimeClockEntry;
+use App\Models\TimesheetApproval;
 use App\Models\WorkLocation;
 use App\Services\RegistrationDocumentStorage;
+use App\Services\TimeClockService;
 use App\Support\AdminEmployeeProfileView;
+use App\Support\AdminTimeClockDisplay;
 use App\Support\AdminTimeClockTimesheet;
 use App\Support\AdminTimesheetApproval;
 use App\Support\AdminWeeklyAvailability;
 use App\Support\AdminWeeklySchedule;
 use App\Support\DisplayTimezone;
 use App\Support\EmployeeJobTitles;
+use App\Support\EmployeeProfilePdf;
 use App\Support\FoundUProfileMapper;
+use App\Support\InductionEligibility;
 use App\Support\PayrollEmployeeRates;
 use App\Support\RegistrationDisplay;
 use App\Support\RegistrationIdDocument;
 use App\Support\RegistrationResume;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -100,6 +109,36 @@ class AdminEmployeeAssignmentController extends Controller
         ]));
     }
 
+    public function profilePdf(Request $request, string $publicId): Response
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = (string) $company->tenant_connection;
+
+        $employee = Employee::on($conn)
+            ->with(['assignedDepartment', 'assignedJobTitle', 'jobTitles', 'workLocation', 'leaveEntitlements.leaveType'])
+            ->where('public_id', $publicId)
+            ->firstOrFail();
+
+        $picklists = RegistrationPicklistItem::query()
+            ->where('is_active', true)
+            ->whereIn('picklist_key', ['visa_status', 'marital_status', 'transport_mode'])
+            ->orderBy('sort_order')
+            ->orderBy('value')
+            ->get()
+            ->groupBy('picklist_key');
+
+        $bytes = EmployeeProfilePdf::render($employee, (string) $company->name, $picklists);
+        $filename = str_replace(['"', '\\', "\r", "\n"], '', EmployeeProfilePdf::filename($employee));
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
     public function timeClock(Request $request): View
     {
         /** @var OrganizationPortalUser $portalUser */
@@ -107,71 +146,24 @@ class AdminEmployeeAssignmentController extends Controller
         $company = $portalUser->company()->firstOrFail();
         $conn = $company->tenant_connection;
 
-        $timesheetStatusFilter = $request->query('timesheet_status', 'all');
-        if (! in_array($timesheetStatusFilter, ['all', 'pending', 'approved', 'rejected'], true)) {
-            $timesheetStatusFilter = 'all';
+        $filters = $this->timeClockFilters($request);
+        $selectedWeek = $filters['selected_week'];
+        $loadedBefore = $filters['loaded_before'];
+        $timesheetStatusFilter = $filters['timesheet_status'];
+
+        $currentWeek = AdminWeeklySchedule::resolveWeekStart(null);
+        $indexWeekStart = $currentWeek->copy()->subWeeks(AdminTimeClockTimesheet::WEEK_PAGE_SIZE - 1);
+        $indexWeekEnd = $currentWeek->copy()->addDays(6);
+        $ranges = [[$indexWeekStart, $indexWeekEnd]];
+
+        if ($selectedWeek !== null && ($selectedWeek->lt($indexWeekStart) || $selectedWeek->gt($indexWeekEnd))) {
+            $ranges[] = [$selectedWeek->copy(), $selectedWeek->copy()->addDays(6)];
         }
 
-        $departmentId = $request->query('department_id');
-        $workLocationId = $request->query('work_location_id');
-        $employeePublicId = $request->query('employee');
-        $selectedWeekParam = $request->query('week');
-        $selectedWeek = is_string($selectedWeekParam) && $selectedWeekParam !== ''
-            ? AdminWeeklySchedule::resolveWeekStart($selectedWeekParam)
-            : null;
-
-        $indexWeekStart = AdminWeeklySchedule::resolveWeekStart(null)->subWeeks(11);
-        $indexWeekEnd = AdminWeeklySchedule::resolveWeekStart(null)->copy()->addDays(6);
-
-        $employeesQuery = Employee::on($conn)
-            ->with([
-                'assignedDepartment',
-                'assignedJobTitle',
-                'workLocation',
-                'assignedShift',
-                'timeClockEntries' => static function ($query) use ($indexWeekStart, $indexWeekEnd): void {
-                    $query->with(['workLocation', 'department', 'shift'])
-                        ->whereBetween('clocked_at', [
-                            $indexWeekStart->copy()->startOfDay()->utc(),
-                            $indexWeekEnd->copy()->endOfDay()->utc(),
-                        ])
-                        ->orderBy('clocked_at')
-                        ->orderBy('id');
-                },
-            ])
-            ->where('employment_status', 'active')
-            ->orderBy('full_legal_name');
-
-        if (is_string($departmentId) && $departmentId !== '') {
-            $employeesQuery->where('department_id', (int) $departmentId);
-        }
-
-        if (is_string($workLocationId) && $workLocationId !== '') {
-            $employeesQuery->where('work_location_id', (int) $workLocationId);
-        }
-
-        if (is_string($employeePublicId) && $employeePublicId !== '') {
-            $employeesQuery->where('public_id', $employeePublicId);
-        }
-
-        $employees = $employeesQuery->get();
-
-        $scheduleShifts = EmployeeScheduleShift::on($conn)
-            ->with(['shiftTemplate', 'jobTitle', 'department', 'workLocation'])
-            ->whereIn('employee_id', $employees->pluck('id'))
-            ->whereBetween('scheduled_date', [$indexWeekStart->toDateString(), $indexWeekEnd->toDateString()])
-            ->orderBy('scheduled_date')
-            ->orderBy('start_time')
-            ->orderBy('id')
-            ->get();
-
-        $timesheetApprovals = TimesheetApproval::on($conn)
-            ->whereIn('employee_id', $employees->pluck('id'))
-            ->whereBetween('work_date', [$indexWeekStart->toDateString(), $indexWeekEnd->toDateString()])
-            ->get();
+        [$timesheetEmployees, $scheduleShifts, $timesheetApprovals] = $this->loadTimesheetWindow($conn, $ranges, $filters);
 
         $weekIndex = AdminTimeClockTimesheet::buildWeekIndex(
-            $employees,
+            $timesheetEmployees,
             $scheduleShifts,
             $timesheetApprovals,
         );
@@ -182,7 +174,7 @@ class AdminEmployeeAssignmentController extends Controller
         if ($selectedWeek !== null) {
             $selectedWeekLabel = AdminTimeClockTimesheet::formatCompactWeekLabel($selectedWeek);
             $timesheet = AdminTimeClockTimesheet::buildGroups(
-                $employees,
+                $timesheetEmployees,
                 $selectedWeek,
                 $scheduleShifts,
                 $timesheetApprovals,
@@ -191,22 +183,20 @@ class AdminEmployeeAssignmentController extends Controller
             $timesheetGroups = $timesheet['groups'];
         }
 
-        $filterParams = array_filter([
-            'department_id' => is_string($departmentId) && $departmentId !== '' ? $departmentId : null,
-            'work_location_id' => is_string($workLocationId) && $workLocationId !== '' ? $workLocationId : null,
-            'employee' => is_string($employeePublicId) && $employeePublicId !== '' ? $employeePublicId : null,
-            'timesheet_status' => $timesheetStatusFilter !== 'all' ? $timesheetStatusFilter : null,
-        ], static fn ($value) => $value !== null && $value !== '');
+        $filterParams = $filters['params'];
+        $oldestWeekStart = $weekIndex[array_key_last($weekIndex)]['week_start'];
 
-        $weekDetailsUrl = static function (string $weekStart) use ($filterParams): string {
+        $weekDetailsUrl = static function (string $weekStart) use ($filterParams, $loadedBefore): string {
             return route('admin.employees.time-clock', array_filter([
                 ...$filterParams,
                 'week' => $weekStart,
+                'before' => $loadedBefore,
             ]));
         };
 
         $redirectQuery = array_filter([
             'week' => $selectedWeek?->toDateString(),
+            'before' => $loadedBefore,
             ...$filterParams,
         ]);
 
@@ -224,18 +214,238 @@ class AdminEmployeeAssignmentController extends Controller
                 ->orderBy('full_legal_name')
                 ->get(['id', 'public_id', 'full_legal_name', 'email']),
             'filters' => [
-                'department_id' => is_string($departmentId) ? $departmentId : '',
-                'work_location_id' => is_string($workLocationId) ? $workLocationId : '',
-                'employee' => is_string($employeePublicId) ? $employeePublicId : '',
+                'department_id' => $filters['department_id'],
+                'work_location_id' => $filters['work_location_id'],
+                'employee' => $filters['employee'],
             ],
             'filterParams' => $filterParams,
             'weekDetailsUrl' => $weekDetailsUrl,
             'redirectQuery' => $redirectQuery,
-            'listUrl' => route('admin.employees.time-clock'),
+            'listUrl' => route('admin.employees.time-clock', array_filter([
+                'before' => $loadedBefore,
+            ])),
             'clearFiltersUrl' => route('admin.employees.time-clock', array_filter([
                 'week' => $selectedWeek?->toDateString(),
             ])),
+            'hasOlderWeeks' => $this->hasOlderTimesheetWeeks($conn, $indexWeekStart, $filters),
+            'oldestWeekStart' => $oldestWeekStart,
+            'olderWeeksUrl' => route('admin.employees.time-clock.weeks', $filterParams, false),
+            'weekPageSize' => AdminTimeClockTimesheet::WEEK_PAGE_SIZE,
         ]);
+    }
+
+    public function timeClockOlderWeeks(Request $request): JsonResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $before = $request->query('before');
+        if (! is_string($before) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $before)) {
+            return response()->json(['message' => 'Choose a week to load older records from.'], 422);
+        }
+
+        $filters = $this->timeClockFilters($request);
+        $currentWeek = AdminWeeklySchedule::resolveWeekStart(null);
+        $startOffset = AdminTimeClockTimesheet::olderPageStartOffset($currentWeek, $before);
+        $pageStart = $currentWeek->copy()->subWeeks($startOffset + AdminTimeClockTimesheet::WEEK_PAGE_SIZE - 1);
+        $pageEnd = $currentWeek->copy()->subWeeks($startOffset)->addDays(6);
+
+        [$timesheetEmployees, $scheduleShifts, $timesheetApprovals] = $this->loadTimesheetWindow(
+            $conn,
+            [[$pageStart, $pageEnd]],
+            $filters,
+        );
+
+        $weeks = AdminTimeClockTimesheet::buildWeekIndex(
+            $timesheetEmployees,
+            $scheduleShifts,
+            $timesheetApprovals,
+            AdminTimeClockTimesheet::WEEK_PAGE_SIZE,
+            $startOffset,
+        );
+
+        $oldestWeekStart = $weeks[array_key_last($weeks)]['week_start'] ?? $pageStart->toDateString();
+        $weekDetailsUrl = static function (string $weekStart) use ($filters, $oldestWeekStart): string {
+            return route('admin.employees.time-clock', array_filter([
+                ...$filters['params'],
+                'week' => $weekStart,
+                'before' => $oldestWeekStart,
+            ]));
+        };
+
+        return response()->json([
+            'html' => view('admin.partials.time-clock-week-rows', [
+                'weekIndex' => $weeks,
+                'selectedWeek' => $filters['selected_week'],
+                'weekDetailsUrl' => $weekDetailsUrl,
+            ])->render(),
+            'has_more' => $this->hasOlderTimesheetWeeks($conn, $pageStart, $filters),
+            'oldest_week' => $oldestWeekStart,
+        ]);
+    }
+
+    /**
+     * @return array{
+     *     timesheet_status: string,
+     *     department_id: string,
+     *     work_location_id: string,
+     *     employee: string,
+     *     selected_week: ?Carbon,
+     *     loaded_before: ?string,
+     *     params: array<string, string>
+     * }
+     */
+    private function timeClockFilters(Request $request): array
+    {
+        $timesheetStatusFilter = $request->query('timesheet_status', 'all');
+        if (! in_array($timesheetStatusFilter, ['all', 'pending', 'approved', 'rejected'], true)) {
+            $timesheetStatusFilter = 'all';
+        }
+
+        $departmentId = $request->query('department_id');
+        $workLocationId = $request->query('work_location_id');
+        $employeePublicId = $request->query('employee');
+        $selectedWeekParam = $request->query('week');
+        $selectedWeek = is_string($selectedWeekParam) && $selectedWeekParam !== ''
+            ? AdminWeeklySchedule::resolveWeekStart($selectedWeekParam)
+            : null;
+
+        $beforeParam = $request->query('before');
+        $loadedBefore = null;
+        if (is_string($beforeParam) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $beforeParam)) {
+            $resolvedBefore = AdminWeeklySchedule::resolveWeekStart($beforeParam)->toDateString();
+            $currentWeek = AdminWeeklySchedule::resolveWeekStart(null)->toDateString();
+            if ($resolvedBefore <= $currentWeek) {
+                $loadedBefore = $resolvedBefore;
+            }
+        }
+
+        $department = is_string($departmentId) ? $departmentId : '';
+        $location = is_string($workLocationId) ? $workLocationId : '';
+        $employee = is_string($employeePublicId) ? $employeePublicId : '';
+
+        $params = array_filter([
+            'department_id' => $department !== '' ? $department : null,
+            'work_location_id' => $location !== '' ? $location : null,
+            'employee' => $employee !== '' ? $employee : null,
+            'timesheet_status' => $timesheetStatusFilter !== 'all' ? $timesheetStatusFilter : null,
+        ], static fn ($value) => $value !== null && $value !== '');
+
+        return [
+            'timesheet_status' => $timesheetStatusFilter,
+            'department_id' => $department,
+            'work_location_id' => $location,
+            'employee' => $employee,
+            'selected_week' => $selectedWeek,
+            'loaded_before' => $loadedBefore,
+            'params' => $params,
+        ];
+    }
+
+    /**
+     * @param  list<array{0: Carbon, 1: Carbon}>  $ranges
+     * @param  array{department_id: string, work_location_id: string, employee: string}  $filters
+     * @return array{0: Collection<int, Employee>, 1: Collection<int, EmployeeScheduleShift>, 2: Collection<int, TimesheetApproval>}
+     */
+    private function loadTimesheetWindow(string $conn, array $ranges, array $filters): array
+    {
+        $employeesQuery = Employee::on($conn)
+            ->with([
+                'assignedDepartment',
+                'assignedJobTitle',
+                'workLocation',
+                'assignedShift',
+                'timeClockEntries' => function ($query) use ($ranges): void {
+                    $query->with(['workLocation', 'department', 'shift']);
+                    $this->applyTimesheetDateRanges($query, $ranges, 'clocked_at', true);
+                    $query->orderBy('clocked_at')->orderBy('id');
+                },
+            ])
+            ->where('employment_status', 'active')
+            ->orderBy('full_legal_name');
+
+        $this->applyTimesheetEmployeeFilters($employeesQuery, $filters);
+        $employees = $employeesQuery->get();
+        $employeeIds = $employees->pluck('id');
+
+        $scheduleQuery = EmployeeScheduleShift::on($conn)
+            ->with(['shiftTemplate', 'jobTitle', 'department', 'workLocation'])
+            ->whereIn('employee_id', $employeeIds);
+        $this->applyTimesheetDateRanges($scheduleQuery, $ranges, 'scheduled_date', false);
+        $scheduleShifts = $scheduleQuery
+            ->orderBy('scheduled_date')
+            ->orderBy('start_time')
+            ->orderBy('id')
+            ->get();
+
+        $approvalQuery = TimesheetApproval::on($conn)->whereIn('employee_id', $employeeIds);
+        $this->applyTimesheetDateRanges($approvalQuery, $ranges, 'work_date', false);
+
+        return [$employees, $scheduleShifts, $approvalQuery->get()];
+    }
+
+    /**
+     * @param  Builder<Model>  $query
+     * @param  list<array{0: Carbon, 1: Carbon}>  $ranges
+     */
+    private function applyTimesheetDateRanges($query, array $ranges, string $column, bool $asUtc): void
+    {
+        $query->where(function ($query) use ($ranges, $column, $asUtc): void {
+            foreach ($ranges as [$start, $end]) {
+                $from = $asUtc ? $start->copy()->startOfDay()->utc() : $start->toDateString();
+                $to = $asUtc ? $end->copy()->endOfDay()->utc() : $end->toDateString();
+                $query->orWhereBetween($column, [$from, $to]);
+            }
+        });
+    }
+
+    /**
+     * @param  Builder<Model>  $query
+     * @param  array{department_id: string, work_location_id: string, employee: string}  $filters
+     */
+    private function applyTimesheetEmployeeFilters($query, array $filters): void
+    {
+        if ($filters['department_id'] !== '') {
+            $query->where('department_id', (int) $filters['department_id']);
+        }
+
+        if ($filters['work_location_id'] !== '') {
+            $query->where('work_location_id', (int) $filters['work_location_id']);
+        }
+
+        if ($filters['employee'] !== '') {
+            $query->where('public_id', $filters['employee']);
+        }
+    }
+
+    /**
+     * @param  array{department_id: string, work_location_id: string, employee: string}  $filters
+     */
+    private function hasOlderTimesheetWeeks(string $conn, Carbon $beforeWeekStart, array $filters): bool
+    {
+        $beforeUtc = $beforeWeekStart->copy()->startOfDay()->utc();
+        $beforeDate = $beforeWeekStart->toDateString();
+        $constrainEmployee = function ($query) use ($filters): void {
+            $query->where('employment_status', 'active');
+            $this->applyTimesheetEmployeeFilters($query, $filters);
+        };
+
+        $hasClock = TimeClockEntry::on($conn)
+            ->where('clocked_at', '<', $beforeUtc)
+            ->whereHas('employee', $constrainEmployee)
+            ->exists();
+
+        if ($hasClock) {
+            return true;
+        }
+
+        return EmployeeScheduleShift::on($conn)
+            ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+            ->where('scheduled_date', '<', $beforeDate)
+            ->whereHas('employee', $constrainEmployee)
+            ->exists();
     }
 
     public function approveTimesheet(Request $request): RedirectResponse
@@ -280,17 +490,66 @@ class AdminEmployeeAssignmentController extends Controller
         if ($clockInEntryId !== null) {
             $this->assertTimesheetSessionEditable($conn, (int) $employee->id, $clockInEntryId);
         }
-        $this->applyTimesheetPunchTimes($conn, $employee, $data);
+        $closedOpenShift = $this->applyTimesheetPunchTimes($conn, $employee, $data);
 
         return redirect()
             ->route('admin.employees.time-clock', array_filter([
                 'employee' => $request->input('list_employee'),
                 'week' => $request->input('week'),
+                'before' => $request->input('before'),
                 'department_id' => $request->input('department_id'),
                 'work_location_id' => $request->input('work_location_id'),
                 'timesheet_status' => $request->input('timesheet_status'),
             ]))
-            ->with('status', 'Clock times updated.');
+            ->with('status', $closedOpenShift ? 'Employee clocked out.' : 'Clock times updated.');
+    }
+
+    public function reopenTimesheet(Request $request): RedirectResponse
+    {
+        /** @var OrganizationPortalUser $portalUser */
+        $portalUser = $request->user('portal');
+        $company = $portalUser->company()->firstOrFail();
+        $conn = $company->tenant_connection;
+
+        $data = $request->validate([
+            'employee' => ['required', 'string', 'max:64'],
+            'work_date' => ['required', 'date'],
+            'clock_in_entry_id' => ['required', 'integer'],
+            'clock_out_entry_id' => ['required', 'integer'],
+        ]);
+
+        /** @var Employee $employee */
+        $employee = Employee::on($conn)
+            ->where('public_id', $data['employee'])
+            ->where('employment_status', 'active')
+            ->firstOrFail();
+
+        $previous = DB::getDefaultConnection();
+        DB::setDefaultConnection($conn);
+        try {
+            app(TimeClockService::class)->reopenClosedSession(
+                $employee,
+                (int) $data['clock_in_entry_id'],
+                (int) $data['clock_out_entry_id'],
+            );
+        } catch (TimeClockException $e) {
+            throw ValidationException::withMessages([
+                'clock_in_entry_id' => $e->getMessage(),
+            ]);
+        } finally {
+            DB::setDefaultConnection($previous);
+        }
+
+        return redirect()
+            ->route('admin.employees.time-clock', array_filter([
+                'employee' => $request->input('list_employee'),
+                'week' => $request->input('week'),
+                'before' => $request->input('before'),
+                'department_id' => $request->input('department_id'),
+                'work_location_id' => $request->input('work_location_id'),
+                'timesheet_status' => $request->input('timesheet_status'),
+            ]))
+            ->with('status', 'Shift is in progress again. The employee can clock out from the mobile app.');
     }
 
     private function reviewTimesheet(Request $request, string $status, string $flashMessage): RedirectResponse
@@ -354,7 +613,7 @@ class AdminEmployeeAssignmentController extends Controller
             $this->applyTimesheetPunchTimes($conn, $employee, $data);
         }
 
-        $summary = \App\Support\AdminTimeClockDisplay::summarizeWorkSessions($entries);
+        $summary = AdminTimeClockDisplay::summarizeWorkSessions($entries);
 
         foreach ($clockInEntryIds as $clockInEntryId) {
             $session = AdminTimesheetApproval::sessionSummaryForClockIn($summary, $clockInEntryId);
@@ -391,6 +650,7 @@ class AdminEmployeeAssignmentController extends Controller
             ->route('admin.employees.time-clock', array_filter([
                 'employee' => $request->input('list_employee'),
                 'week' => $request->input('week'),
+                'before' => $request->input('before'),
                 'department_id' => $request->input('department_id'),
                 'work_location_id' => $request->input('work_location_id'),
                 'timesheet_status' => $request->input('timesheet_status'),
@@ -416,7 +676,7 @@ class AdminEmployeeAssignmentController extends Controller
 
     /**
      * @param  array<string, mixed>  $data
-     * @param  \Illuminate\Support\Collection<int, TimeClockEntry>  $dayEntries
+     * @param  Collection<int, TimeClockEntry>  $dayEntries
      * @return list<int>
      */
     private static function resolveTimesheetClockInEntryIds(array $data, Collection $dayEntries): array
@@ -425,7 +685,7 @@ class AdminEmployeeAssignmentController extends Controller
             return [(int) $data['clock_in_entry_id']];
         }
 
-        $summary = \App\Support\AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
+        $summary = AdminTimeClockDisplay::summarizeWorkSessions($dayEntries);
         $ids = [];
 
         foreach ($summary['hours_by_entry_id'] as $session) {
@@ -440,12 +700,16 @@ class AdminEmployeeAssignmentController extends Controller
 
     /**
      * @param  array<string, mixed>  $data
+     * @return bool True when an in-progress shift was clocked out.
      */
-    private function applyTimesheetPunchTimes(string $conn, Employee $employee, array $data): void
+    private function applyTimesheetPunchTimes(string $conn, Employee $employee, array $data): bool
     {
         $tz = DisplayTimezone::name();
         $clockInAt = null;
         $clockOutAt = null;
+        $closeOpenShift = empty($data['clock_out_entry_id'])
+            && ! empty($data['clock_out_at'])
+            && ! empty($data['clock_in_entry_id']);
 
         if (! empty($data['clock_in_entry_id']) && ! empty($data['clock_in_at'])) {
             /** @var TimeClockEntry $clockIn */
@@ -461,7 +725,6 @@ class AdminEmployeeAssignmentController extends Controller
             }
 
             $clockInAt = Carbon::parse((string) $data['clock_in_at'], $tz)->utc();
-            $clockIn->forceFill(['clocked_at' => $clockInAt])->save();
         }
 
         if (! empty($data['clock_out_entry_id']) && ! empty($data['clock_out_at'])) {
@@ -478,7 +741,8 @@ class AdminEmployeeAssignmentController extends Controller
             }
 
             $clockOutAt = Carbon::parse((string) $data['clock_out_at'], $tz)->utc();
-            $clockOut->forceFill(['clocked_at' => $clockOutAt])->save();
+        } elseif ($closeOpenShift) {
+            $clockOutAt = Carbon::parse((string) $data['clock_out_at'], $tz)->utc();
         }
 
         if ($clockInAt !== null && $clockOutAt !== null && $clockOutAt->lessThanOrEqualTo($clockInAt)) {
@@ -486,15 +750,49 @@ class AdminEmployeeAssignmentController extends Controller
                 'clock_out_at' => 'Clock out must be after clock in.',
             ]);
         }
+
+        if ($clockInAt !== null && ! empty($data['clock_in_entry_id'])) {
+            TimeClockEntry::on($conn)
+                ->where('employee_id', $employee->id)
+                ->whereKey((int) $data['clock_in_entry_id'])
+                ->update(['clocked_at' => $clockInAt]);
+        }
+
+        if ($clockOutAt !== null && ! empty($data['clock_out_entry_id'])) {
+            TimeClockEntry::on($conn)
+                ->where('employee_id', $employee->id)
+                ->whereKey((int) $data['clock_out_entry_id'])
+                ->update(['clocked_at' => $clockOutAt]);
+        }
+
+        if ($closeOpenShift && $clockOutAt !== null) {
+            $previous = DB::getDefaultConnection();
+            DB::setDefaultConnection($conn);
+            try {
+                app(TimeClockService::class)->adminCloseOpenSession(
+                    $employee,
+                    (int) $data['clock_in_entry_id'],
+                    $clockOutAt,
+                );
+            } catch (TimeClockException $e) {
+                throw ValidationException::withMessages([
+                    'clock_out_at' => $e->getMessage(),
+                ]);
+            } finally {
+                DB::setDefaultConnection($previous);
+            }
+        }
+
+        return $closeOpenShift && $clockOutAt !== null;
     }
 
     /**
      * @return array{
-     *     company: \App\Models\Company,
-     *     employees: \Illuminate\Support\Collection<int, Employee>,
-     *     departments: \Illuminate\Support\Collection,
-     *     workLocations: \Illuminate\Support\Collection,
-     *     timesheetApprovals: \Illuminate\Support\Collection<int, TimesheetApproval>,
+     *     company: Company,
+     *     employees: Collection<int, Employee>,
+     *     departments: Collection,
+     *     workLocations: Collection,
+     *     timesheetApprovals: Collection<int, TimesheetApproval>,
      * }
      */
     private function employeePageData(Request $request, bool $loadTimeClockEntries, bool $loadTimesheetHistory = false): array
@@ -512,7 +810,7 @@ class AdminEmployeeAssignmentController extends Controller
                     ->orderByDesc('id');
 
                 if ($loadTimesheetHistory) {
-                    $since = DisplayTimezone::now()->subWeeks(12)->startOfWeek(\Carbon\Carbon::MONDAY)->utc();
+                    $since = DisplayTimezone::now()->subWeeks(12)->startOfWeek(Carbon::MONDAY)->utc();
                     $query->where('clocked_at', '>=', $since);
                 } else {
                     $query->limit(100);
@@ -526,7 +824,7 @@ class AdminEmployeeAssignmentController extends Controller
             ->orderBy('full_legal_name')
             ->get();
 
-        $sinceDate = DisplayTimezone::now()->subWeeks(12)->startOfWeek(\Carbon\Carbon::MONDAY)->toDateString();
+        $sinceDate = DisplayTimezone::now()->subWeeks(12)->startOfWeek(Carbon::MONDAY)->toDateString();
         $timesheetApprovals = TimesheetApproval::on($conn)
             ->whereIn('employee_id', $employees->pluck('id'))
             ->where('work_date', '>=', $sinceDate)
@@ -1158,7 +1456,7 @@ class AdminEmployeeAssignmentController extends Controller
         ];
 
         if ($syncAssignmentShifts && $assignmentShifts->isNotEmpty()) {
-            \App\Support\InductionEligibility::assertCanBeScheduled($employee);
+            InductionEligibility::assertCanBeScheduled($employee);
             $fill['shift_id'] = $assignmentShifts->first()['shift_id'] ?? null;
         } elseif ($syncAssignmentShifts) {
             $fill['shift_id'] = null;
@@ -1307,6 +1605,7 @@ class AdminEmployeeAssignmentController extends Controller
             if (RegistrationDisplay::isOtherDocumentType($type)) {
                 $other = $others[$id] ?? '';
                 $rows[$i]['documentTypeOther'] = is_string($other) ? trim($other) : '';
+
                 continue;
             }
             unset(
@@ -1384,6 +1683,7 @@ class AdminEmployeeAssignmentController extends Controller
             $iso = RegistrationDisplay::toNullableIsoDate($raw);
             if ($iso === null) {
                 unset($rows[$i]['expiry'], $rows[$i]['expiry_date']);
+
                 continue;
             }
             $rows[$i]['expiry'] = $iso;

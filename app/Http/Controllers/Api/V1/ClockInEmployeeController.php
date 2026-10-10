@@ -20,6 +20,7 @@ class ClockInEmployeeController extends Controller
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy_meters' => ['nullable', 'numeric', 'min:0', 'max:10000'],
+            'schedule_shift_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         /** @var Employee $employee */
@@ -31,6 +32,9 @@ class ClockInEmployeeController extends Controller
                 'longitude' => (float) $validated['longitude'],
                 'accuracy_meters' => isset($validated['accuracy_meters'])
                     ? (float) $validated['accuracy_meters']
+                    : null,
+                'schedule_shift_id' => isset($validated['schedule_shift_id'])
+                    ? (int) $validated['schedule_shift_id']
                     : null,
             ]);
         } catch (TimeClockException $e) {

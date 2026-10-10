@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Support\AdminTraining;
+use App\Support\TrainingCertificates;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,9 @@ class EmployeeTrainingListController extends Controller
         /** @var Employee $employee */
         $employee = $request->user();
 
-        return response()->json(AdminTraining::mobileListForEmployee($employee));
+        return response()->json(AdminTraining::mobileListForEmployee(
+            $employee,
+            TrainingCertificates::organizationName($request),
+        ));
     }
 }

@@ -56,7 +56,143 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initShiftDurationTips();
+    initOlderWeekLoader();
 });
+
+function initOlderWeekLoader() {
+    const wrap = document.querySelector('[data-time-clock-load-more-wrap]');
+    const button = document.querySelector('[data-time-clock-load-more]');
+    const status = document.querySelector('[data-time-clock-load-more-status]');
+    const tbody = document.querySelector('[data-time-clock-week-rows]');
+
+    if (!(button instanceof HTMLButtonElement) || !(tbody instanceof HTMLElement) || !(wrap instanceof HTMLElement)) {
+        return;
+    }
+
+    let loading = false;
+
+    const setStatus = (message, isError = false) => {
+        if (!(status instanceof HTMLElement)) {
+            return;
+        }
+
+        if (!message) {
+            status.classList.add('hidden');
+            status.textContent = '';
+            return;
+        }
+
+        status.textContent = message;
+        status.classList.remove('hidden');
+        status.classList.toggle('text-red-700', isError);
+        status.classList.toggle('text-brand-text-secondary', !isError);
+    };
+
+    const syncOldest = (oldest) => {
+        button.setAttribute('data-before', oldest);
+        const pageUrl = new URL(window.location.href);
+        pageUrl.searchParams.set('before', oldest);
+        window.history.replaceState({}, '', pageUrl);
+
+        tbody.querySelectorAll('a[href]').forEach((link) => {
+            if (!(link instanceof HTMLAnchorElement)) {
+                return;
+            }
+
+            const linkUrl = new URL(link.href, window.location.origin);
+            linkUrl.searchParams.set('before', oldest);
+            link.href = linkUrl.toString();
+        });
+    };
+
+    const loadNext = async () => {
+        if (loading) {
+            return null;
+        }
+
+        const before = button.getAttribute('data-before');
+        const endpoint = button.getAttribute('data-url');
+        if (!before || !endpoint) {
+            return null;
+        }
+
+        loading = true;
+        button.disabled = true;
+        setStatus('Loading older weeks…');
+
+        try {
+            const url = new URL(endpoint, window.location.origin);
+            url.searchParams.set('before', before);
+            const week = new URL(window.location.href).searchParams.get('week');
+            if (week) {
+                url.searchParams.set('week', week);
+            }
+
+            const response = await fetch(url.toString(), {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                throw new Error('Could not load older weeks.');
+            }
+
+            const data = await response.json();
+            if (typeof data.html === 'string' && data.html.trim() !== '') {
+                tbody.insertAdjacentHTML('beforeend', data.html);
+            }
+
+            const oldest = typeof data.oldest_week === 'string' ? data.oldest_week : before;
+            syncOldest(oldest);
+
+            if (!data.has_more) {
+                wrap.classList.add('hidden');
+            } else {
+                wrap.classList.remove('hidden');
+                button.disabled = false;
+            }
+
+            setStatus('');
+
+            return data;
+        } catch {
+            button.disabled = false;
+            setStatus('Could not load older weeks. Try again.', true);
+
+            return null;
+        } finally {
+            loading = false;
+        }
+    };
+
+    button.addEventListener('click', () => {
+        loadNext();
+    });
+
+    const requested = new URL(window.location.href).searchParams.get('before');
+    const rendered = button.getAttribute('data-before');
+    if (requested && rendered && requested < rendered && !wrap.classList.contains('hidden')) {
+        const restore = async () => {
+            let guard = 0;
+            let oldest = rendered;
+
+            while (requested < oldest && guard < 30 && !wrap.classList.contains('hidden')) {
+                const data = await loadNext();
+                guard += 1;
+                if (!data || typeof data.oldest_week !== 'string' || data.oldest_week >= oldest) {
+                    break;
+                }
+
+                oldest = data.oldest_week;
+                if (!data.has_more) {
+                    break;
+                }
+            }
+        };
+
+        restore();
+    }
+}
 
 function initShiftDurationTips() {
     /** @type {HTMLDivElement | null} */

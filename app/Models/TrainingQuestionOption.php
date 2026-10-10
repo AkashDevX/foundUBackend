@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'training_question_id',
     'option_text',
+    'match_text',
     'is_correct',
     'sort_order',
 ])]

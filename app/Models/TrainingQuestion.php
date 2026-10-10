@@ -9,9 +9,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'training_module_id',
+    'question_type',
     'question_text',
+    'prompt',
+    'explanation',
     'sort_order',
     'points',
+    'requires_review',
+    'accepted_answers',
+    'media_path',
+    'media_kind',
 ])]
 class TrainingQuestion extends Model
 {
@@ -30,6 +37,8 @@ class TrainingQuestion extends Model
         return [
             'points' => 'integer',
             'sort_order' => 'integer',
+            'requires_review' => 'boolean',
+            'accepted_answers' => 'array',
         ];
     }
 }

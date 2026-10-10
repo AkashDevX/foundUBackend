@@ -4,11 +4,14 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Models\Employee;
+use App\Models\EmployeeScheduleShift;
 use App\Models\TimeClockEntry;
 use App\Services\TimeClockService;
 use App\Support\AdminWeeklySchedule;
 use App\Support\AutoClockOut;
+use App\Support\ClockInGrace;
 use App\Support\DisplayTimezone;
+use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -91,8 +94,8 @@ class AutoClockOutOpenSessions extends Command
                 continue;
             }
 
-            // Use the session clock-in time for shift-end / max-hours decisions.
-            $sessionClockInAt = TimeClockEntry::query()
+            // Use the session clock-in for shift-end / max-hours decisions.
+            $clockIn = TimeClockEntry::query()
                 ->where('employee_id', $employee->id)
                 ->where('event_type', TimeClockEntry::EVENT_CLOCK_IN)
                 ->where('clocked_at', '<=', $entry->clocked_at)
@@ -105,16 +108,96 @@ class AutoClockOutOpenSessions extends Command
                 })
                 ->orderByDesc('clocked_at')
                 ->orderByDesc('id')
-                ->value('clocked_at');
+                ->first();
 
-            $clockInAt = $sessionClockInAt
-                ? \Carbon\Carbon::parse($sessionClockInAt, 'UTC')
+            $clockInAt = $clockIn instanceof TimeClockEntry && $clockIn->clocked_at !== null
+                ? $clockIn->clocked_at->copy()
                 : $entry->clocked_at;
 
-            $times = AdminWeeklySchedule::shiftTimesForDate(
-                $employee,
-                $clockInAt->copy()->timezone($tz),
-            );
+            // An admin put this shift back in progress so the employee can
+            // clock out from the app. Do not immediately close it again at
+            // shift end or from a stale "left site" sample. The max-hours
+            // cap still applies, measured from when it was reopened.
+            $reopenedAt = $clockIn instanceof TimeClockEntry ? $clockIn->reopened_at : null;
+            if ($reopenedAt !== null) {
+                [$closeAt, $reason] = AutoClockOut::resolveCloseAt(
+                    null,
+                    $reopenedAt,
+                    $now,
+                    $tz,
+                    $grace,
+                    $maxHours,
+                );
+                if ($closeAt === null) {
+                    continue;
+                }
+
+                if ($dryRun) {
+                    $this->line(sprintf(
+                        '[%s] would clock out employee #%d (%s) at %s.',
+                        $company->slug,
+                        $employee->id,
+                        $reason,
+                        DisplayTimezone::formatDateTime($closeAt),
+                    ));
+                    $closed++;
+
+                    continue;
+                }
+
+                $result = $service->systemClockOut(
+                    $employee,
+                    $closeAt,
+                    TimeClockEntry::PUNCH_SOURCE_AUTO_SHIFT_END,
+                    'Auto clock-out: '.$reason,
+                );
+                if ($result !== null) {
+                    $closed++;
+                    $this->line(sprintf(
+                        '[%s] clocked out employee #%d (%s).',
+                        $company->slug,
+                        $employee->id,
+                        $reason,
+                    ));
+                }
+
+                continue;
+            }
+
+            $leftSite = $service->openSessionLeftSite($employee);
+            if ($leftSite !== null) {
+                if ($dryRun) {
+                    $this->line(sprintf(
+                        '[%s] would clock out employee #%d (left work site) at %s.',
+                        $company->slug,
+                        $employee->id,
+                        DisplayTimezone::formatDateTime($leftSite['at']),
+                    ));
+                    $closed++;
+
+                    continue;
+                }
+
+                $result = $service->systemClockOut(
+                    $employee,
+                    $leftSite['at'],
+                    TimeClockEntry::PUNCH_SOURCE_AUTO_GEOFENCE_EXIT,
+                    'Auto clock-out: left work site',
+                    $leftSite['device'],
+                );
+                if ($result !== null) {
+                    $closed++;
+                    $this->line(sprintf(
+                        '[%s] clocked out employee #%d (left work site).',
+                        $company->slug,
+                        $employee->id,
+                    ));
+                }
+
+                continue;
+            }
+
+            $times = $this->shiftTimesForClockIn($employee, $clockIn, $clockInAt, $tz);
 
             [$closeAt, $reason] = AutoClockOut::resolveCloseAt(
                 $times,
@@ -160,5 +243,35 @@ class AutoClockOutOpenSessions extends Command
         }
 
         return $closed;
+    }
+
+    /**
+     * The roster row linked to the punch wins. Falling back to "whichever shift
+     * contains the clock-in time" can pick a later shift and leave the morning
+     * session open for hours after the employee has left.
+     *
+     * @return array{start_time: string, end_time: string}|null
+     */
+    private function shiftTimesForClockIn(Employee $employee, ?TimeClockEntry $clockIn, CarbonInterface $clockInAt, string $tz): ?array
+    {
+        $shiftId = $clockIn?->schedule_shift_id;
+        if ($shiftId !== null && (int) $shiftId > 0) {
+            $shift = EmployeeScheduleShift::query()->find((int) $shiftId);
+            if ($shift instanceof EmployeeScheduleShift) {
+                $start = ClockInGrace::storedTimeToHm($shift->start_time, '');
+                $end = ClockInGrace::storedTimeToHm($shift->end_time, '');
+                if ($start !== '' && $end !== '') {
+                    return [
+                        'start_time' => $start,
+                        'end_time' => $end,
+                    ];
+                }
+            }
+        }
+
+        return AdminWeeklySchedule::shiftTimesForDate(
+            $employee,
+            $clockInAt->copy()->timezone($tz),
+        );
     }
 }

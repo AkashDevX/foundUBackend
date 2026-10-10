@@ -95,7 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
             view: 'Timesheet record',
         };
 
-        setText(fields.kicker, kickerLabels[mode] || 'Timesheet record');
+        setText(
+            fields.kicker,
+            row.is_open && mode === 'edit' ? 'Clock out shift' : (kickerLabels[mode] || 'Timesheet record'),
+        );
         setText(fields.title, row.date_label || '—');
         setText(fields.employee, row.employee_name || '—');
         setText(fields.date, row.date_label || '—');
@@ -116,6 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setInputValue(clockInInput, row.clock_in_at);
         setInputValue(clockOutInput, row.is_open ? '' : row.clock_out_at);
         setInputValue(commentInput, row.review_notes || '');
+
+        const openHint = document.querySelector('[data-time-clock-row-open-hint]');
+        if (openHint) {
+            openHint.classList.toggle('hidden', !row.is_open);
+        }
 
         const clockOutComment = typeof row.clock_out_comment === 'string' ? row.clock_out_comment.trim() : '';
         if (clockOutCommentEl) {
@@ -142,10 +150,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (clockOutInput) {
-            if (editable && row.clock_out_entry_id && !row.is_open) {
+            if (editable && (row.clock_out_entry_id || row.is_open)) {
                 clockOutInput.removeAttribute('disabled');
+                clockOutInput.placeholder = row.is_open ? 'Choose clock-out time' : '';
             } else {
                 clockOutInput.setAttribute('disabled', 'disabled');
+                clockOutInput.placeholder = '';
+            }
+            if (editable && row.is_open) {
+                clockOutInput.setAttribute('required', 'required');
+            } else {
+                clockOutInput.removeAttribute('required');
             }
         }
 
@@ -155,6 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 commentInput.setAttribute('disabled', 'disabled');
             }
+        }
+
+        const saveButton = document.querySelector('[data-time-clock-row-action="save"]');
+        if (saveButton) {
+            saveButton.textContent = row.is_open ? 'Clock out' : 'Save';
         }
 
         updateFooter();

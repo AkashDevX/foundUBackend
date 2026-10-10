@@ -3,8 +3,8 @@
 namespace App\Support;
 
 use Illuminate\Http\UploadedFile;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 final class TrainingSlideMedia
 {
@@ -29,11 +29,49 @@ final class TrainingSlideMedia
         Storage::disk(self::DISK)->delete($path);
     }
 
-    public static function response(?string $path): StreamedResponse
+    public static function response(?string $path): BinaryFileResponse
     {
         abort_unless(self::isSafePath($path) && Storage::disk(self::DISK)->exists($path), 404);
 
-        return Storage::disk(self::DISK)->response($path);
+        $absolute = Storage::disk(self::DISK)->path($path);
+        $mime = Storage::disk(self::DISK)->mimeType($path);
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $fromExt = match ($ext) {
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'pdf' => 'application/pdf',
+            'mp4', 'm4v' => 'video/mp4',
+            'webm' => 'video/webm',
+            'mov' => 'video/quicktime',
+            default => null,
+        };
+        $type = $fromExt
+            ?? (is_string($mime) && $mime !== '' ? $mime : 'application/octet-stream');
+
+        // A real file response, not a chunked stream. React Native's image
+        // loader drops or corrupts chunked bodies, so slides never appear.
+        $response = new BinaryFileResponse($absolute);
+        $response->headers->set('Content-Type', $type);
+        $response->setContentDisposition('inline', basename($path));
+
+        return $response;
+    }
+
+    public static function fresh(BinaryFileResponse $response): BinaryFileResponse
+    {
+        $response->setAutoEtag(false);
+        $response->setAutoLastModified(false);
+        $response->setPrivate();
+        $response->headers->set('Cache-Control', 'private, no-store, must-revalidate');
+
+        return $response;
+    }
+
+    public static function version(?string $path): string
+    {
+        return is_string($path) && $path !== '' ? substr(sha1($path), 0, 12) : '';
     }
 
     /**
@@ -66,4 +104,4 @@ final class TrainingSlideMedia
             && ! str_contains($path, '..')
             && ! str_starts_with($path, '/');
     }
-};
+}

@@ -23,13 +23,22 @@
             Incident reporting is not set up on this organization database yet. Apply the latest CruLynk database update, then refresh this page.
         </section>
     @else
-        <div class="mb-5 flex flex-wrap gap-2">
-            @foreach ($filters as $key => $label)
-                <a
-                    href="{{ route('admin.incidents.index', ['status' => $key]) }}"
-                    class="rounded-full px-3 py-1.5 text-xs font-semibold {{ $status === $key ? 'bg-red-600 text-white' : 'border border-brand-border bg-white text-brand-text hover:border-red-200 hover:text-red-700' }}"
-                >{{ $label }}</a>
-            @endforeach
+        <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap gap-2">
+                @foreach ($filters as $key => $label)
+                    <a
+                        href="{{ route('admin.incidents.index', ['status' => $key]) }}"
+                        class="rounded-full px-3 py-1.5 text-xs font-semibold {{ $status === $key ? 'bg-red-600 text-white' : 'border border-brand-border bg-white text-brand-text hover:border-red-200 hover:text-red-700' }}"
+                    >{{ $label }}</a>
+                @endforeach
+            </div>
+            <a
+                href="{{ route('admin.incidents.export', ['status' => $status]) }}"
+                class="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-primary/20 transition hover:bg-brand-primary-dark"
+            >
+                <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                Export PDF
+            </a>
         </div>
 
         <section class="overflow-hidden rounded-lg border border-brand-border bg-white shadow-sm">
@@ -45,6 +54,7 @@
                                 <th class="px-4 py-3">Type</th>
                                 <th class="px-4 py-3">Site</th>
                                 <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-right">Export</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-brand-border">
@@ -65,6 +75,12 @@
                                     <td class="px-4 py-3 text-brand-text">{{ $report->site_name }}</td>
                                     <td class="px-4 py-3">
                                         <span class="rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide {{ $badge }}">{{ $report->statusLabel() }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <a href="{{ route('admin.incidents.pdf', $report->id) }}" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-border bg-white px-2.5 py-1 text-xs font-semibold text-brand-primary shadow-sm transition hover:border-brand-primary/40 hover:bg-brand-surface">
+                                            <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                                            PDF
+                                        </a>
                                     </td>
                                 </tr>
                             @endforeach

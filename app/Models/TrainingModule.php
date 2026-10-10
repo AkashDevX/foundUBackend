@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'pass_percent',
     'max_attempts',
     'question_time_seconds',
+    'quiz_required',
+    'allow_retakes',
+    'issues_certificate',
+    'certificate_validity_months',
     'created_by',
 ])]
 class TrainingModule extends Model
@@ -45,6 +49,10 @@ class TrainingModule extends Model
             'pass_percent' => 'integer',
             'max_attempts' => 'integer',
             'question_time_seconds' => 'integer',
+            'quiz_required' => 'boolean',
+            'allow_retakes' => 'boolean',
+            'issues_certificate' => 'boolean',
+            'certificate_validity_months' => 'integer',
         ];
     }
 }

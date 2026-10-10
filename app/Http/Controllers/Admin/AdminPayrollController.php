@@ -11,6 +11,7 @@ use App\Models\PublicHoliday;
 use App\Models\TimesheetApproval;
 use App\Support\AdminPayroll;
 use App\Support\PayrollRateTypes;
+use App\Support\PayrollRunExport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -75,18 +76,23 @@ class AdminPayrollController extends Controller
     {
         $ctx = $this->pageContext($request);
 
-        $existingRuns = PayrollRun::on($ctx['connection'])
-            ->orderByDesc('fortnight_start')
-            ->limit(24)
-            ->get();
-
         $fortnightStart = $request->query('fortnight');
         if (is_string($fortnightStart) && $fortnightStart !== '') {
             $fortnightStart = AdminPayroll::normalizeFortnightStart($fortnightStart);
         } else {
-            $recent = AdminPayroll::recentFortnights(1, $existingRuns);
-            $fortnightStart = $recent[0]['start'] ?? AdminPayroll::normalizeFortnightStart(\App\Support\DisplayTimezone::now()->toDateString());
+            $fortnightStart = AdminPayroll::currentFortnightStart();
         }
+
+        $requestedHistory = (int) $request->query('history', AdminPayroll::FORTNIGHT_PAGE_SIZE);
+        $fortnightHistory = AdminPayroll::fortnightWindowCount($fortnightStart, $requestedHistory);
+        $oldestStart = \Carbon\Carbon::parse(AdminPayroll::currentFortnightStart(), \App\Support\DisplayTimezone::name())
+            ->subWeeks(2 * ($fortnightHistory - 1))
+            ->toDateString();
+
+        $existingRuns = PayrollRun::on($ctx['connection'])
+            ->where('fortnight_start', '>=', $oldestStart)
+            ->orderByDesc('fortnight_start')
+            ->get();
 
         $fortnightEnd = AdminPayroll::fortnightEndForStart($fortnightStart);
 
@@ -123,7 +129,9 @@ class AdminPayrollController extends Controller
             'fortnightStart' => $fortnightStart,
             'fortnightEnd' => $fortnightEnd,
             'fortnightLabel' => $fortnightLabel,
-            'recentFortnights' => AdminPayroll::recentFortnights(8, $existingRuns),
+            'recentFortnights' => AdminPayroll::recentFortnights($fortnightHistory, $existingRuns),
+            'fortnightHistory' => $fortnightHistory,
+            'canLoadOlderFortnights' => $fortnightHistory < AdminPayroll::FORTNIGHT_HISTORY_MAX,
             'previewRows' => $previewRows,
             'blockerStats' => AdminPayroll::blockerStats($previewRows),
             'requireApprovedTimesheets' => (bool) config('payroll.require_approved_timesheets', true),
@@ -148,7 +156,7 @@ class AdminPayrollController extends Controller
         $existingRun = PayrollRun::on($ctx['connection'])->where('fortnight_start', $fortnightStart)->first();
         if ($existingRun !== null && $existingRun->status === PayrollRun::STATUS_FINALIZED) {
             throw ValidationException::withMessages([
-                'fortnight_start' => 'This pay run is already finalized, so it cannot be generated again. Leave balances were already updated from the saved totals.',
+                'fortnight_start' => 'This pay run is already finalized, so it cannot be changed. Leave balances were already updated.',
             ]);
         }
 
@@ -183,8 +191,8 @@ class AdminPayrollController extends Controller
         );
 
         $message = $finalize
-            ? 'Payroll run generated and finalized. Leave balances updated.'
-            : 'Payroll run saved as draft.';
+            ? 'Payroll run finalized. Leave balances updated.'
+            : 'Pay run saved as draft.';
 
         return redirect()
             ->route('admin.payroll.runs', ['fortnight' => $fortnightStart])
@@ -234,15 +242,39 @@ class AdminPayrollController extends Controller
 
     public function exportRun(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        $ctx = $this->pageContext($request);
+        [$company, $start, $end, $status, $rows] = $this->exportContext($request);
+        $csv = PayrollRunExport::csv($company, $start, $end, $status, $rows);
+        $filename = PayrollRunExport::filename($start, $end, 'csv');
 
+        return response()->streamDownload(function () use ($csv): void {
+            echo $csv;
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    public function exportPdf(Request $request): \Symfony\Component\HttpFoundation\Response
+    {
+        [$company, $start, $end, $status, $rows] = $this->exportContext($request);
+        $bytes = PayrollRunExport::render($company, $start, $end, $status, $rows);
+        $filename = str_replace(['"', '\\', "\r", "\n"], '', PayrollRunExport::filename($start, $end, 'pdf'));
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+        ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: string, 3: string|null, 4: list<array<string, mixed>>}
+     */
+    private function exportContext(Request $request): array
+    {
+        $ctx = $this->pageContext($request);
         $data = $request->validate([
             'fortnight_start' => ['required', 'date'],
         ]);
 
         $fortnightStart = AdminPayroll::normalizeFortnightStart($data['fortnight_start']);
         $fortnightEnd = AdminPayroll::fortnightEndForStart($fortnightStart);
-
         $employees = $this->loadPayrollEmployees($ctx['connection'], $fortnightStart, $fortnightEnd);
         $previewRows = AdminPayroll::previewFortnight(
             $ctx['connection'],
@@ -252,32 +284,15 @@ class AdminPayrollController extends Controller
             PublicHoliday::on($ctx['connection'])->whereBetween('holiday_date', [$fortnightStart, $fortnightEnd])->get(),
             TimesheetApproval::on($ctx['connection'])->get(),
         );
+        $run = PayrollRun::on($ctx['connection'])->where('fortnight_start', $fortnightStart)->first();
 
-        $filename = 'payroll-'.$fortnightStart.'-'.$fortnightEnd.'.csv';
-
-        return response()->streamDownload(function () use ($previewRows): void {
-            $out = fopen('php://output', 'w');
-            fputcsv($out, ['Employee', 'Email', 'Worked hrs', 'Roster hrs', 'Variance', 'Gross pay', 'Line', 'Hours', 'Rate', 'Amount']);
-            foreach (AdminPayroll::payableRows($previewRows) as $row) {
-                /** @var Employee $emp */
-                $emp = $row['employee'];
-                foreach (AdminPayroll::payableLines($row['lines'] ?? []) as $line) {
-                    fputcsv($out, [
-                        $emp->full_legal_name ?: $emp->email,
-                        $emp->email,
-                        $row['total_hours'],
-                        $row['scheduled_hours'] ?? 0,
-                        $row['roster_variance'] ?? '',
-                        $row['total_amount'],
-                        $line['label'] ?? '',
-                        $line['hours'] ?? 0,
-                        $line['rate'] ?? 0,
-                        $line['amount'] ?? 0,
-                    ]);
-                }
-            }
-            fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv']);
+        return [
+            (string) $ctx['company']->name,
+            $fortnightStart,
+            $fortnightEnd,
+            $run?->status,
+            $previewRows,
+        ];
     }
 
     /**

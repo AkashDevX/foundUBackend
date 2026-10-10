@@ -19,12 +19,14 @@ class AdminPayrollBlockerSummaryTest extends TestCase
             ],
             [
                 'employee' => $employee,
-                'skipped_reason' => 'No approved clock time in fortnight',
+                'skipped_reason' => 'Shifts in this pay period are not approved yet. Approve them under Time clock records.',
                 'total_hours' => 0,
             ],
         ]);
 
         $this->assertStringContainsString('Employment type not set', $summary);
-        $this->assertStringContainsString('No approved clock time in fortnight', $summary);
+        $this->assertStringContainsString('Shifts in this pay period are not approved yet. Approve them under Time clock records.', $summary);
+        $this->assertStringNotContainsString('PAYROLL_REQUIRE_APPROVED_TIMESHEETS', $summary);
+        $this->assertStringNotContainsString('.env', $summary);
     }
 }

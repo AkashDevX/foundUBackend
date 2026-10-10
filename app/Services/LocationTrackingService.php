@@ -9,7 +9,6 @@ use App\Models\TimeClockEntry;
 use App\Models\TimeClockIdleAlert;
 use App\Models\TimeClockLocationSample;
 use App\Models\WorkLocation;
-use App\Support\DisplayTimezone;
 use App\Support\GeoDistance;
 use App\Support\LocationIdleDetector;
 use App\Support\MovementTrailAnalyzer;
@@ -400,7 +399,7 @@ class LocationTrackingService
 
         $analysis = LocationIdleDetector::analyze($payload, $this->idleMaxDisplacementMeters());
 
-        if (!$analysis['is_idle']) {
+        if (! $analysis['is_idle']) {
             $this->clearOpenAlertsForEmployee($employee, (int) $clockIn->id);
 
             return null;
@@ -502,9 +501,7 @@ class LocationTrackingService
      */
     private function todaysScheduledShiftRow(Employee $employee): ?EmployeeScheduleShift
     {
-        $now = DisplayTimezone::now();
-        $shifts = TimeClockScheduledShift::shiftsForDate($employee, $now->toDateString());
-        $row = TimeClockScheduledShift::pickBestForMoment($shifts, $now);
+        $row = TimeClockScheduledShift::shiftRowForLiveSite($employee);
         $row?->loadMissing(['workLocation', 'shiftTemplate']);
 
         return $row;
@@ -571,13 +568,10 @@ class LocationTrackingService
             $expectedLng,
         );
 
-        $bufferCap = (float) config('time_clock.geofence_accuracy_buffer_cap_meters', 100);
-        $buffer = min(max($accuracyMeters ?? 0.0, 0.0), $bufferCap);
-
         return [
             'distance_meters' => round($distance, 2),
             'allowed_radius_meters' => $radius,
-            'within_geofence' => $distance <= ($radius + $buffer),
+            'within_geofence' => $distance <= $radius,
         ];
     }
 }

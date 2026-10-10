@@ -15,25 +15,58 @@ use Illuminate\Support\Collection;
 
 final class AdminPayroll
 {
-    /**
-     * @return list<array{start: string, end: string, label: string, has_run: bool, run_id: int|null, status: string|null}>
-     */
-    public static function recentFortnights(int $count = 8, ?Collection $existingRuns = null): array
+    public const FORTNIGHT_PAGE_SIZE = 8;
+
+    public const FORTNIGHT_HISTORY_MAX = 208;
+
+    public static function currentFortnightStart(): string
     {
         $tz = DisplayTimezone::name();
-        $today = Carbon::now($tz)->startOfDay();
-        $currentWeekStart = $today->copy()->startOfWeek(Carbon::MONDAY);
+        $currentWeekStart = Carbon::now($tz)->startOfDay()->startOfWeek(Carbon::MONDAY);
 
         if ((int) $currentWeekStart->weekOfYear % 2 !== 0) {
             $currentWeekStart = $currentWeekStart->copy()->subWeek();
         }
+
+        return $currentWeekStart->toDateString();
+    }
+
+    /**
+     * How many fortnight rows to show so the selected period stays in the list.
+     */
+    public static function fortnightWindowCount(string $fortnightStart, int $requested = self::FORTNIGHT_PAGE_SIZE): int
+    {
+        $requested = max(self::FORTNIGHT_PAGE_SIZE, $requested);
+        $tz = DisplayTimezone::name();
+        $anchor = Carbon::parse(self::currentFortnightStart(), $tz)->startOfDay();
+        $selected = Carbon::parse(self::normalizeFortnightStart($fortnightStart), $tz)->startOfDay();
+        $back = 0;
+
+        if ($selected->lt($anchor)) {
+            $days = (int) round(($anchor->getTimestamp() - $selected->getTimestamp()) / 86400);
+            $back = (int) floor(max(0, $days) / 14);
+        }
+
+        $needed = max($requested, $back + 1);
+        $paged = (int) (ceil($needed / self::FORTNIGHT_PAGE_SIZE) * self::FORTNIGHT_PAGE_SIZE);
+
+        return min(self::FORTNIGHT_HISTORY_MAX, max(self::FORTNIGHT_PAGE_SIZE, $paged));
+    }
+
+    /**
+     * @return list<array{start: string, end: string, label: string, has_run: bool, run_id: int|null, status: string|null}>
+     */
+    public static function recentFortnights(int $count = self::FORTNIGHT_PAGE_SIZE, ?Collection $existingRuns = null): array
+    {
+        $tz = DisplayTimezone::name();
+        $count = max(1, min(self::FORTNIGHT_HISTORY_MAX, $count));
 
         $runsByStart = $existingRuns !== null
             ? $existingRuns->keyBy(static fn (PayrollRun $r) => $r->fortnight_start?->toDateString() ?? '')
             : collect();
 
         $fortnights = [];
-        $cursor = $currentWeekStart->copy();
+        $cursor = Carbon::parse(self::currentFortnightStart(), $tz)->startOfDay();
 
         for ($i = 0; $i < $count; $i++) {
             $start = $cursor->copy();
@@ -210,7 +243,7 @@ final class AdminPayroll
                     0,
                     0,
                     0,
-                    'Clock punches could not be paired into completed sessions',
+                    'Clock-in and clock-out could not be matched into a finished shift.',
                 );
 
                 continue;
@@ -240,10 +273,18 @@ final class AdminPayroll
             );
         }
 
-        usort($results, static fn (array $a, array $b): int => strcasecmp(
-            (string) ($a['employee']->full_legal_name ?? $a['employee']->email),
-            (string) ($b['employee']->full_legal_name ?? $b['employee']->email)
-        ));
+        usort($results, static function (array $a, array $b): int {
+            $aPayable = self::rowIsPayable($a);
+            $bPayable = self::rowIsPayable($b);
+            if ($aPayable !== $bPayable) {
+                return $aPayable ? -1 : 1;
+            }
+
+            return strcasecmp(
+                (string) ($a['employee']->full_legal_name ?? $a['employee']->email),
+                (string) ($b['employee']->full_legal_name ?? $b['employee']->email)
+            );
+        });
 
         return $results;
     }
@@ -313,23 +354,22 @@ final class AdminPayroll
             if ($reason === null && (($row['total_hours'] ?? 0) > 0 || ($row['total_amount'] ?? 0) > 0)) {
                 continue;
             }
-            $label = $reason ?? 'No payable hours calculated';
+            $label = $reason ?? 'No hours to pay';
             $counts[$label] = ($counts[$label] ?? 0) + 1;
         }
 
         if ($counts === []) {
-            return 'No payable hours found for this fortnight.';
+            return 'No hours to pay in this pay period.';
         }
 
         $parts = [];
         foreach ($counts as $label => $count) {
-            $parts[] = "{$count} employee(s): {$label}";
+            $parts[] = ($count === 1 ? '1 employee: ' : "{$count} employees: ").$label;
         }
 
-        $requireApproved = (bool) config('payroll.require_approved_timesheets', true);
-        $hint = $requireApproved
-            ? 'Approve each worked shift under Time clock records. Payroll only includes HR-approved clock time.'
-            : 'Set PAYROLL_REQUIRE_APPROVED_TIMESHEETS=false in .env to include unapproved clock time (not recommended for production).';
+        $hint = (bool) config('payroll.require_approved_timesheets', true)
+            ? 'Approve each worked shift under Time clock records. Only approved time is included.'
+            : 'Unapproved clock time is included for this organization.';
 
         return implode('; ', $parts).'. '.$hint;
     }
@@ -348,7 +388,7 @@ final class AdminPayroll
                 $stats['payable']++;
             } else {
                 $stats['blocked']++;
-                $label = $row['skipped_reason'] ?? 'No payable hours';
+                $label = $row['skipped_reason'] ?? 'No hours to pay';
                 $stats['reasons'][$label] = ($stats['reasons'][$label] ?? 0) + 1;
             }
         }
@@ -369,7 +409,7 @@ final class AdminPayroll
             return null;
         }
 
-        return 'No job title wage — set an hourly wage on the job title for this shift';
+        return 'No hourly wage on this job title. Set the wage, then assign that title on the weekly schedule.';
     }
 
     /**
@@ -490,15 +530,15 @@ final class AdminPayroll
         string $fortnightEnd,
     ): string {
         if ($entriesInFortnight->isEmpty()) {
-            return 'No clock punches in this fortnight — check the selected pay period matches when employees worked';
+            return 'No clock time in this pay period. Check that the dates match when this person worked.';
         }
 
         if ($sessions === []) {
-            return 'Clock punches could not be paired into completed sessions';
+            return 'Clock-in and clock-out could not be matched into a finished shift.';
         }
 
         if (! $requireApproved) {
-            return 'No clock time in fortnight';
+            return 'No clock time in this pay period';
         }
 
         $unapprovedSessions = [];
@@ -521,10 +561,10 @@ final class AdminPayroll
         }
 
         if ($unapprovedSessions !== []) {
-            return 'Timesheet shift(s) not approved: '.implode('; ', array_values(array_unique($unapprovedSessions)));
+            return 'Shift not approved: '.implode('; ', array_values(array_unique($unapprovedSessions)));
         }
 
-        return 'No approved clock time in fortnight — approve each shift under Time clock records';
+        return 'Shifts in this pay period are not approved yet. Approve them under Time clock records.';
     }
 
     /**
@@ -643,11 +683,81 @@ final class AdminPayroll
      */
     public static function payableLines(array $lines): array
     {
-        return array_values(array_filter($lines, static function (array $line): bool {
+        $payable = array_values(array_filter($lines, static function (array $line): bool {
             $isEarning = PayrollLineTotals::categoryFor((string) ($line['rate_type'] ?? '')) === 'earning';
 
             return $isEarning && ((float) ($line['amount'] ?? 0) > 0 || (float) ($line['hours'] ?? 0) > 0);
         }));
+
+        usort($payable, static function (array $a, array $b): int {
+            $rank = self::payLineSortRank((string) ($a['rate_type'] ?? '')) <=> self::payLineSortRank((string) ($b['rate_type'] ?? ''));
+            if ($rank !== 0) {
+                return $rank;
+            }
+
+            return strcasecmp(self::payLineLabel($a), self::payLineLabel($b));
+        });
+
+        return $payable;
+    }
+
+    /**
+     * Plain label for a pay line. Internal rate keys are never shown.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public static function payLineLabel(array $line): string
+    {
+        $label = trim((string) ($line['label'] ?? $line['description'] ?? ''));
+        $rateType = (string) ($line['rate_type'] ?? '');
+
+        if ($label !== '' && $label !== $rateType && ! self::looksLikeInternalKey($label)) {
+            return $label;
+        }
+
+        if (str_starts_with($rateType, 'job_title_')) {
+            return 'Hourly wage';
+        }
+
+        if ($rateType === 'wage_not_effective') {
+            return 'Wage not yet effective';
+        }
+
+        return PayrollRateTypes::label($rateType);
+    }
+
+    private static function looksLikeInternalKey(string $value): bool
+    {
+        return preg_match('/^[a-z0-9]+(?:_[a-z0-9]+)+$/', $value) === 1;
+    }
+
+    private static function payLineSortRank(string $rateType): int
+    {
+        if (str_starts_with($rateType, 'job_title_')) {
+            return 20;
+        }
+
+        return match ($rateType) {
+            PayrollRateTypes::WEEKDAY_ORDINARY => 10,
+            PayrollRateTypes::WEEKDAY_PENALTY, PayrollRateTypes::WEEKDAY_MIDNIGHT_SHIFT => 30,
+            PayrollRateTypes::SATURDAY, PayrollRateTypes::SUNDAY, PayrollRateTypes::PUBLIC_HOLIDAY => 40,
+            PayrollRateTypes::OVERTIME_MON_SAT_FIRST_2H,
+            PayrollRateTypes::OVERTIME_MON_SAT_AFTER_2H,
+            PayrollRateTypes::OVERTIME_SUNDAY,
+            PayrollRateTypes::OVERTIME_PUBLIC_HOLIDAY => 50,
+            PayrollRateTypes::SICK_LEAVE_TAKEN, PayrollRateTypes::ANNUAL_LEAVE_TAKEN, PayrollRateTypes::LEAVE_TAKEN => 60,
+            PayrollRateTypes::ALLOWANCE => 70,
+            default => 80,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private static function rowIsPayable(array $row): bool
+    {
+        return ($row['skipped_reason'] ?? null) === null
+            && (($row['total_hours'] ?? 0) > 0 || ($row['total_amount'] ?? 0) > 0);
     }
 
     /**

@@ -17,6 +17,7 @@
         /** @var list<array<string, mixed>> $weekDays */
         /** @var list<array<string, mixed>> $scheduleRows */
         /** @var list<array<string, mixed>> $unassignedRows */
+        /** @var list<array<string, mixed>> $availableRows */
         /** @var array<string, mixed> $scheduleStats */
         /** @var array<string, string> $filters */
         /** @var array{prev: string, next: string, today: string} $weekLinks */
@@ -73,6 +74,14 @@
         foreach ($unassignedRows as $unassignedRow) {
             foreach (($unassignedRow['cells'] ?? []) as $unassignedCell) {
                 $unassignedShiftCount += count($unassignedCell['blocks'] ?? []);
+            }
+        }
+
+        $availableRows = $availableRows ?? [];
+        $availableShiftCount = 0;
+        foreach ($availableRows as $availableRow) {
+            foreach (($availableRow['cells'] ?? []) as $availableCell) {
+                $availableShiftCount += count($availableCell['blocks'] ?? []);
             }
         }
     @endphp
@@ -136,22 +145,33 @@
                 };
 
                 const pickActiveScrollEl = () => {
+                    const probeY = Math.min(Math.max(window.innerHeight * 0.38, 160), 320);
+                    let containing = null;
                     let best = null;
                     let bestVisible = 0;
 
                     scrollEls.forEach((el) => {
+                        if (el.closest('.hidden')) {
+                            return;
+                        }
                         if (!needsHorizontalScroll(el)) {
                             return;
                         }
                         const rect = el.getBoundingClientRect();
                         const visible = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+                        if (visible <= 24) {
+                            return;
+                        }
+                        if (rect.top <= probeY && rect.bottom >= probeY) {
+                            containing = el;
+                        }
                         if (visible > bestVisible) {
                             bestVisible = visible;
                             best = el;
                         }
                     });
 
-                    return bestVisible > 40 ? best : null;
+                    return containing || best;
                 };
 
                 const syncDockFromActive = () => {
@@ -167,9 +187,8 @@
 
                     dock.classList.add('is-visible');
                     if (dockLabel) {
-                        dockLabel.textContent = activeScrollEl.getAttribute('data-schedule-scroll') === 'unassigned'
-                            ? 'Unassigned'
-                            : 'Weekly roster';
+                        const scrollLabels = { unassigned: 'Unassigned', available: 'Available', roster: 'Weekly roster' };
+                        dockLabel.textContent = scrollLabels[activeScrollEl.getAttribute('data-schedule-scroll')] || 'Weekly roster';
                     }
 
                     if (dockRange) {
@@ -273,6 +292,35 @@
                     setScrollLeft(activeScrollEl, Number(dockRange.value) || 0);
                 });
 
+                document.querySelectorAll('.available-request-btn').forEach((button) => {
+                    button.addEventListener('mousedown', (event) => {
+                        event.preventDefault();
+                    });
+                });
+
+                document.querySelectorAll('[data-coverage-toggle]').forEach((toggle) => {
+                    const key = toggle.getAttribute('data-coverage-toggle');
+                    const panel = key ? document.querySelector(`[data-coverage-panel="${key}"]`) : null;
+                    const label = toggle.querySelector('[data-coverage-switch-label]');
+                    if (!panel) return;
+
+                    const setOpen = (open) => {
+                        const name = key === 'available' ? 'Available' : 'Unassigned';
+                        toggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+                        toggle.setAttribute(
+                            'aria-label',
+                            open ? `${name} shifts are shown. Click to hide.` : `${name} shifts are hidden. Click to show.`,
+                        );
+                        if (label) label.textContent = open ? 'Shown' : 'Hidden';
+                        panel.classList.toggle('hidden', !open);
+                        syncDockFromActive();
+                    };
+
+                    toggle.addEventListener('click', () => {
+                        setOpen(toggle.getAttribute('aria-pressed') !== 'true');
+                    });
+                });
+
                 window.addEventListener('scroll', syncDockFromActive, { passive: true });
                 window.addEventListener('resize', syncDockFromActive);
                 syncDockFromActive();
@@ -280,6 +328,166 @@
         </script>
     @endpush
 
+    <style>
+        .coverage-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            margin: 0;
+            padding: 0.2rem 0.15rem 0.2rem 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            border-radius: 999px;
+        }
+        .coverage-switch:focus-visible {
+            outline: 2px solid #0052a2;
+            outline-offset: 3px;
+        }
+        .coverage-switch-label {
+            min-width: 3.4rem;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            text-align: right;
+            color: #003d7a;
+        }
+        .coverage-switch[aria-pressed="false"] .coverage-switch-label {
+            color: #6b7280;
+        }
+        .coverage-switch-track {
+            position: relative;
+            display: block;
+            width: 48px;
+            height: 28px;
+            border-radius: 999px;
+            background: #003d7a;
+            box-shadow: inset 0 0 0 1px rgba(0, 40, 85, 0.35), 0 1px 2px rgba(0, 61, 122, 0.25);
+            transition: background 0.18s ease, box-shadow 0.18s ease;
+        }
+        .coverage-switch[aria-pressed="false"] .coverage-switch-track {
+            background: #d1d5db;
+            box-shadow: inset 0 0 0 1px #9ca3af;
+        }
+        .coverage-switch-knob {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+            transition: transform 0.18s ease;
+        }
+        .coverage-switch[aria-pressed="true"] .coverage-switch-knob {
+            transform: translateX(20px);
+        }
+        .coverage-switch[aria-pressed="true"] .coverage-switch-knob::after {
+            content: "";
+            position: absolute;
+            left: 7px;
+            top: 5px;
+            width: 6px;
+            height: 10px;
+            border: solid #003d7a;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+        .coverage-switch[aria-pressed="false"] .coverage-switch-knob::after {
+            content: "";
+            position: absolute;
+            left: 6px;
+            top: 10px;
+            width: 10px;
+            height: 2px;
+            border-radius: 999px;
+            background: #9ca3af;
+        }
+        .available-request {
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            padding: 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+        }
+        .available-request-name {
+            margin: 0;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.3;
+            color: #111827;
+            overflow-wrap: anywhere;
+        }
+        .available-request-note {
+            margin: 4px 0 0;
+            font-size: 11px;
+            line-height: 1.35;
+            color: #6b7280;
+            overflow-wrap: anywhere;
+        }
+        .available-request-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+            align-items: stretch;
+        }
+        .available-request-actions form {
+            margin: 0;
+            min-width: 0;
+        }
+        .available-request-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            width: 100%;
+            height: 32px;
+            margin: 0;
+            padding: 0 8px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            cursor: pointer;
+            transform: none;
+            box-shadow: none;
+        }
+        .available-request-btn:focus {
+            outline: none;
+        }
+        .available-request-btn:focus-visible {
+            outline: 2px solid #0052a2;
+            outline-offset: 2px;
+        }
+        .available-request-btn:active {
+            transform: none;
+        }
+        .available-request-btn--approve {
+            background: #003d7a;
+            border-color: #003d7a;
+            color: #fff;
+        }
+        .available-request-btn--approve:hover {
+            background: #002855;
+            border-color: #002855;
+        }
+        .available-request-btn--reject {
+            background: #fff;
+            border-color: #d1d5db;
+            color: #111827;
+        }
+        .available-request-btn--reject:hover {
+            background: #f3f4f6;
+        }
+    </style>
+
+    @include('admin.partials.break-window-settings')
 
     <section class="mb-6 rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
         <div class="flex flex-col gap-4 rounded-t-2xl border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-4 py-4 lg:flex-row lg:items-center lg:justify-between sm:px-6">
@@ -388,6 +596,16 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <span class="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-1 text-xs font-semibold text-brand-primary ring-1 ring-inset ring-brand-primary/15">{{ $unassignedShiftCount }}</span>
+                    <button
+                        type="button"
+                        class="coverage-switch"
+                        data-coverage-toggle="unassigned"
+                        aria-pressed="true"
+                        aria-label="Unassigned shifts are shown. Click to hide."
+                    >
+                        <span class="coverage-switch-label" data-coverage-switch-label>Shown</span>
+                        <span class="coverage-switch-track" aria-hidden="true"><span class="coverage-switch-knob"></span></span>
+                    </button>
                     <div class="inline-flex items-center gap-1">
                         <button type="button" class="inline-flex size-8 items-center justify-center rounded-lg border border-brand-border bg-white text-brand-text shadow-sm transition hover:border-brand-primary/35 hover:bg-brand-surface" data-schedule-scroll-btn="prev" data-schedule-scroll-target="unassigned" aria-label="Scroll schedule left">←</button>
                         <button type="button" class="inline-flex size-8 items-center justify-center rounded-lg border border-brand-border bg-white text-brand-text shadow-sm transition hover:border-brand-primary/35 hover:bg-brand-surface" data-schedule-scroll-btn="next" data-schedule-scroll-target="unassigned" aria-label="Scroll schedule right">→</button>
@@ -395,6 +613,7 @@
                 </div>
             </div>
         </div>
+        <div data-coverage-panel="unassigned">
         <div class="sticky top-[4.25rem] z-[18] border-b border-brand-border bg-white/95 shadow-sm backdrop-blur">
             <div class="schedule-table-scroll" data-schedule-header-scroll="unassigned">
                 <table class="schedule-grid text-left text-sm">
@@ -542,6 +761,203 @@
                     @endforelse
                 </tbody>
             </table>
+        </div>
+        </div>
+    </section>
+
+    <section class="mb-6 rounded-2xl border border-brand-border bg-white shadow-sm ring-1 ring-black/[0.02]">
+        <div class="border-b border-brand-border bg-gradient-to-br from-brand-surface via-white to-white px-4 py-4 sm:px-6">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-brand-label">Open shifts</p>
+                    <h2 class="mt-1 text-lg font-bold text-brand-text">Available shifts</h2>
+                    <p class="mt-1 text-sm text-brand-text-secondary">Shifts offered to every employee. Requests arrive from the mobile app. After you assign one, it stays here so you can see who took it.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-brand-primary/10 px-2.5 py-1 text-xs font-semibold text-brand-primary ring-1 ring-inset ring-brand-primary/15">{{ $availableShiftCount }}</span>
+                    <button
+                        type="button"
+                        class="coverage-switch"
+                        data-coverage-toggle="available"
+                        aria-pressed="true"
+                        aria-label="Available shifts are shown. Click to hide."
+                    >
+                        <span class="coverage-switch-label" data-coverage-switch-label>Shown</span>
+                        <span class="coverage-switch-track" aria-hidden="true"><span class="coverage-switch-knob"></span></span>
+                    </button>
+                    <div class="inline-flex items-center gap-1">
+                        <button type="button" class="inline-flex size-8 items-center justify-center rounded-lg border border-brand-border bg-white text-brand-text shadow-sm transition hover:border-brand-primary/35 hover:bg-brand-surface" data-schedule-scroll-btn="prev" data-schedule-scroll-target="available" aria-label="Scroll available shifts left">←</button>
+                        <button type="button" class="inline-flex size-8 items-center justify-center rounded-lg border border-brand-border bg-white text-brand-text shadow-sm transition hover:border-brand-primary/35 hover:bg-brand-surface" data-schedule-scroll-btn="next" data-schedule-scroll-target="available" aria-label="Scroll available shifts right">→</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div data-coverage-panel="available">
+        <div class="sticky top-[4.25rem] z-[18] border-b border-brand-border bg-white/95 shadow-sm backdrop-blur">
+            <div class="schedule-table-scroll" data-schedule-header-scroll="available">
+                <table class="schedule-grid text-left text-sm">
+                    <colgroup>
+                        <col class="col-employee">
+                        @foreach ($weekDays as $day)
+                            <col class="col-day">
+                        @endforeach
+                    </colgroup>
+                    <thead>
+                        <tr class="bg-brand-surface text-xs font-semibold uppercase tracking-wide text-brand-label">
+                            <th class="sticky left-0 z-[3] border-r border-brand-border bg-brand-surface px-4 py-3 sm:px-5">Employees</th>
+                            @foreach ($weekDays as $day)
+                                <th class="px-2 py-3 text-center {{ $day['is_today'] ? 'bg-brand-primary/[0.06] text-brand-primary' : '' }}">
+                                    <span class="block">{{ $day['weekday_label'] }}</span>
+                                    <span class="mt-0.5 block text-base font-bold {{ $day['is_today'] ? 'text-brand-primary' : 'text-brand-text' }}">{{ $day['day_number'] }}</span>
+                                </th>
+                            @endforeach
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+        <div class="schedule-table-scroll" data-schedule-scroll="available">
+            <table class="schedule-grid text-left text-sm">
+                <colgroup>
+                    <col class="col-employee">
+                    @foreach ($weekDays as $day)
+                        <col class="col-day">
+                    @endforeach
+                </colgroup>
+                <tbody class="divide-y divide-brand-border/80">
+                    @forelse ($availableRows as $row)
+                        <tr class="align-top">
+                            <td class="sticky left-0 z-10 border-r border-brand-border bg-white px-4 py-4 sm:px-5">
+                                <div class="flex items-start gap-3">
+                                    <span class="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-xs font-bold text-brand-primary ring-1 ring-brand-primary/15">
+                                        {{ $row['initials'] }}
+                                    </span>
+                                    <div class="min-w-0">
+                                        <p class="truncate font-semibold text-brand-text">{{ $row['name'] }}</p>
+                                        <p class="mt-0.5 truncate text-xs text-brand-text-secondary">{{ $row['job_title'] }}</p>
+                                        <p class="mt-2 text-[11px] font-semibold text-brand-label">Offered</p>
+                                    </div>
+                                </div>
+                            </td>
+                            @foreach ($weekDays as $day)
+                                @php
+                                    $cell = $row['cells'][$day['key']] ?? ['blocks' => []];
+                                    $blocks = $cell['blocks'] ?? [];
+                                @endphp
+                                <td class="px-1.5 py-1.5 align-top {{ $day['is_today'] ? 'bg-brand-primary/[0.03]' : '' }}">
+                                    <div class="flex min-h-[108px] flex-col gap-1.5">
+                                        @foreach ($blocks as $block)
+                                            @php
+                                                $palette = $block['palette'] ?? ['border' => 'border-brand-border', 'bg' => 'bg-brand-surface', 'text' => 'text-brand-text'];
+                                                $blockStatus = $block['status'] ?? null;
+                                                $blockStatusLabel = $block['status_label'] ?? null;
+                                                $statusBadgeClass = $blockStatus === EmployeeScheduleShift::STATUS_NO_SHOW
+                                                    ? 'bg-red-100 text-red-700 ring-red-200'
+                                                    : 'bg-amber-100 text-amber-800 ring-amber-200';
+                                                $availableAssigned = (bool) ($block['available_assigned'] ?? false);
+                                                $availableRequests = $block['available_requests'] ?? [];
+                                            @endphp
+                                            <button
+                                                type="button"
+                                                class="schedule-shift-card group relative w-full rounded-xl border p-2.5 text-left shadow-sm transition {{ $palette['border'] }} {{ $palette['bg'] }} hover:ring-2 hover:ring-brand-primary/20 {{ $availableAssigned ? 'opacity-60' : '' }}"
+                                                data-schedule-open="1"
+                                                data-shift-id="{{ $block['id'] ?? '' }}"
+                                                data-employee-public-id="{{ $block['employee_public_id'] ?? $row['employee_public_id'] }}"
+                                                data-employee-name="{{ $row['name'] }}"
+                                                data-employee-initials="{{ $row['initials'] }}"
+                                                data-day-label="{{ $day['date']->format('l, j M Y') }}"
+                                                data-scheduled-date="{{ $block['scheduled_date'] ?? $day['date_string'] }}"
+                                                data-entry-type="{{ $block['type'] ?? EmployeeScheduleShift::TYPE_SHIFT }}"
+                                                data-start-time="{{ $block['start_time'] ?? '' }}"
+                                                data-end-time="{{ $block['end_time'] ?? '' }}"
+                                                data-shift-template-id="{{ $block['shift_id'] ?? '' }}"
+                                                data-job-title-id="{{ $block['job_title_id'] ?? '' }}"
+                                                data-department-id="{{ $block['department_id'] ?? '' }}"
+                                                data-work-location-id="{{ $block['work_location_id'] ?? '' }}"
+                                                data-notes="{{ $block['notes'] ?? '' }}"
+                                                data-breaks="{{ json_encode($block['breaks'] ?? []) }}"
+                                                data-breaks-label="{{ $block['breaks_label'] ?? '' }}"
+                                                data-recurrence-label="{{ $block['recurrence_label'] ?? 'This date only' }}"
+                                                data-recurrence-mode="{{ $block['recurrence_mode'] ?? 'never' }}"
+                                                data-recurrence-starts="{{ $block['recurrence_starts'] ?? '' }}"
+                                                data-recurrence-until="{{ $block['recurrence_until'] ?? '' }}"
+                                                data-recurrence-days="{{ json_encode($block['recurrence_days'] ?? []) }}"
+                                                data-recurrence-series-id="{{ $block['recurrence_series_id'] ?? '' }}"
+                                                data-is-suggestion="0"
+                                                data-time-range="{{ $block['time_range'] ?? '' }}"
+                                                data-duration-label="{{ $block['duration_label'] ?? '' }}"
+                                                data-block-title="{{ $block['title'] ?? '' }}"
+                                                data-block-subtitle="{{ $block['subtitle'] ?? '' }}"
+                                                data-block-meta="{{ $block['meta'] ?? '' }}"
+                                                data-status="{{ $block['status'] ?? '' }}"
+                                                data-status-label="{{ $block['status_label'] ?? '' }}"
+                                                data-cover-status="{{ $block['cover_status'] ?? '' }}"
+                                                data-cover-status-label="{{ $block['cover_status_label'] ?? '' }}"
+                                                data-covering-employee-name="{{ $block['covering_employee_name'] ?? '' }}"
+                                                data-original-employee-name="{{ $block['original_employee_name'] ?? '' }}"
+                                                data-original-status="{{ $block['original_status'] ?? '' }}"
+                                                data-original-status-label="{{ $block['original_status_label'] ?? '' }}"
+                                                data-is-cover-shift="0"
+                                            >
+                                                <p class="text-xs font-semibold leading-snug {{ $palette['text'] }}">{{ $block['time_range'] }}</p>
+                                                <p class="mt-0.5 text-[11px] {{ $palette['text'] }} opacity-80">{{ $block['duration_label'] }}</p>
+                                                <p class="mt-2 text-xs font-semibold leading-snug {{ $palette['text'] }}">{{ $block['title'] }}</p>
+                                                @if ($blockStatusLabel)
+                                                    <span class="mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset {{ $statusBadgeClass }}">{{ $blockStatusLabel }}</span>
+                                                @endif
+                                                @if ($availableAssigned)
+                                                    <p class="mt-2 text-[11px] font-medium leading-snug {{ $palette['text'] }}">{{ $block['available_assignment_note'] }}</p>
+                                                @else
+                                                    <span class="mt-2 inline-flex items-center rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-text ring-1 ring-inset ring-brand-border">Available</span>
+                                                @endif
+                                            </button>
+                                            @unless ($availableAssigned)
+                                                @forelse ($availableRequests as $availableRequest)
+                                                    <div class="available-request">
+                                                        <p class="available-request-name">{{ $availableRequest['employee_name'] }}</p>
+                                                        @if (($availableRequest['note'] ?? '') !== '')
+                                                            <p class="available-request-note">{{ $availableRequest['note'] }}</p>
+                                                        @endif
+                                                        <div class="available-request-actions">
+                                                            <form method="post" action="{{ route('admin.employees.weekly-schedule.available-requests.approve', $availableRequest['id']) }}">
+                                                                @csrf
+                                                                @foreach ($redirectQuery as $key => $value)
+                                                                    @if ($value !== null && $value !== '')
+                                                                        <input type="hidden" name="redirect[{{ $key }}]" value="{{ $value }}">
+                                                                    @endif
+                                                                @endforeach
+                                                                <button type="submit" class="available-request-btn available-request-btn--approve">Approve</button>
+                                                            </form>
+                                                            <form method="post" action="{{ route('admin.employees.weekly-schedule.available-requests.reject', $availableRequest['id']) }}">
+                                                                @csrf
+                                                                @foreach ($redirectQuery as $key => $value)
+                                                                    @if ($value !== null && $value !== '')
+                                                                        <input type="hidden" name="redirect[{{ $key }}]" value="{{ $value }}">
+                                                                    @endif
+                                                                @endforeach
+                                                                <button type="submit" class="available-request-btn available-request-btn--reject">Reject</button>
+                                                            </form>
+                                                        </div>
+                                                    </div>
+                                                @empty
+                                                    <p class="px-1 text-[11px] text-brand-text-secondary">Waiting for an employee to request this shift.</p>
+                                                @endforelse
+                                            @endunless
+                                        @endforeach
+                                    </div>
+                                </td>
+                            @endforeach
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="{{ 1 + count($weekDays) }}" class="px-4 py-10 text-center text-sm text-brand-text-secondary sm:px-6">
+                                No available shifts this week.
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
         </div>
     </section>
 

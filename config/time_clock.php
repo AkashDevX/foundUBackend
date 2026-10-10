@@ -81,15 +81,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Max GPS accuracy buffer (meters)
+    | GPS accuracy buffer (unused)
     |--------------------------------------------------------------------------
     |
-    | Device-reported accuracy expands the effective radius up to this cap
-    | when deciding whether a punch is inside/outside the site.
+    | Clock-in, the home "within range" badge, and auto clock-out use the
+    | radius stored on the work location. Device accuracy is not added.
+    | The key remains so older env files do not error.
     |
     */
 
-    'geofence_accuracy_buffer_cap_meters' => (int) env('TIME_CLOCK_GEOFENCE_ACCURACY_BUFFER_CAP_METERS', 100),
+    'geofence_accuracy_buffer_cap_meters' => (int) env('TIME_CLOCK_GEOFENCE_ACCURACY_BUFFER_CAP_METERS', 0),
 
     /*
     |--------------------------------------------------------------------------

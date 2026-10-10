@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
     'employee_id',
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'recurrence_days',
     'status',
     'cover_status',
+    'made_available',
     'covered_from_shift_id',
     'covering_shift_id',
     'leave_type_id',
@@ -44,6 +46,8 @@ class EmployeeScheduleShift extends Model
     public const COVER_LEAVE_UNCOVERED = 'leave_uncovered';
 
     public const COVER_UNASSIGNED = 'unassigned';
+
+    public const COVER_AVAILABLE = 'available';
 
     public const COVER_ASSIGNED = 'assigned';
 
@@ -73,6 +77,7 @@ class EmployeeScheduleShift extends Model
         return [
             self::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
             self::COVER_UNASSIGNED => 'Unassigned',
+            self::COVER_AVAILABLE => 'Available',
             self::COVER_ASSIGNED => 'Covered',
         ];
     }
@@ -91,6 +96,7 @@ class EmployeeScheduleShift extends Model
             self::COVER_LEAVE_UNCOVERED => 'Leave uncovered',
             self::COVER_ACTION_ASSIGN_EMPLOYEE => 'Assign to an employee',
             self::COVER_UNASSIGNED => 'Make unassigned',
+            self::COVER_AVAILABLE => 'Make available',
         ];
     }
 
@@ -105,6 +111,17 @@ class EmployeeScheduleShift extends Model
     public function needsCover(): bool
     {
         return in_array($this->cover_status, [self::COVER_LEAVE_UNCOVERED, self::COVER_UNASSIGNED], true);
+    }
+
+    public function isAvailableOffer(): bool
+    {
+        return (bool) $this->made_available
+            && in_array($this->cover_status, [self::COVER_AVAILABLE, self::COVER_ASSIGNED], true);
+    }
+
+    public function availableRequests(): HasMany
+    {
+        return $this->hasMany(AvailableShiftRequest::class, 'schedule_shift_id');
     }
 
     public function employee(): BelongsTo
@@ -160,6 +177,7 @@ class EmployeeScheduleShift extends Model
     protected function casts(): array
     {
         return [
+            'made_available' => 'boolean',
             'scheduled_date' => 'date',
             'start_time' => 'datetime:H:i',
             'end_time' => 'datetime:H:i',

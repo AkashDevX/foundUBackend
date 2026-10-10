@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\EmployeeLeaveRecord;
+use App\Models\EmployeeScheduleShift;
 use App\Models\OrganizationPortalUser;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunLine;
 use App\Models\TimeClockEntry;
 use App\Models\TimesheetApproval;
 use App\Models\TrainingModule;
+use App\Support\AdminClockPunctualityReport;
+use App\Support\AdminMissedShiftReport;
 use App\Support\AdminTraining;
 use App\Support\AdminTimesheetHoursReport;
 use App\Support\DisplayTimezone;
@@ -319,6 +322,202 @@ class AdminReportsController extends Controller
     }
 
     /**
+     * Early and late clock-ins and clock-outs compared with allocated shifts.
+     */
+    public function punctuality(Request $request): View
+    {
+        $ctx = $this->pageContext($request);
+        $to = $this->parseDate($request, 'to') ?? DisplayTimezone::now()->startOfDay();
+        $from = $this->parseDate($request, 'from') ?? $to->copy()->subDays(29);
+        if ($from->gt($to)) {
+            [$from, $to] = [$to->copy(), $from->copy()];
+        }
+        $employeeId = (int) $request->integer('employee_id');
+        $variance = (string) $request->query('variance', '');
+        $variance = in_array($variance, AdminClockPunctualityReport::FILTERS, true) ? $variance : '';
+        $rows = collect();
+        $summaries = collect();
+        $stats = [
+            'early_in' => 0,
+            'late_in' => 0,
+            'early_out' => 0,
+            'late_out' => 0,
+            'employees' => 0,
+            'shifts' => 0,
+        ];
+        $employeeOptions = collect();
+
+        try {
+            $conn = $ctx['connection'];
+
+            $employeeOptions = Employee::on($conn)
+                ->orderBy('first_name')
+                ->orderBy('last_name')
+                ->get(['id', 'first_name', 'last_name', 'full_legal_name'])
+                ->map(fn (Employee $e) => ['id' => $e->id, 'name' => $this->employeeName($e)]);
+
+            $tz = DisplayTimezone::name();
+            $entriesFrom = Carbon::parse($from->toDateString(), $tz)->startOfDay()->utc()->subDay();
+            $entriesTo = Carbon::parse($to->toDateString(), $tz)->endOfDay()->utc()->addDay();
+
+            $activeEmployeeIds = TimeClockEntry::on($conn)
+                ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                ->when($employeeId > 0, static fn ($query) => $query->where('employee_id', $employeeId))
+                ->distinct()
+                ->pluck('employee_id');
+
+            $employees = Employee::on($conn)
+                ->whereIn('id', $activeEmployeeIds)
+                ->with([
+                    'timeClockEntries' => static function ($query) use ($entriesFrom, $entriesTo): void {
+                        $query->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                            ->orderBy('clocked_at')
+                            ->orderBy('id');
+                    },
+                ])
+                ->get();
+
+            $scheduleShifts = EmployeeScheduleShift::on($conn)
+                ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+                ->whereBetween('scheduled_date', [$from->toDateString(), $to->toDateString()])
+                ->when($employeeId > 0, static fn ($query) => $query->where('employee_id', $employeeId))
+                ->get();
+
+            $report = AdminClockPunctualityReport::build(
+                $employees,
+                $scheduleShifts,
+                $from,
+                $to,
+                $variance !== '' ? $variance : null,
+            );
+
+            $rows = collect($report['rows']);
+            $summaries = collect($report['summaries']);
+            $stats = $report['stats'];
+        } catch (\Throwable $e) {
+            $ctx['tenantError'] = $e->getMessage();
+        }
+
+        return view('admin.reports', array_merge($ctx, [
+            'section' => 'punctuality',
+            'punctualityRows' => $rows,
+            'punctualitySummaries' => $summaries,
+            'stats' => $stats,
+            'employeeOptions' => $employeeOptions,
+            'periodLabel' => $this->periodLabel($from, $to, ''),
+            'filters' => [
+                'from' => $from->toDateString(),
+                'to' => $to->toDateString(),
+                'employee_id' => $employeeId > 0 ? $employeeId : '',
+                'variance' => $variance,
+            ],
+        ]));
+    }
+
+    /**
+     * Active employees who did not clock in for an allocated shift, one month at a time.
+     */
+    public function missedShifts(Request $request): View
+    {
+        $ctx = $this->pageContext($request);
+        $month = $this->parseMonth($request);
+        $employeeId = (int) $request->integer('employee_id');
+        $rows = collect();
+        $summaries = collect();
+        $stats = [
+            'rostered_employees' => 0,
+            'missed_employees' => 0,
+            'allocated_shifts' => 0,
+            'missed_shifts' => 0,
+            'attended_shifts' => 0,
+        ];
+        $employeeOptions = collect();
+
+        try {
+            $conn = $ctx['connection'];
+            $from = $month->copy()->startOfMonth();
+            $to = $month->copy()->endOfMonth();
+
+            $activeEmployees = Employee::on($conn)
+                ->where('employment_status', 'active')
+                ->orderBy('first_name')
+                ->orderBy('last_name')
+                ->get();
+
+            $employeeOptions = $activeEmployees->map(fn (Employee $e) => [
+                'id' => $e->id,
+                'name' => $this->employeeName($e),
+            ]);
+
+            $scoped = $employeeId > 0
+                ? $activeEmployees->where('id', $employeeId)->values()
+                : $activeEmployees;
+            $ids = $scoped->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+
+            if ($ids !== []) {
+                $tz = DisplayTimezone::name();
+                $entriesFrom = Carbon::parse($from->toDateString(), $tz)->startOfDay()->utc()->subDay();
+                $entriesTo = Carbon::parse($to->toDateString(), $tz)->endOfDay()->utc()->addDay();
+
+                $shifts = EmployeeScheduleShift::on($conn)
+                    ->with(['department', 'workLocation'])
+                    ->where('entry_type', EmployeeScheduleShift::TYPE_SHIFT)
+                    ->whereBetween('scheduled_date', [$from->toDateString(), $to->toDateString()])
+                    ->whereIn('employee_id', $ids)
+                    ->get();
+
+                $clockIns = TimeClockEntry::on($conn)
+                    ->where('event_type', TimeClockEntry::EVENT_CLOCK_IN)
+                    ->whereIn('employee_id', $ids)
+                    ->whereBetween('clocked_at', [$entriesFrom, $entriesTo])
+                    ->get();
+
+                $timeOff = EmployeeScheduleShift::on($conn)
+                    ->where('entry_type', EmployeeScheduleShift::TYPE_TIME_OFF)
+                    ->whereBetween('scheduled_date', [$from->toDateString(), $to->toDateString()])
+                    ->whereIn('employee_id', $ids)
+                    ->get();
+
+                $leave = EmployeeLeaveRecord::on($conn)
+                    ->whereBetween('leave_date', [$from->toDateString(), $to->toDateString()])
+                    ->whereIn('employee_id', $ids)
+                    ->where('status', '!=', EmployeeLeaveRecord::STATUS_CANCELLED)
+                    ->get();
+
+                $report = AdminMissedShiftReport::build(
+                    $scoped,
+                    $shifts,
+                    $clockIns,
+                    $timeOff,
+                    $leave,
+                    $month,
+                    DisplayTimezone::now(),
+                );
+
+                $rows = collect($report['rows']);
+                $summaries = collect($report['summaries']);
+                $stats = $report['stats'];
+            }
+        } catch (\Throwable $e) {
+            $ctx['tenantError'] = $e->getMessage();
+        }
+
+        return view('admin.reports', array_merge($ctx, [
+            'section' => 'missed-shifts',
+            'missedShiftRows' => $rows,
+            'missedShiftSummaries' => $summaries,
+            'stats' => $stats,
+            'employeeOptions' => $employeeOptions,
+            'monthOptions' => $this->monthOptions($month),
+            'periodLabel' => $month->format('F Y'),
+            'filters' => [
+                'month' => $month->format('Y-m'),
+                'employee_id' => $employeeId > 0 ? $employeeId : '',
+            ],
+        ]));
+    }
+
+    /**
      * Leave report — leave taken grouped by type, plus recent records.
      */
     public function leave(Request $request): View
@@ -498,7 +697,7 @@ class AdminReportsController extends Controller
         $moduleId = (int) $request->query('module_id', 0);
         $employeeId = (int) $request->query('employee_id', 0);
         $status = (string) $request->query('status', '');
-        $status = in_array($status, ['not_started', 'studying', 'in_quiz', 'completed'], true) ? $status : '';
+        $status = in_array($status, ['not_started', 'studying', 'in_quiz', 'pending_review', 'failed', 'completed'], true) ? $status : '';
 
         $moduleOptions = collect();
         $employeeSearchOptions = collect();
@@ -628,6 +827,40 @@ class AdminReportsController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function parseMonth(Request $request): Carbon
+    {
+        $value = $request->query('month');
+        if (is_string($value) && preg_match('/^(\d{4})-(\d{2})$/', $value, $matches)) {
+            try {
+                return Carbon::createFromDate((int) $matches[1], (int) $matches[2], 1, DisplayTimezone::name())->startOfMonth();
+            } catch (\Throwable) {
+                // Fall through to the current month.
+            }
+        }
+
+        return DisplayTimezone::now()->startOfMonth();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function monthOptions(Carbon $selected): array
+    {
+        $options = [];
+        $cursor = DisplayTimezone::now()->startOfMonth();
+        for ($i = 0; $i < 18; $i++) {
+            $month = $cursor->copy()->subMonths($i);
+            $options[$month->format('Y-m')] = $month->format('F Y');
+        }
+
+        $key = $selected->format('Y-m');
+        if (! isset($options[$key])) {
+            $options = [$key => $selected->format('F Y')] + $options;
+        }
+
+        return $options;
     }
 
     private function periodLabel(?Carbon $from, ?Carbon $to, string $fallback): string

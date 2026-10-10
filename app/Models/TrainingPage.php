@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'body',
     'image_path',
     'bullets',
+    'content_order',
     'sort_order',
 ])]
 class TrainingPage extends Model
@@ -27,11 +28,20 @@ class TrainingPage extends Model
         return $this->hasMany(TrainingPageSection::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    public function blocks(): HasMany
+    {
+        return $this->hasMany(TrainingSlideBlock::class)
+            ->whereNull('training_page_section_id')
+            ->orderBy('sort_order')
+            ->orderBy('id');
+    }
+
     protected function casts(): array
     {
         return [
             'sort_order' => 'integer',
             'bullets' => 'array',
+            'content_order' => 'array',
         ];
     }
 }

@@ -37,16 +37,10 @@
                 <textarea name="description" rows="3" class="{{ $in }}">{{ old('description') }}</textarea>
             </label>
 
-            <div class="grid gap-4 sm:grid-cols-2">
-                <label class="block">
-                    <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Pass mark %</span>
-                    <input type="number" name="pass_percent" min="1" max="100" value="{{ old('pass_percent', 70) }}" class="{{ $in }}">
-                </label>
-                <label class="block">
-                    <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Seconds per question</span>
-                    <input type="number" name="question_time_seconds" min="10" max="600" value="{{ old('question_time_seconds', 45) }}" class="{{ $in }}">
-                </label>
-            </div>
+            <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-brand-label">Pass mark %</span>
+                <input type="number" name="pass_percent" min="1" max="100" value="{{ old('pass_percent', 70) }}" class="{{ $in }}">
+            </label>
 
             <div class="flex flex-wrap gap-2 pt-2">
                 <button type="submit" class="rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-primary/90">

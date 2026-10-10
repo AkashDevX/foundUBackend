@@ -830,6 +830,64 @@ final class AdminWeeklySchedule
     }
 
     /**
+     * Weekly grid of shifts offered with "Make available", including ones already assigned.
+     *
+     * @param  Collection<int, EmployeeScheduleShift>  $scheduleEntries
+     * @return array{
+     *     days: list<array<string, mixed>>,
+     *     rows: list<array<string, mixed>>,
+     *     stats: array<string, int|string>,
+     * }
+     */
+    public static function availableSchedule(Collection $scheduleEntries, CarbonInterface $weekStart): array
+    {
+        $offered = $scheduleEntries
+            ->filter(static function (EmployeeScheduleShift $entry): bool {
+                return $entry->entry_type === EmployeeScheduleShift::TYPE_SHIFT && $entry->isAvailableOffer();
+            })
+            ->values();
+
+        $employees = $offered
+            ->map(static function (EmployeeScheduleShift $entry): ?Employee {
+                $employee = $entry->relationLoaded('employee') ? $entry->employee : null;
+
+                return $employee instanceof Employee ? $employee : null;
+            })
+            ->filter()
+            ->unique(static fn (Employee $employee): int => (int) $employee->id)
+            ->sortBy(static fn (Employee $employee): string => mb_strtolower(self::employeeDisplayName($employee)))
+            ->values();
+
+        $schedule = self::buildSchedule($employees, $weekStart, $offered);
+        $requestsByShift = [];
+        foreach ($offered as $entry) {
+            $requestsByShift[(int) $entry->id] = AvailableShiftOffers::pendingRequestRows($entry);
+        }
+
+        foreach ($schedule['rows'] as &$row) {
+            foreach ($row['cells'] as &$cell) {
+                $blocks = $cell['blocks'] ?? [];
+                foreach ($blocks as &$block) {
+                    $id = (int) ($block['id'] ?? 0);
+                    $assigned = ($block['cover_status'] ?? null) === EmployeeScheduleShift::COVER_ASSIGNED;
+                    $assignee = trim((string) ($block['covering_employee_name'] ?? ''));
+                    $block['available_requests'] = $requestsByShift[$id] ?? [];
+                    $block['available_assigned'] = $assigned;
+                    $block['available_assignment_note'] = $assigned
+                        ? AvailableShiftOffers::assignmentNote($assignee)
+                        : null;
+                }
+                unset($block);
+                $cell['blocks'] = $blocks;
+            }
+            unset($cell);
+        }
+        unset($row);
+
+        return $schedule;
+    }
+
+    /**
      * @return array{
      *     cover_status: ?string,
      *     cover_status_label: ?string,
@@ -1411,7 +1469,7 @@ final class AdminWeeklySchedule
         return '—';
     }
 
-    private static function storedTimeToHm(mixed $value): string
+    public static function storedTimeToHm(mixed $value): string
     {
         if ($value instanceof CarbonInterface) {
             return $value->format('H:i');

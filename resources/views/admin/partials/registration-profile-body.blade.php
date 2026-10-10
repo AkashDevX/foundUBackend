@@ -329,6 +329,21 @@
             <div data-reg-vehicle-fields class="{{ $transportIsOwnVehicle(old('mode_of_transport', $e->mode_of_transport)) ? '' : 'hidden' }}">
                 <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle registration</dt><dd class="min-w-0"><input type="text" name="vehicle_registration" maxlength="64" value="{{ old('vehicle_registration', $e->vehicle_registration) }}" class="{{ $editIn }}" /></dd></div>
                 <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle expiry</dt><dd class="min-w-0">@include('admin.partials.registration-profile-date-input', ['name' => 'vehicle_expiry', 'value' => $registrationDateInputs['vehicle_expiry'] ?? '', 'storageFormat' => $registrationDateFormats['vehicle_expiry'] ?? 'Y-m-d', 'inputClass' => $nativeDateIn])</dd></div>
+                @if ($e->vehicleRegistrationDocumentPath())
+                    <div class="{{ $dl }} items-start">
+                        <dt class="pt-1 font-medium text-brand-label">Vehicle registration file</dt>
+                        <dd class="min-w-0 w-full max-w-2xl">
+                            @include('admin.partials.registration-profile-file-upload-card', [
+                                'storagePath' => $e->vehicleRegistrationDocumentPath(),
+                                'fileUrl' => $fileUrl('vehicle-registration'),
+                                'inputName' => 'vehicle_registration_file',
+                                'uploadInputId' => 'reg-vehicle-registration-upload',
+                                'canEditProfile' => false,
+                                'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            ])
+                        </dd>
+                    </div>
+                @endif
                 <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle insurance uploaded (declaration)</dt><dd class="min-w-0"><select name="vehicle_insurance_uploaded" class="{{ $editIn }}"><option value="">—</option>@foreach ($registrationPicklists->get('unrestricted_work_rights', collect()) as $item)<option value="{{ $item->value }}" @selected(old('vehicle_insurance_uploaded', $yesNoPickVal($e->vehicle_insurance_uploaded)) === $item->value)>{{ $item->label ?: $item->value }}</option>@endforeach</select></dd></div>
                 <div class="{{ $dl }} items-start">
                     <dt class="pt-1 font-medium text-brand-label">Vehicle insurance file</dt>
@@ -347,6 +362,21 @@
         @elseif ($transportIsOwnVehicle($e->mode_of_transport))
             <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle registration</dt><dd class="min-w-0"><span class="text-brand-text">{{ $line($e->vehicle_registration) }}</span></dd></div>
             <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle expiry</dt><dd class="min-w-0"><span class="text-brand-text">{{ $profileDateLine('vehicle_expiry', ['vehicleExpiry', 'vehicle_expiry']) }}</span></dd></div>
+            @if ($e->vehicleRegistrationDocumentPath())
+                <div class="{{ $dl }} items-start">
+                    <dt class="pt-1 font-medium text-brand-label">Vehicle registration file</dt>
+                    <dd class="min-w-0 w-full max-w-2xl">
+                        @include('admin.partials.registration-profile-file-upload-card', [
+                            'storagePath' => $e->vehicleRegistrationDocumentPath(),
+                            'fileUrl' => $fileUrl('vehicle-registration'),
+                            'inputName' => 'vehicle_registration_file',
+                            'uploadInputId' => 'reg-vehicle-registration-upload-ro',
+                            'canEditProfile' => false,
+                            'accept' => 'image/*,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        ])
+                    </dd>
+                </div>
+            @endif
             <div class="{{ $dl }}"><dt class="font-medium text-brand-label">Vehicle insurance uploaded (declaration)</dt><dd class="min-w-0"><span class="text-brand-text">{{ $yesNo($e->vehicle_insurance_uploaded) }}</span></dd></div>
             @if ($e->vehicle_insurance_path)
                 <div class="{{ $dl }} items-start">

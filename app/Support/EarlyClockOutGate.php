@@ -240,6 +240,14 @@ final class EarlyClockOutGate
     private static function scheduledShift(Employee $employee, CarbonInterface $now): ?EmployeeScheduleShift
     {
         $localNow = $now->copy()->timezone(DisplayTimezone::name());
+        $openId = TimeClockScheduledShift::openSessionScheduleShiftId($employee);
+        if ($openId !== null) {
+            $open = EmployeeScheduleShift::query()->find($openId);
+            if ($open instanceof EmployeeScheduleShift && (int) $open->employee_id === (int) $employee->id) {
+                return $open;
+            }
+        }
+
         $picked = TimeClockScheduledShift::pickBestForMoment(
             TimeClockScheduledShift::shiftsForDate($employee, $localNow->toDateString()),
             $localNow,

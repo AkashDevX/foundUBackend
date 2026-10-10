@@ -8,7 +8,7 @@
     };
     $pageSubheading = match ($section) {
         'holidays' => $company->name.' — manage public holidays for penalty rate calculations.',
-        default => $company->name.' — fortnightly pay runs from approved timesheets.',
+        default => $company->name.' — pay periods from approved timesheets.',
     };
 @endphp
 
